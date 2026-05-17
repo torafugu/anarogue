@@ -1,0 +1,14 @@
+.godot/
+.import/
+export.cfg
+export_presets.cfg
+*.translation
+imported/
+editor/
+shader_cache/
+.gdignore
+global_script_class_cache.cfg
+scene_groups_cache.cfg
+uid_cache.bin
+.vscode/
+Godot_v4.6-stable_win64.exe
