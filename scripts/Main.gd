@@ -7,6 +7,7 @@ const ROOM_ATTEMPTS := 70
 const MAX_ROOMS := 11
 const MIN_ROOM_SIZE := 5
 const MAX_ROOM_SIZE := 11
+const AUTO_TURN_DELAY := 0.18
 
 const TILE_WALL := 0
 const TILE_FLOOR := 1
@@ -46,12 +47,27 @@ var font := ThemeDB.fallback_font
 var log_file: FileAccess
 var run_id := ""
 var turn_count := 0
+var auto_turn_elapsed := 0.0
+var auto_exploration_started := false
+var start_button: Button
 
 func _ready() -> void:
 	rng.randomize()
+	create_start_button()
 	open_log_file()
 	start_run_log()
 	new_floor()
+
+func _process(delta: float) -> void:
+	if game_over or not auto_exploration_started:
+		return
+
+	auto_turn_elapsed += delta
+	if auto_turn_elapsed < AUTO_TURN_DELAY:
+		return
+
+	auto_turn_elapsed = 0.0
+	run_auto_player_turn()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_pressed() or event.is_echo():
@@ -93,10 +109,40 @@ func restart_game() -> void:
 	player["gold"] = 0
 	player["depth"] = 1
 	turn_count = 0
+	auto_turn_elapsed = 0.0
+	auto_exploration_started = false
 	game_over = false
 	messages.clear()
+	update_start_button_state()
 	start_run_log()
 	new_floor()
+
+func create_start_button() -> void:
+	start_button = Button.new()
+	start_button.text = "Start"
+	start_button.position = Vector2(MAP_WIDTH * TILE_SIZE + 16, 164)
+	start_button.size = Vector2(128, 38)
+	start_button.focus_mode = Control.FOCUS_NONE
+	start_button.pressed.connect(_on_start_button_pressed)
+	add_child(start_button)
+
+func _on_start_button_pressed() -> void:
+	if game_over:
+		return
+
+	auto_exploration_started = true
+	auto_turn_elapsed = 0.0
+	update_start_button_state()
+	log_user_action("start", "auto_exploration_started")
+	add_message("Auto exploration started.")
+	queue_redraw()
+
+func update_start_button_state() -> void:
+	if not start_button:
+		return
+
+	start_button.visible = not auto_exploration_started and not game_over
+	start_button.disabled = auto_exploration_started or game_over
 
 func new_floor() -> void:
 	map.clear()
@@ -185,6 +231,94 @@ func spawn_enemies() -> void:
 			"hp": 8 + player["depth"] * 2,
 			"attack": 2 + player["depth"],
 		})
+
+func run_auto_player_turn() -> void:
+	var direction := choose_auto_player_direction()
+	if direction == Vector2i.ZERO:
+		turn_count += 1
+		log_user_action("auto_wait", "turn_advanced")
+		add_message("You listen to the dungeon.")
+		run_enemy_turn()
+		queue_redraw()
+		return
+
+	player_act(direction)
+
+func choose_auto_player_direction() -> Vector2i:
+	var adjacent_enemy_direction := direction_to_adjacent_enemy()
+	if adjacent_enemy_direction != Vector2i.ZERO:
+		return adjacent_enemy_direction
+
+	var destination := stairs_pos
+	if not enemies.is_empty():
+		destination = nearest_enemy_pos()
+
+	return find_next_step_toward(destination)
+
+func direction_to_adjacent_enemy() -> Vector2i:
+	var directions := [
+		Vector2i.UP,
+		Vector2i.DOWN,
+		Vector2i.LEFT,
+		Vector2i.RIGHT,
+	]
+	for direction in directions:
+		if enemy_at(player["pos"] + direction) != -1:
+			return direction
+	return Vector2i.ZERO
+
+func nearest_enemy_pos() -> Vector2i:
+	var best_pos: Vector2i = enemies[0]["pos"]
+	var best_distance: int = player["pos"].distance_squared_to(best_pos)
+	for enemy in enemies:
+		var enemy_pos: Vector2i = enemy["pos"]
+		var distance: int = player["pos"].distance_squared_to(enemy_pos)
+		if distance < best_distance:
+			best_distance = distance
+			best_pos = enemy_pos
+	return best_pos
+
+func find_next_step_toward(destination: Vector2i) -> Vector2i:
+	var start: Vector2i = player["pos"]
+	var frontier: Array[Vector2i] = [start]
+	var came_from := {
+		start: start,
+	}
+	var directions := [
+		Vector2i.UP,
+		Vector2i.DOWN,
+		Vector2i.LEFT,
+		Vector2i.RIGHT,
+	]
+
+	while not frontier.is_empty():
+		var current: Vector2i = frontier.pop_front()
+		if current == destination:
+			break
+
+		for direction in directions:
+			var next: Vector2i = current + direction
+			if came_from.has(next):
+				continue
+			if not is_auto_path_walkable(next, destination):
+				continue
+
+			frontier.append(next)
+			came_from[next] = current
+
+	if not came_from.has(destination):
+		return Vector2i.ZERO
+
+	var current := destination
+	while came_from[current] != start:
+		current = came_from[current]
+
+	return current - start
+
+func is_auto_path_walkable(pos: Vector2i, destination: Vector2i) -> bool:
+	if not is_walkable(pos):
+		return false
+	return pos == destination or enemy_at(pos) == -1
 
 func player_act(direction: Vector2i) -> void:
 	var target: Vector2i = player["pos"] + direction
@@ -275,6 +409,7 @@ func run_enemy_turn() -> void:
 			if player["hp"] <= 0:
 				player["hp"] = 0
 				game_over = true
+				update_start_button_state()
 				log_battle_result("player_defeated", {
 					"final_depth": player["depth"],
 					"final_gold": player["gold"],
@@ -423,9 +558,9 @@ func draw_hud() -> void:
 	draw_string(font, Vector2(hud_x, 104), "HP %d/%d" % [player["hp"], player["max_hp"]], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["danger"] if player["hp"] <= 6 else COLORS["text"])
 	draw_string(font, Vector2(hud_x, 132), "Gold %d" % player["gold"], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
 
-	draw_string(font, Vector2(hud_x, 190), "Arrows: move/attack", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, COLORS["muted"])
-	draw_string(font, Vector2(hud_x, 214), ". : wait", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, COLORS["muted"])
-	draw_string(font, Vector2(hud_x, 238), "R: restart", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, COLORS["muted"])
+	draw_string(font, Vector2(hud_x, 224), "Start: auto explore", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, COLORS["muted"])
+	draw_string(font, Vector2(hud_x, 248), "Arrows/. still work", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, COLORS["muted"])
+	draw_string(font, Vector2(hud_x, 272), "R: restart", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, COLORS["muted"])
 
 	draw_string(font, Vector2(hud_x, 306), "Log", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
 	for i in range(messages.size()):

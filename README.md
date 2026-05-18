@@ -8,13 +8,15 @@ Open this folder in Godot 4 and run the main scene.
 
 Controls:
 
-- Arrow keys: move or attack
-- `.`: wait
+- Click `Start` on the right side to begin automatic movement and attacks
+- Arrow keys: manually move or attack
+- `.`: manually wait
 - `R`: restart
 
 ## Current Features
 
 - Procedural room-and-corridor dungeon
+- Automatic player movement and bump attacks
 - Turn-based player and enemy actions
 - Enemy attacks and simple chasing
 - Stairs to deeper floors
