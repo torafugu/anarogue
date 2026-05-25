@@ -1,4 +1,4 @@
-# SimpleRogue User Manual
+# AnaRogue User Manual
 
 ## Overview
 
