@@ -21,6 +21,7 @@ const COLORS := {
 	"floor_alt": Color("#29313b"),
 	"player": Color("#f2d16b"),
 	"enemy": Color("#d85f5f"),
+	"archer": Color("#6ecbff"),
 	"stairs": Color("#79c7a6"),
 	"text": Color("#e7e1cf"),
 	"muted": Color("#9aa4b2"),
@@ -226,11 +227,21 @@ func spawn_enemies() -> void:
 			rng.randi_range(room.position.x + 1, room.end.x - 2),
 			rng.randi_range(room.position.y + 1, room.end.y - 2)
 		)
-		enemies.append({
-			"pos": pos,
-			"hp": 8 + player["depth"] * 2,
-			"attack": 2 + player["depth"],
-		})
+		var enemy_type := "melee" if rng.randf() < 0.5 else "archer"
+		if enemy_type == "archer":
+			enemies.append({
+				"type": "archer",
+				"pos": pos,
+				"hp": 5 + player["depth"],
+				"attack": 1 + player["depth"] / 2,
+			})
+		else:
+			enemies.append({
+				"type": "melee",
+				"pos": pos,
+				"hp": 8 + player["depth"] * 2,
+				"attack": 2 + player["depth"],
+			})
 
 func run_auto_player_turn() -> void:
 	var direction := choose_auto_player_direction()
@@ -396,16 +407,87 @@ func run_enemy_turn() -> void:
 		var enemy_pos: Vector2i = enemy["pos"]
 		var delta: Vector2i = player["pos"] - enemy_pos
 
-		if abs(delta.x) + abs(delta.y) == 1:
+		if enemy["type"] == "archer":
+			run_archer_turn(i, enemy, enemy_pos)
+		else:
+			run_melee_turn(i, enemy, enemy_pos, delta)
+
+func run_melee_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i, delta: Vector2i) -> void:
+	if abs(delta.x) + abs(delta.y) == 1:
+		var hp_before: int = player["hp"]
+		player["hp"] = player["hp"] - enemy["attack"]
+		log_battle_result("player_hit", {
+			"enemy_pos": vector_to_log(enemy_pos),
+			"damage": enemy["attack"],
+			"player_hp_before": hp_before,
+			"player_hp_after": maxi(player["hp"], 0),
+		})
+		add_message("Enemy hits you for %d." % enemy["attack"])
+		if player["hp"] <= 0:
+			player["hp"] = 0
+			game_over = true
+			update_start_button_state()
+			log_battle_result("player_defeated", {
+				"final_depth": player["depth"],
+				"final_gold": player["gold"],
+				"turns": turn_count,
+			})
+			add_message("You fell. Press R to restart.")
+		return
+
+	if can_enemy_see_player(enemy_pos):
+		var step := choose_enemy_step(enemy_pos, delta)
+		var target: Vector2i = enemy_pos + step
+		if is_walkable(target) and target != player["pos"] and enemy_at(target) == -1:
+			enemy["pos"] = target
+			enemies[index] = enemy
+
+func run_archer_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i) -> void:
+	var dist_sq := enemy_pos.distance_squared_to(player["pos"])
+
+	# Adjacent: try to retreat, otherwise melee for 1
+	if dist_sq <= 2:
+		if try_archer_retreat(index, enemy, enemy_pos):
+			return
+		# Cornered — weak melee attack
+		var hp_before: int = player["hp"]
+		var melee_dmg := 1
+		player["hp"] = player["hp"] - melee_dmg
+		log_battle_result("player_hit", {
+			"enemy_pos": vector_to_log(enemy_pos),
+			"damage": melee_dmg,
+			"player_hp_before": hp_before,
+			"player_hp_after": maxi(player["hp"], 0),
+			"enemy_type": "archer",
+		})
+		add_message("Archer punches you for %d." % melee_dmg)
+		if player["hp"] <= 0:
+			player["hp"] = 0
+			game_over = true
+			update_start_button_state()
+			log_battle_result("player_defeated", {
+				"final_depth": player["depth"],
+				"final_gold": player["gold"],
+				"turns": turn_count,
+			})
+			add_message("You fell. Press R to restart.")
+		return
+
+	# In bow range (2-7 tiles): fire arrow
+	if dist_sq <= 49:
+		if can_enemy_see_player(enemy_pos):
+			var dmg: int = enemy["attack"]
 			var hp_before: int = player["hp"]
-			player["hp"] = player["hp"] - enemy["attack"]
+			player["hp"] = player["hp"] - dmg
 			log_battle_result("player_hit", {
 				"enemy_pos": vector_to_log(enemy_pos),
-				"damage": enemy["attack"],
+				"damage": dmg,
 				"player_hp_before": hp_before,
 				"player_hp_after": maxi(player["hp"], 0),
+				"enemy_type": "archer",
+				"ranged": true,
 			})
-			add_message("Enemy hits you for %d." % enemy["attack"])
+			add_message("Archer shoots you for %d." % dmg)
 			if player["hp"] <= 0:
 				player["hp"] = 0
 				game_over = true
@@ -416,14 +498,32 @@ func run_enemy_turn() -> void:
 					"turns": turn_count,
 				})
 				add_message("You fell. Press R to restart.")
-			continue
+		return
 
-		if can_enemy_see_player(enemy_pos):
-			var step := choose_enemy_step(enemy_pos, delta)
-			var target: Vector2i = enemy_pos + step
-			if is_walkable(target) and target != player["pos"] and enemy_at(target) == -1:
-				enemy["pos"] = target
-				enemies[i] = enemy
+	# Too far: move toward player
+	if can_enemy_see_player(enemy_pos):
+		var delta: Vector2i = player["pos"] - enemy_pos
+		var step := choose_enemy_step(enemy_pos, delta)
+		var target: Vector2i = enemy_pos + step
+		if is_walkable(target) and target != player["pos"] and enemy_at(target) == -1:
+			enemy["pos"] = target
+			enemies[index] = enemy
+
+func try_archer_retreat(index: int, enemy: Dictionary, enemy_pos: Vector2i) -> bool:
+	var delta_to_player := Vector2i(player["pos"]) - enemy_pos
+	var away_step := Vector2i(-signi(delta_to_player.x), -signi(delta_to_player.y))
+	var away: Vector2i = enemy_pos + away_step
+	var candidates: Array[Vector2i] = [
+		away,
+		Vector2i(away.x, enemy_pos.y),
+		Vector2i(enemy_pos.x, away.y),
+	]
+	for candidate in candidates:
+		if is_walkable(candidate) and candidate != player["pos"] and enemy_at(candidate) == -1:
+			enemy["pos"] = candidate
+			enemies[index] = enemy
+			return true
+	return false
 
 func can_enemy_see_player(enemy_pos: Vector2i) -> bool:
 	return enemy_pos.distance_squared_to(player["pos"]) <= 80
@@ -538,7 +638,9 @@ func draw_dungeon() -> void:
 
 func draw_entities() -> void:
 	for enemy in enemies:
-		draw_tile_symbol(enemy["pos"], "E", COLORS["enemy"])
+		var symbol := "A" if enemy["type"] == "archer" else "E"
+		var color := COLORS["archer"] if enemy["type"] == "archer" else COLORS["enemy"]
+		draw_tile_symbol(enemy["pos"], symbol, color)
 	draw_tile_symbol(player["pos"], "@", COLORS["player"])
 
 func draw_tile_symbol(tile: Vector2i, symbol: String, color: Color) -> void:

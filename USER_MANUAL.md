@@ -38,7 +38,8 @@ Find the green stairs on each floor and step onto them to descend. When you ente
 | Symbol | Meaning |
 | --- | --- |
 | `@` | Player |
-| `E` | Enemy |
+| `E` | Melee enemy |
+| `A` | Archer enemy |
 | `>` | Stairs to the next floor |
 
 ### HUD
@@ -79,8 +80,13 @@ Combat rules:
 - Enemies lose HP when hit.
 - Defeated enemies disappear.
 - Defeated enemies drop a small amount of gold.
-- Enemies attack when they are adjacent to the player.
 - Enemy strength increases with dungeon depth.
+
+### Enemy Types
+
+**Melee (`E`)** — Charges toward you and attacks when adjacent. Hits hard up close.
+
+**Archer (`A`)** — Stays at range and fires arrows. If you get close, it tries to retreat to a safer distance before shooting again. If cornered, it punches for low damage. Archers have less HP than melee enemies, so closing the gap quickly is a viable strategy.
 
 ## Stairs and Depth
 
