@@ -39,6 +39,7 @@ var player := {
 	"max_hp": 18,
 	"attack": 5,
 	"gold": 0,
+	"score": 0,
 	"depth": 1,
 }
 var stairs_pos := Vector2i.ZERO
@@ -108,6 +109,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func restart_game() -> void:
 	player["hp"] = player["max_hp"]
 	player["gold"] = 0
+	player["score"] = 0
 	player["depth"] = 1
 	turn_count = 0
 	auto_turn_elapsed = 0.0
@@ -384,6 +386,7 @@ func attack_enemy(index: int) -> void:
 		enemies.remove_at(index)
 		var gold := rng.randi_range(1, 4)
 		player["gold"] = player["gold"] + gold
+		player["score"] += 2
 		log_battle_result("enemy_defeated", {
 			"enemy_pos": vector_to_log(enemy_pos),
 			"damage": player["attack"],
@@ -659,6 +662,7 @@ func draw_hud() -> void:
 	draw_string(font, Vector2(hud_x, 76), "Depth %d" % player["depth"], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
 	draw_string(font, Vector2(hud_x, 104), "HP %d/%d" % [player["hp"], player["max_hp"]], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["danger"] if player["hp"] <= 6 else COLORS["text"])
 	draw_string(font, Vector2(hud_x, 132), "Gold %d" % player["gold"], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
+	draw_string(font, Vector2(hud_x, 160), "Score %d" % player["score"], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
 
 	draw_string(font, Vector2(hud_x, 224), "Start: auto explore", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, COLORS["muted"])
 	draw_string(font, Vector2(hud_x, 248), "Arrows/. still work", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, COLORS["muted"])
@@ -672,4 +676,5 @@ func draw_game_over() -> void:
 	var rect := Rect2(230, 250, 500, 140)
 	draw_rect(rect, Color(0, 0, 0, 0.72))
 	draw_string(font, Vector2(350, 306), "Game Over", HORIZONTAL_ALIGNMENT_LEFT, -1, 34, COLORS["danger"])
-	draw_string(font, Vector2(326, 344), "Press R to try another run.", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
+	draw_string(font, Vector2(326, 330), "Score %d  |  Depth %d" % [player["score"], player["depth"]], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
+	draw_string(font, Vector2(326, 356), "Press R to try another run.", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
