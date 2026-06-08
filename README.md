@@ -1,4 +1,4 @@
-# SimpleRogue
+# AnaRogue
 
 A tiny Godot 4 roguelike starter.
 
@@ -15,10 +15,13 @@ Controls:
 
 ## Current Features
 
-- Procedural room-and-corridor dungeon
+- Procedural room-and-corridor dungeon generation
 - Automatic player movement and bump attacks
 - Turn-based player and enemy actions
-- Enemy attacks and simple chasing
-- Stairs to deeper floors
-- HP, depth, gold, and message log
+- Two enemy types:
+  - **Melee** — charges and attacks up close
+  - **Archer** — keeps distance and fires arrows; retreats when cornered
+- Stairs to deeper floors; enemies scale with depth
+- HP, depth, gold, **score**, and message log HUD
+- Score system: 1 point per turn, 2 points per kill
 - JSON Lines action and battle log at `user://simple_rogue_battle_log.jsonl`

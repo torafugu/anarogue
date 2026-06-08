@@ -25,7 +25,7 @@ func act(direction: Vector2i, game_manager) -> void:
 		return
 
 	game_manager.turn_count += 1
-	var enemy_index := game_manager.enemy_at(target)
+	var enemy_index = game_manager.enemy_at(target)
 	if enemy_index != -1:
 		game_manager.log_user_action("attack", "enemy_targeted", {
 			"direction": vector_to_log(direction),

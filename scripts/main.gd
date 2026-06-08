@@ -40,6 +40,8 @@ var player := {
 	"attack": 5,
 	"gold": 0,
 	"score": 0,
+	"level": 1,
+	"xp": 0,
 	"depth": 1,
 }
 var stairs_pos := Vector2i.ZERO
@@ -110,6 +112,8 @@ func restart_game() -> void:
 	player["hp"] = player["max_hp"]
 	player["gold"] = 0
 	player["score"] = 0
+	player["level"] = 1
+	player["xp"] = 0
 	player["depth"] = 1
 	turn_count = 0
 	auto_turn_elapsed = 0.0
@@ -387,6 +391,9 @@ func attack_enemy(index: int) -> void:
 		var gold := rng.randi_range(1, 4)
 		player["gold"] = player["gold"] + gold
 		player["score"] += 2
+		var xp_gain := 5 if enemy["type"] == "archer" else 3
+		player["xp"] += xp_gain
+		check_level_up()
 		log_battle_result("enemy_defeated", {
 			"enemy_pos": vector_to_log(enemy_pos),
 			"damage": player["attack"],
@@ -403,6 +410,17 @@ func attack_enemy(index: int) -> void:
 			"enemy_hp_after": enemy["hp"],
 		})
 		add_message("You hit the enemy.")
+
+func check_level_up() -> void:
+	var xp_needed: int = player["level"] * 8
+	while player["xp"] >= xp_needed:
+		player["xp"] -= xp_needed
+		player["level"] += 1
+		player["max_hp"] += 2
+		player["hp"] = mini(player["hp"] + 2, player["max_hp"])
+		player["attack"] += 1
+		xp_needed = player["level"] * 8
+		add_message("Level up! Now level %d." % player["level"])
 
 func run_enemy_turn() -> void:
 	for i in range(enemies.size()):
@@ -660,21 +678,22 @@ func draw_hud() -> void:
 
 	draw_string(font, Vector2(hud_x, 36), "SimpleRogue", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, COLORS["text"])
 	draw_string(font, Vector2(hud_x, 76), "Depth %d" % player["depth"], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
-	draw_string(font, Vector2(hud_x, 104), "HP %d/%d" % [player["hp"], player["max_hp"]], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["danger"] if player["hp"] <= 6 else COLORS["text"])
-	draw_string(font, Vector2(hud_x, 132), "Gold %d" % player["gold"], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
-	draw_string(font, Vector2(hud_x, 160), "Score %d" % player["score"], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
+	draw_string(font, Vector2(hud_x, 98), "Lv %d" % player["level"], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
+	draw_string(font, Vector2(hud_x, 120), "HP %d/%d" % [player["hp"], player["max_hp"]], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["danger"] if player["hp"] <= 6 else COLORS["text"])
+	draw_string(font, Vector2(hud_x, 148), "Gold %d" % player["gold"], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
+	draw_string(font, Vector2(hud_x, 176), "Score %d" % player["score"], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
 
-	draw_string(font, Vector2(hud_x, 224), "Start: auto explore", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, COLORS["muted"])
-	draw_string(font, Vector2(hud_x, 248), "Arrows/. still work", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, COLORS["muted"])
-	draw_string(font, Vector2(hud_x, 272), "R: restart", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, COLORS["muted"])
+	draw_string(font, Vector2(hud_x, 240), "Start: auto explore", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, COLORS["muted"])
+	draw_string(font, Vector2(hud_x, 264), "Arrows/. still work", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, COLORS["muted"])
+	draw_string(font, Vector2(hud_x, 288), "R: restart", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, COLORS["muted"])
 
-	draw_string(font, Vector2(hud_x, 306), "Log", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
+	draw_string(font, Vector2(hud_x, 322), "Log", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
 	for i in range(messages.size()):
-		draw_string(font, Vector2(hud_x, 336 + i * 24), messages[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, COLORS["muted"])
+		draw_string(font, Vector2(hud_x, 352 + i * 24), messages[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, COLORS["muted"])
 
 func draw_game_over() -> void:
 	var rect := Rect2(230, 250, 500, 140)
 	draw_rect(rect, Color(0, 0, 0, 0.72))
 	draw_string(font, Vector2(350, 306), "Game Over", HORIZONTAL_ALIGNMENT_LEFT, -1, 34, COLORS["danger"])
-	draw_string(font, Vector2(326, 330), "Score %d  |  Depth %d" % [player["score"], player["depth"]], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
+	draw_string(font, Vector2(326, 330), "Lv %d  |  Score %d  |  Depth %d" % [player["level"], player["score"], player["depth"]], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
 	draw_string(font, Vector2(326, 356), "Press R to try another run.", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
