@@ -8,7 +8,7 @@ const AUTO_TURN_DELAY := 0.18
 
 const TILE_WALL := 0
 const TILE_FLOOR := 1
-const LOG_FILE_PATH := "user://simple_rogue_battle_log.jsonl"
+const LOG_FILE_PATH := "user://anarogue.jsonl"
 const LOG_SCHEMA_VERSION := 1
 const DEFAULT_STRATEGY_ID := "default_v1"
 
