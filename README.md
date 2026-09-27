@@ -30,3 +30,14 @@ Controls:
 
 See [Run log schema v1](docs/run-log-v1.md) for the event contract and
 [`examples/sample-run-v1.jsonl`](examples/sample-run-v1.jsonl) for sample data.
+
+## Run viewer
+
+The Vite + TypeScript viewer in [`viewer/`](viewer/) turns a single run into a
+summary, HP chart, route map, searchable event stream, and decision inspector.
+
+```bash
+cd viewer
+npm install
+npm run dev
+```

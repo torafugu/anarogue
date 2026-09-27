@@ -13,3 +13,5 @@ uid_cache.bin
 .vscode/
 Godot_v4.6-stable_win64.exe
 AGENTS.md
+node_modules/
+dist/
