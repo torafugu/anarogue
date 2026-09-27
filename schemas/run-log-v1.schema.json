@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/torafugu/anarogue/schemas/run-log-v1.schema.json",
+  "title": "AnaRogue run log event v1",
+  "description": "Schema for one JSON Lines record emitted by the AnaRogue simulator.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "time",
+    "event",
+    "run_id",
+    "sequence",
+    "turn",
+    "depth",
+    "hp",
+    "gold",
+    "player_state",
+    "details"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "time": { "type": "string", "minLength": 1 },
+    "event": {
+      "type": "string",
+      "enum": [
+        "run_start",
+        "floor_start",
+        "decision",
+        "user_action",
+        "battle_result",
+        "floor_descend"
+      ]
+    },
+    "run_id": { "type": "string", "minLength": 1 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "turn": { "type": "integer", "minimum": 0 },
+    "depth": { "type": "integer", "minimum": 1 },
+    "hp": { "type": "integer", "minimum": 0 },
+    "gold": { "type": "integer", "minimum": 0 },
+    "player_state": { "$ref": "#/$defs/player_state" },
+    "details": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "event": { "const": "decision" } },
+        "required": ["event"]
+      },
+      "then": {
+        "properties": {
+          "details": { "$ref": "#/$defs/decision_details" }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "vector2i": {
+      "type": "object",
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "integer" },
+        "y": { "type": "integer" }
+      },
+      "additionalProperties": false
+    },
+    "player_state": {
+      "type": "object",
+      "required": ["pos", "hp", "max_hp", "attack", "gold", "score", "level", "xp"],
+      "properties": {
+        "pos": { "$ref": "#/$defs/vector2i" },
+        "hp": { "type": "integer", "minimum": 0 },
+        "max_hp": { "type": "integer", "minimum": 1 },
+        "attack": { "type": "integer", "minimum": 0 },
+        "gold": { "type": "integer", "minimum": 0 },
+        "score": { "type": "integer", "minimum": 0 },
+        "level": { "type": "integer", "minimum": 1 },
+        "xp": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "enemy_snapshot": {
+      "type": "object",
+      "required": ["id", "type", "pos", "hp", "attack", "distance_squared"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "enum": ["melee", "archer"] },
+        "pos": { "$ref": "#/$defs/vector2i" },
+        "hp": { "type": "integer" },
+        "attack": { "type": "integer", "minimum": 0 },
+        "distance_squared": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "decision_details": {
+      "type": "object",
+      "required": [
+        "decision_id",
+        "strategy_id",
+        "rule_id",
+        "reason",
+        "action_turn",
+        "observation",
+        "action"
+      ],
+      "properties": {
+        "decision_id": { "type": "string", "minLength": 1 },
+        "strategy_id": { "type": "string", "minLength": 1 },
+        "rule_id": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "action_turn": { "type": "integer", "minimum": 1 },
+        "observation": {
+          "type": "object",
+          "required": [
+            "player_pos",
+            "hp",
+            "max_hp",
+            "enemy_count",
+            "enemies",
+            "stairs_pos",
+            "stairs_distance_squared"
+          ],
+          "properties": {
+            "player_pos": { "$ref": "#/$defs/vector2i" },
+            "hp": { "type": "integer", "minimum": 0 },
+            "max_hp": { "type": "integer", "minimum": 1 },
+            "enemy_count": { "type": "integer", "minimum": 0 },
+            "enemies": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/enemy_snapshot" }
+            },
+            "stairs_pos": { "$ref": "#/$defs/vector2i" },
+            "stairs_distance_squared": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "action": {
+          "type": "object",
+          "required": ["type", "direction", "target"],
+          "properties": {
+            "type": { "type": "string", "enum": ["move", "attack", "wait"] },
+            "direction": { "$ref": "#/$defs/vector2i" },
+            "target": { "type": "object" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

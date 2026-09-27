@@ -25,3 +25,8 @@ Controls:
 - HP, depth, gold, **score**, and message log HUD
 - Score system: 1 point per turn, 2 points per kill
 - JSON Lines action and battle log at `user://simple_rogue_battle_log.jsonl`
+- Versioned run-log schema with automatic-player observations, selected rules,
+  actions, and human-readable decision reasons
+
+See [Run log schema v1](docs/run-log-v1.md) for the event contract and
+[`examples/sample-run-v1.jsonl`](examples/sample-run-v1.jsonl) for sample data.

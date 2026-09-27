@@ -9,6 +9,8 @@ const AUTO_TURN_DELAY := 0.18
 const TILE_WALL := 0
 const TILE_FLOOR := 1
 const LOG_FILE_PATH := "user://simple_rogue_battle_log.jsonl"
+const LOG_SCHEMA_VERSION := 1
+const DEFAULT_STRATEGY_ID := "default_v1"
 
 const COLORS := {
 	"bg": Color("#15171d"),
@@ -53,6 +55,9 @@ var font := ThemeDB.fallback_font
 var log_file: FileAccess
 var run_id := ""
 var turn_count := 0
+var event_sequence := 0
+var decision_sequence := 0
+var next_enemy_id := 1
 var auto_turn_elapsed := 0.0
 var auto_exploration_started := false
 var start_button: Button
@@ -119,6 +124,9 @@ func restart_game() -> void:
 	player["xp"] = 0
 	player["depth"] = 1
 	turn_count = 0
+	event_sequence = 0
+	decision_sequence = 0
+	next_enemy_id = 1
 	auto_turn_elapsed = 0.0
 	auto_exploration_started = false
 	game_over = false
@@ -188,6 +196,8 @@ func new_floor() -> void:
 	spawn_enemies()
 	log_event("floor_start", {
 		"enemy_count": enemies.size(),
+		"enemies": enemies_to_log(),
+		"map_size": {"width": map_width, "height": map_height},
 		"player_pos": vector_to_log(player["pos"]),
 		"stairs_pos": vector_to_log(stairs_pos),
 	})
@@ -256,8 +266,11 @@ func spawn_enemies() -> void:
 			rng.randi_range(room.position.y + 1, room.end.y - 2)
 		)
 		var enemy_type := "melee" if rng.randf() < 0.5 else "archer"
+		var enemy_id := "enemy-%d" % next_enemy_id
+		next_enemy_id += 1
 		if enemy_type == "archer":
 			enemies.append({
+				"id": enemy_id,
 				"type": "archer",
 				"pos": pos,
 				"hp": 5 + player["depth"],
@@ -265,6 +278,7 @@ func spawn_enemies() -> void:
 			})
 		else:
 			enemies.append({
+				"id": enemy_id,
 				"type": "melee",
 				"pos": pos,
 				"hp": 8 + player["depth"] * 2,
@@ -272,27 +286,75 @@ func spawn_enemies() -> void:
 			})
 
 func run_auto_player_turn() -> void:
-	var direction := choose_auto_player_direction()
+	decision_sequence += 1
+	var decision_id := "%s-decision-%d" % [run_id, decision_sequence]
+	var decision := choose_auto_player_decision(decision_id)
+	log_auto_decision(decision)
+	var direction: Vector2i = decision["direction"]
 	if direction == Vector2i.ZERO:
 		turn_count += 1
-		log_user_action("auto_wait", "turn_advanced")
+		log_user_action("auto_wait", "turn_advanced", {
+			"decision_id": decision["decision_id"],
+		})
 		add_message("You listen to the dungeon.")
 		run_enemy_turn()
 		queue_redraw()
 		return
 
-	player_act(direction)
+	player_act(direction, decision["decision_id"])
 
-func choose_auto_player_direction() -> Vector2i:
+func choose_auto_player_decision(decision_id: String) -> Dictionary:
 	var adjacent_enemy_direction := direction_to_adjacent_enemy()
 	if adjacent_enemy_direction != Vector2i.ZERO:
-		return adjacent_enemy_direction
+		var adjacent_enemy := enemies[enemy_at(player["pos"] + adjacent_enemy_direction)]
+		return {
+			"decision_id": decision_id,
+			"rule_id": "attack_adjacent_enemy",
+			"reason": "An enemy is adjacent, so the default strategy attacks it.",
+			"action_type": "attack",
+			"direction": adjacent_enemy_direction,
+			"target": enemy_to_log(adjacent_enemy),
+		}
 
-	var destination := stairs_pos
 	if not enemies.is_empty():
-		destination = nearest_enemy_pos()
+		var target_enemy := nearest_enemy()
+		var direction := find_next_step_toward(target_enemy["pos"])
+		var has_path := direction != Vector2i.ZERO
+		var reason := (
+			"Enemies remain, so the default strategy pursues the nearest one."
+			if has_path
+			else "No walkable path to the nearest enemy was found."
+		)
+		return {
+			"decision_id": decision_id,
+			"rule_id": "hunt_nearest_enemy" if has_path else "wait_no_path_to_enemy",
+			"reason": reason,
+			"action_type": "move" if has_path else "wait",
+			"direction": direction,
+			"target": enemy_to_log(target_enemy),
+		}
 
-	return find_next_step_toward(destination)
+	var stairs_direction := find_next_step_toward(stairs_pos)
+	var has_stairs_path := stairs_direction != Vector2i.ZERO
+	var stairs_reason := (
+		"No enemies remain, so the default strategy heads for the stairs."
+		if has_stairs_path
+		else "No walkable path to the stairs was found."
+	)
+	return {
+		"decision_id": decision_id,
+		"rule_id": "seek_stairs" if has_stairs_path else "wait_no_path_to_stairs",
+		"reason": stairs_reason,
+		"action_type": "move" if has_stairs_path else "wait",
+		"direction": stairs_direction,
+		"target": {
+			"kind": "stairs",
+			"pos": vector_to_log(stairs_pos),
+		},
+	}
+
+func choose_auto_player_direction() -> Vector2i:
+	return choose_auto_player_decision("preview")["direction"]
 
 func direction_to_adjacent_enemy() -> Vector2i:
 	var directions := [
@@ -307,15 +369,18 @@ func direction_to_adjacent_enemy() -> Vector2i:
 	return Vector2i.ZERO
 
 func nearest_enemy_pos() -> Vector2i:
-	var best_pos: Vector2i = enemies[0]["pos"]
-	var best_distance: int = player["pos"].distance_squared_to(best_pos)
+	return nearest_enemy()["pos"]
+
+func nearest_enemy() -> Dictionary:
+	var best_enemy: Dictionary = enemies[0]
+	var best_distance: int = player["pos"].distance_squared_to(best_enemy["pos"])
 	for enemy in enemies:
 		var enemy_pos: Vector2i = enemy["pos"]
 		var distance: int = player["pos"].distance_squared_to(enemy_pos)
 		if distance < best_distance:
 			best_distance = distance
-			best_pos = enemy_pos
-	return best_pos
+			best_enemy = enemy
+	return best_enemy
 
 func find_next_step_toward(destination: Vector2i) -> Vector2i:
 	var start: Vector2i = player["pos"]
@@ -359,38 +424,47 @@ func is_auto_path_walkable(pos: Vector2i, destination: Vector2i) -> bool:
 		return false
 	return pos == destination or enemy_at(pos) == -1
 
-func player_act(direction: Vector2i) -> void:
+func player_act(direction: Vector2i, decision_id: String = "") -> void:
 	var target: Vector2i = player["pos"] + direction
 	if not is_walkable(target):
-		log_user_action("move", "blocked_wall", {
+		var blocked_details := {
 			"direction": vector_to_log(direction),
 			"from": vector_to_log(player["pos"]),
 			"target": vector_to_log(target),
-		})
+		}
+		add_decision_reference(blocked_details, decision_id)
+		log_user_action("move", "blocked_wall", blocked_details)
 		return
 
 	turn_count += 1
 	var enemy_index := enemy_at(target)
 	if enemy_index != -1:
-		log_user_action("attack", "enemy_targeted", {
+		var attack_details := {
 			"direction": vector_to_log(direction),
 			"from": vector_to_log(player["pos"]),
 			"target": vector_to_log(target),
-		})
+			"enemy_id": enemies[enemy_index]["id"],
+		}
+		add_decision_reference(attack_details, decision_id)
+		log_user_action("attack", "enemy_targeted", attack_details)
 		attack_enemy(enemy_index)
 	else:
 		var from_pos: Vector2i = player["pos"]
 		player["pos"] = target
-		log_user_action("move", "moved", {
+		var move_details := {
 			"direction": vector_to_log(direction),
 			"from": vector_to_log(from_pos),
 			"target": vector_to_log(target),
-		})
+		}
+		add_decision_reference(move_details, decision_id)
+		log_user_action("move", "moved", move_details)
 		if player["pos"] == stairs_pos:
-			log_user_action("descend", "stairs_used", {
+			var descend_details := {
 				"from_depth": player["depth"],
 				"hp_before": player["hp"],
-			})
+			}
+			add_decision_reference(descend_details, decision_id)
+			log_user_action("descend", "stairs_used", descend_details)
 			player["depth"] = player["depth"] + 1
 			player["hp"] = mini(player["max_hp"], player["hp"] + 4)
 			log_event("floor_descend", {
@@ -417,6 +491,8 @@ func attack_enemy(index: int) -> void:
 		player["xp"] += xp_gain
 		check_level_up()
 		log_battle_result("enemy_defeated", {
+			"enemy_id": enemy["id"],
+			"enemy_type": enemy["type"],
 			"enemy_pos": vector_to_log(enemy_pos),
 			"damage": player["attack"],
 			"enemy_hp_before": enemy_hp_before,
@@ -426,6 +502,8 @@ func attack_enemy(index: int) -> void:
 	else:
 		enemies[index] = enemy
 		log_battle_result("enemy_hit", {
+			"enemy_id": enemy["id"],
+			"enemy_type": enemy["type"],
 			"enemy_pos": vector_to_log(enemy["pos"]),
 			"damage": player["attack"],
 			"enemy_hp_before": enemy_hp_before,
@@ -460,6 +538,8 @@ func run_melee_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i, delta: V
 		var hp_before: int = player["hp"]
 		player["hp"] = player["hp"] - enemy["attack"]
 		log_battle_result("player_hit", {
+			"enemy_id": enemy["id"],
+			"enemy_type": enemy["type"],
 			"enemy_pos": vector_to_log(enemy_pos),
 			"damage": enemy["attack"],
 			"player_hp_before": hp_before,
@@ -497,6 +577,7 @@ func run_archer_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i) -> void
 		var melee_dmg := 1
 		player["hp"] = player["hp"] - melee_dmg
 		log_battle_result("player_hit", {
+			"enemy_id": enemy["id"],
 			"enemy_pos": vector_to_log(enemy_pos),
 			"damage": melee_dmg,
 			"player_hp_before": hp_before,
@@ -523,6 +604,7 @@ func run_archer_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i) -> void
 			var hp_before: int = player["hp"]
 			player["hp"] = player["hp"] - dmg
 			log_battle_result("player_hit", {
+				"enemy_id": enemy["id"],
 				"enemy_pos": vector_to_log(enemy_pos),
 				"damage": dmg,
 				"player_hp_before": hp_before,
@@ -619,9 +701,44 @@ func open_log_file() -> void:
 
 func start_run_log() -> void:
 	run_id = "%d-%d" % [Time.get_unix_time_from_system(), rng.randi()]
+	event_sequence = 0
+	decision_sequence = 0
+	next_enemy_id = 1
 	log_event("run_start", {
 		"log_file": LOG_FILE_PATH,
+		"strategy_id": DEFAULT_STRATEGY_ID,
 	})
+
+func log_auto_decision(decision: Dictionary) -> void:
+	var action := {
+		"type": decision["action_type"],
+		"direction": vector_to_log(decision["direction"]),
+		"target": decision["target"],
+	}
+	log_event("decision", {
+		"decision_id": decision["decision_id"],
+		"strategy_id": DEFAULT_STRATEGY_ID,
+		"rule_id": decision["rule_id"],
+		"reason": decision["reason"],
+		"action_turn": turn_count + 1,
+		"observation": build_decision_observation(),
+		"action": action,
+	})
+
+func build_decision_observation() -> Dictionary:
+	return {
+		"player_pos": vector_to_log(player["pos"]),
+		"hp": player["hp"],
+		"max_hp": player["max_hp"],
+		"enemy_count": enemies.size(),
+		"enemies": enemies_to_log(),
+		"stairs_pos": vector_to_log(stairs_pos),
+		"stairs_distance_squared": player["pos"].distance_squared_to(stairs_pos),
+	}
+
+func add_decision_reference(details: Dictionary, decision_id: String) -> void:
+	if not decision_id.is_empty():
+		details["decision_id"] = decision_id
 
 func log_user_action(action: String, result: String, details: Dictionary = {}) -> void:
 	var event_details := details.duplicate()
@@ -638,14 +755,18 @@ func log_event(event_name: String, details: Dictionary = {}) -> void:
 	if not log_file:
 		return
 
+	event_sequence += 1
 	var record := {
+		"schema_version": LOG_SCHEMA_VERSION,
 		"time": Time.get_datetime_string_from_system(false, true),
 		"event": event_name,
 		"run_id": run_id,
+		"sequence": event_sequence,
 		"turn": turn_count,
 		"depth": player["depth"],
 		"hp": player["hp"],
 		"gold": player["gold"],
+		"player_state": player_state_to_log(),
 		"details": details,
 	}
 	log_file.store_line(JSON.stringify(record))
@@ -656,6 +777,34 @@ func vector_to_log(value: Vector2i) -> Dictionary:
 		"x": value.x,
 		"y": value.y,
 	}
+
+func player_state_to_log() -> Dictionary:
+	return {
+		"pos": vector_to_log(player["pos"]),
+		"hp": player["hp"],
+		"max_hp": player["max_hp"],
+		"attack": player["attack"],
+		"gold": player["gold"],
+		"score": player["score"],
+		"level": player["level"],
+		"xp": player["xp"],
+	}
+
+func enemy_to_log(enemy: Dictionary) -> Dictionary:
+	return {
+		"id": enemy["id"],
+		"type": enemy["type"],
+		"pos": vector_to_log(enemy["pos"]),
+		"hp": enemy["hp"],
+		"attack": enemy["attack"],
+		"distance_squared": player["pos"].distance_squared_to(enemy["pos"]),
+	}
+
+func enemies_to_log() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for enemy in enemies:
+		result.append(enemy_to_log(enemy))
+	return result
 
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, get_viewport_rect().size), COLORS["bg"])
