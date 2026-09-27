@@ -1,10 +1,7 @@
 extends Node2D
 
-const MAP_WIDTH := 44
-const MAP_HEIGHT := 28
-const TILE_SIZE := 20
-const ROOM_ATTEMPTS := 70
-const MAX_ROOMS := 11
+const HUD_WIDTH := 360.0
+const TILE_SIZE := 40
 const MIN_ROOM_SIZE := 5
 const MAX_ROOM_SIZE := 11
 const AUTO_TURN_DELAY := 0.18
@@ -28,6 +25,11 @@ const COLORS := {
 	"danger": Color("#ff8a80"),
 	"panel": Color("#20252e"),
 }
+
+var map_width := 44
+var map_height := 28
+var map_scale := 1.0
+var map_offset := Vector2.ZERO
 
 var rng := RandomNumberGenerator.new()
 var map: Array = []
@@ -58,6 +60,7 @@ var start_button: Button
 func _ready() -> void:
 	rng.randomize()
 	create_start_button()
+	get_viewport().size_changed.connect(update_layout)
 	open_log_file()
 	start_run_log()
 	new_floor()
@@ -126,9 +129,10 @@ func restart_game() -> void:
 
 func create_start_button() -> void:
 	start_button = Button.new()
-	start_button.text = "Start"
-	start_button.position = Vector2(MAP_WIDTH * TILE_SIZE + 16, 164)
-	start_button.size = Vector2(128, 38)
+	start_button.text = "Start: auto explore"
+	start_button.size = Vector2(HUD_WIDTH - 32, 60)
+	start_button.add_theme_font_size_override("font_size", 24)
+	start_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	start_button.focus_mode = Control.FOCUS_NONE
 	start_button.pressed.connect(_on_start_button_pressed)
 	add_child(start_button)
@@ -151,13 +155,30 @@ func update_start_button_state() -> void:
 	start_button.visible = not auto_exploration_started and not game_over
 	start_button.disabled = auto_exploration_started or game_over
 
+func map_available_size() -> Vector2:
+	var viewport_size := get_viewport_rect().size
+	return Vector2(maxf(viewport_size.x - HUD_WIDTH, TILE_SIZE), viewport_size.y)
+
+func update_layout() -> void:
+	var available := map_available_size()
+	var grid_size := Vector2(map_width, map_height) * TILE_SIZE
+	map_scale = minf(available.x / grid_size.x, available.y / grid_size.y)
+	map_offset = (available - grid_size * map_scale) * 0.5
+	start_button.position = Vector2(available.x + 16, 290)
+	queue_redraw()
+
 func new_floor() -> void:
+	# Generate for the current viewport; resizing an active floor preserves the run.
+	var available := map_available_size()
+	map_width = maxi(MAX_ROOM_SIZE + 4, int(available.x / TILE_SIZE))
+	map_height = maxi(MAX_ROOM_SIZE + 4, int(available.y / TILE_SIZE))
+	update_layout()
 	map.clear()
 	rooms.clear()
 	enemies.clear()
-	for y in range(MAP_HEIGHT):
+	for y in range(map_height):
 		var row := []
-		for x in range(MAP_WIDTH):
+		for x in range(map_width):
 			row.append(TILE_WALL)
 		map.append(row)
 
@@ -174,14 +195,15 @@ func new_floor() -> void:
 	queue_redraw()
 
 func generate_dungeon() -> void:
-	for i in range(ROOM_ATTEMPTS):
-		if rooms.size() >= MAX_ROOMS:
+	var room_target := maxi(2, int(round(map_width * map_height / 112.0)))
+	for i in range(room_target * 8):
+		if rooms.size() >= room_target:
 			break
 
 		var w := rng.randi_range(MIN_ROOM_SIZE, MAX_ROOM_SIZE)
 		var h := rng.randi_range(MIN_ROOM_SIZE, MAX_ROOM_SIZE)
-		var x := rng.randi_range(1, MAP_WIDTH - w - 2)
-		var y := rng.randi_range(1, MAP_HEIGHT - h - 2)
+		var x := rng.randi_range(1, map_width - w - 2)
+		var y := rng.randi_range(1, map_height - h - 2)
 		var room := Rect2i(x, y, w, h)
 
 		var overlaps := false
@@ -575,7 +597,7 @@ func enemy_at(pos: Vector2i) -> int:
 	return -1
 
 func is_walkable(pos: Vector2i) -> bool:
-	if pos.x < 0 or pos.y < 0 or pos.x >= MAP_WIDTH or pos.y >= MAP_HEIGHT:
+	if pos.x < 0 or pos.y < 0 or pos.x >= map_width or pos.y >= map_height:
 		return false
 	return map[pos.y][pos.x] == TILE_FLOOR
 
@@ -637,20 +659,22 @@ func vector_to_log(value: Vector2i) -> Dictionary:
 
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, get_viewport_rect().size), COLORS["bg"])
+	draw_set_transform(map_offset, 0.0, Vector2.ONE * map_scale)
 	draw_dungeon()
 	draw_entities()
+	draw_set_transform(Vector2.ZERO)
 	draw_hud()
 	if game_over:
 		draw_game_over()
 
 func draw_dungeon() -> void:
-	for y in range(MAP_HEIGHT):
-		for x in range(MAP_WIDTH):
+	for y in range(map_height):
+		for x in range(map_width):
 			var pos := Vector2(x * TILE_SIZE, y * TILE_SIZE)
 			var rect := Rect2(pos, Vector2(TILE_SIZE, TILE_SIZE))
 			if map[y][x] == TILE_WALL:
 				draw_rect(rect, COLORS["wall"])
-				draw_rect(rect.grow(-4), COLORS["wall_edge"])
+				draw_rect(rect.grow(-TILE_SIZE * 0.2), COLORS["wall_edge"])
 			else:
 				var color: Color = COLORS["floor"] if (x + y) % 2 == 0 else COLORS["floor_alt"]
 				draw_rect(rect, color)
@@ -667,33 +691,40 @@ func draw_entities() -> void:
 func draw_tile_symbol(tile: Vector2i, symbol: String, color: Color) -> void:
 	var center := Vector2(tile.x * TILE_SIZE + TILE_SIZE * 0.5, tile.y * TILE_SIZE + TILE_SIZE * 0.5)
 	draw_circle(center, TILE_SIZE * 0.42, color)
-	var text_size := font.get_string_size(symbol, HORIZONTAL_ALIGNMENT_CENTER, -1, 15)
-	draw_string(font, center - text_size * 0.5 + Vector2(0, 11), symbol, HORIZONTAL_ALIGNMENT_CENTER, -1, 15, COLORS["bg"])
+	var symbol_size := int(TILE_SIZE * 0.75)
+	var text_size := font.get_string_size(symbol, HORIZONTAL_ALIGNMENT_CENTER, -1, symbol_size)
+	draw_string(font, center - text_size * 0.5 + Vector2(0, TILE_SIZE * 0.55), symbol, HORIZONTAL_ALIGNMENT_CENTER, -1, symbol_size, COLORS["bg"])
 
 func draw_hud() -> void:
-	var hud_x := MAP_WIDTH * TILE_SIZE + 16
+	var hud_x := map_available_size().x + 16
 	var viewport_size := get_viewport_rect().size
-	var panel := Rect2(hud_x - 8, 0, viewport_size.x - hud_x + 8, viewport_size.y)
+	var panel := Rect2(hud_x - 16, 0, HUD_WIDTH, viewport_size.y)
 	draw_rect(panel, COLORS["panel"])
 
-	draw_string(font, Vector2(hud_x, 36), "SimpleRogue", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, COLORS["text"])
-	draw_string(font, Vector2(hud_x, 76), "Depth %d" % player["depth"], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
-	draw_string(font, Vector2(hud_x, 98), "Lv %d" % player["level"], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
-	draw_string(font, Vector2(hud_x, 120), "HP %d/%d" % [player["hp"], player["max_hp"]], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["danger"] if player["hp"] <= 6 else COLORS["text"])
-	draw_string(font, Vector2(hud_x, 148), "Gold %d" % player["gold"], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
-	draw_string(font, Vector2(hud_x, 176), "Score %d" % player["score"], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
+	draw_string(font, Vector2(hud_x, 48), "SimpleRogue", HORIZONTAL_ALIGNMENT_LEFT, -1, 36, COLORS["text"])
+	draw_string(font, Vector2(hud_x, 100), "Depth %d" % player["depth"], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, COLORS["text"])
+	draw_string(font, Vector2(hud_x, 138), "Lv %d" % player["level"], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, COLORS["text"])
+	draw_string(font, Vector2(hud_x, 176), "HP %d/%d" % [player["hp"], player["max_hp"]], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, COLORS["danger"] if player["hp"] <= 6 else COLORS["text"])
+	draw_string(font, Vector2(hud_x, 214), "Gold %d" % player["gold"], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, COLORS["text"])
+	draw_string(font, Vector2(hud_x, 252), "Score %d" % player["score"], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, COLORS["text"])
 
-	draw_string(font, Vector2(hud_x, 240), "Start: auto explore", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, COLORS["muted"])
-	draw_string(font, Vector2(hud_x, 264), "Arrows/. still work", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, COLORS["muted"])
-	draw_string(font, Vector2(hud_x, 288), "R: restart", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, COLORS["muted"])
+	draw_string(font, Vector2(hud_x, 390), "Arrows/. still work", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, COLORS["muted"])
+	draw_string(font, Vector2(hud_x, 426), "R: restart", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, COLORS["muted"])
 
-	draw_string(font, Vector2(hud_x, 322), "Log", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
-	for i in range(messages.size()):
-		draw_string(font, Vector2(hud_x, 352 + i * 24), messages[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, COLORS["muted"])
+	draw_string(font, Vector2(hud_x, 474), "Log", HORIZONTAL_ALIGNMENT_LEFT, -1, 28, COLORS["text"])
+	var log_y := 510.0
+	for message in messages:
+		var message_size := font.get_multiline_string_size(message, HORIZONTAL_ALIGNMENT_LEFT, HUD_WIDTH - 32, 22)
+		if log_y + message_size.y > viewport_size.y:
+			break
+		draw_multiline_string(font, Vector2(hud_x, log_y), message, HORIZONTAL_ALIGNMENT_LEFT, HUD_WIDTH - 32, 22, -1, COLORS["muted"])
+		log_y += message_size.y + 12
 
 func draw_game_over() -> void:
-	var rect := Rect2(230, 250, 500, 140)
+	var overlay_origin := (map_available_size() - Vector2(560, 190)) * 0.5
+	draw_set_transform(overlay_origin)
+	var rect := Rect2(0, 0, 560, 190)
 	draw_rect(rect, Color(0, 0, 0, 0.72))
-	draw_string(font, Vector2(350, 306), "Game Over", HORIZONTAL_ALIGNMENT_LEFT, -1, 34, COLORS["danger"])
-	draw_string(font, Vector2(326, 330), "Lv %d  |  Score %d  |  Depth %d" % [player["level"], player["score"], player["depth"]], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
-	draw_string(font, Vector2(326, 356), "Press R to try another run.", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
+	draw_string(font, Vector2(150, 60), "Game Over", HORIZONTAL_ALIGNMENT_LEFT, -1, 44, COLORS["danger"])
+	draw_string(font, Vector2(36, 110), "Lv %d  |  Score %d  |  Depth %d" % [player["level"], player["score"], player["depth"]], HORIZONTAL_ALIGNMENT_LEFT, -1, 26, COLORS["text"])
+	draw_string(font, Vector2(36, 156), "Press R to try another run.", HORIZONTAL_ALIGNMENT_LEFT, -1, 26, COLORS["text"])
