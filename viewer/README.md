@@ -11,7 +11,7 @@ npm run dev
 ```
 
 Open the URL printed by Vite, then drop
-`simple_rogue_battle_log.jsonl` onto the page. The viewer keeps the log in the
+`anarogue.jsonl` onto the page. The viewer keeps the log in the
 browser and does not upload it.
 
 ## Production build

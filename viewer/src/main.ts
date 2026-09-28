@@ -61,7 +61,7 @@ app.innerHTML = `
       <div class="drop-icon" aria-hidden="true">↧</div>
       <p class="eyebrow">DROP RUN LOG</p>
       <h2>Turn raw events into a readable story.</h2>
-      <p>Open <code>simple_rogue_battle_log.jsonl</code> or try the bundled sample.</p>
+      <p>Open <code>anarogue.jsonl</code> or try the bundled sample.</p>
       <div class="drop-actions">
         <label class="button button-primary" for="file-input">Choose a file</label>
         <button class="button button-ghost" id="empty-sample-button" type="button">Use sample data</button>

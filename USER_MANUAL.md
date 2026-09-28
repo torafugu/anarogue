@@ -58,7 +58,7 @@ The right side of the screen shows:
 
 The message log reports important events, such as defeating enemies, taking damage, finding a new floor, or losing the run.
 
-The game also writes a persistent JSON Lines log to `user://simple_rogue_battle_log.jsonl`. It records player actions, floor starts, combat results, restarts, and run-ending results.
+The game also writes a persistent JSON Lines log to `user://anarogue.jsonl`. It records player actions, floor starts, combat results, restarts, and run-ending results.
 
 ## How Turns Work
 

@@ -30,12 +30,14 @@ Controls:
   - **Archer** — keeps distance and fires arrows; retreats when cornered
 - Stairs to deeper floors; enemies scale with depth
 - HP, depth, gold, **score**, and message log HUD
-- Score system: 1 point per turn, 2 points per kill
-- JSON Lines action and battle log at `user://simple_rogue_battle_log.jsonl`
+- Score system: 2 points per kill
+- JSON Lines action and battle log at `user://anarogue.jsonl`
 - Versioned run-log schema with automatic-player observations, selected rules,
   actions, and human-readable decision reasons
 
-See [Run log schema v1](docs/run-log-v1.md) for the event contract and
+See [Simulation specification v1](docs/simulation-spec-v1.md) for the current
+state and turn-processing rules, [Run log schema v1](docs/run-log-v1.md) for the
+event contract, and
 [`examples/sample-run-v1.jsonl`](examples/sample-run-v1.jsonl) for sample data.
 
 ## Run viewer

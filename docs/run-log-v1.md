@@ -1,7 +1,7 @@
 # Run log schema v1
 
 AnaRogue writes one JSON object per line to
-`user://simple_rogue_battle_log.jsonl`. Each line is an independent event and
+`user://anarogue.jsonl`. Each line is an independent event and
 conforms to [`schemas/run-log-v1.schema.json`](../schemas/run-log-v1.schema.json).
 
 ## Event envelope
