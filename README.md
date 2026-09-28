@@ -30,7 +30,7 @@ Controls:
   - **Archer** — keeps distance and fires arrows; retreats when cornered
 - Stairs to deeper floors; enemies scale with depth
 - HP, depth, gold, **score**, and message log HUD
-- Score system: 1 point per turn, 2 points per kill
+- Score system: 1 point per melee kill, 2 points per archer kill, and 3 points per depth descended; no points per turn. Runs start at 0 points.
 - JSON Lines action and battle log at `user://simple_rogue_battle_log.jsonl`
 - Versioned run-log schema with automatic-player observations, selected rules,
   actions, and human-readable decision reasons
