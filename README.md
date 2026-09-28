@@ -52,3 +52,25 @@ cd viewer
 npm install
 npm run dev
 ```
+
+## Tests
+
+Run the fixed-seed simulation regression suite with Godot 4.5:
+
+```bash
+godot --headless --path game \
+  --script res://tests/fixed_seed_regression.gd
+```
+
+The committed fixture freezes dungeon tiles, rooms, actors, deterministic rewards,
+and the first Aggressive and Cautious decisions for three scenario/depth/map-size
+combinations. When a simulation change is intentional, regenerate it with:
+
+```bash
+godot --headless --path game \
+  --script res://tests/fixed_seed_regression.gd -- --write-fixture
+```
+
+Review the fixture diff before committing it. A fixture update changes the v1
+simulation baseline described in
+[Simulation specification v1](docs/simulation-spec-v1.md).

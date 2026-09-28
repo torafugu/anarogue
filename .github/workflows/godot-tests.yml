@@ -1,0 +1,19 @@
+name: Godot tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  fixed-seed-regression:
+    runs-on: ubuntu-latest
+    container:
+      image: barichello/godot-ci:4.5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run fixed-seed regression tests
+        run: >-
+          godot --headless --path game
+          --script res://tests/fixed_seed_regression.gd
