@@ -10,10 +10,12 @@ const TILE_SIZE := 40
 const MIN_ROOM_SIZE := 5
 const MAX_ROOM_SIZE := 11
 const AUTO_TURN_DELAY := 0.18
+const ARROW_FLIGHT_DURATION := 0.28
+const ARROW_IMPACT_DURATION := 0.12
 
 const TILE_WALL := 0
 const TILE_FLOOR := 1
-const LOG_FILE_PATH := "user://simple_rogue_battle_log.jsonl"
+const LOG_FILE_PATH := "user://anarogue.jsonl"
 const LOG_SCHEMA_VERSION := 1
 const BASE_MAX_HP := 18
 const BASE_ATTACK := 5
@@ -75,6 +77,7 @@ var comparison_transition_elapsed := 0.0
 var start_button: Button
 var compare_button: Button
 var strategy_option: OptionButton
+var arrows: Array[Dictionary] = []
 
 func _ready() -> void:
 	rng.randomize()
@@ -86,6 +89,15 @@ func _ready() -> void:
 	new_floor()
 
 func _process(delta: float) -> void:
+	# Finish projectiles even when the final shot has ended the run.
+	if not arrows.is_empty():
+		for i in range(arrows.size() - 1, -1, -1):
+			arrows[i]["elapsed"] += delta
+			if arrows[i]["elapsed"] >= ARROW_FLIGHT_DURATION + ARROW_IMPACT_DURATION:
+				arrows.remove_at(i)
+		queue_redraw()
+		return
+
 	if game_over:
 		if comparison_active and comparison_phase == 0:
 			comparison_transition_elapsed += delta
@@ -117,7 +129,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		restart_game(false, false)
 		return
 
-	if game_over:
+	if game_over or not arrows.is_empty():
 		return
 
 	var direction := Vector2i.ZERO
@@ -275,6 +287,7 @@ func update_layout() -> void:
 	queue_redraw()
 
 func new_floor() -> void:
+	arrows.clear()
 	# Generate for the current viewport; resizing an active floor preserves the run.
 	var available := map_available_size()
 	map_width = maxi(MAX_ROOM_SIZE + 4, int(available.x / TILE_SIZE))
@@ -817,6 +830,12 @@ func run_archer_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i) -> void
 	# In bow range (2-7 tiles): fire arrow
 	if dist_sq <= 49:
 		if can_enemy_see_player(enemy_pos):
+			arrows.append({
+				"from": Vector2(enemy_pos) * TILE_SIZE + Vector2.ONE * TILE_SIZE * 0.5,
+				"to": Vector2(player["pos"]) * TILE_SIZE + Vector2.ONE * TILE_SIZE * 0.5,
+				"elapsed": 0.0,
+			})
+			queue_redraw()
 			var dmg: int = enemy["attack"]
 			var hp_before: int = player["hp"]
 			player["hp"] = player["hp"] - dmg
@@ -1051,10 +1070,33 @@ func _draw() -> void:
 	draw_set_transform(map_offset, 0.0, Vector2.ONE * map_scale)
 	draw_dungeon()
 	draw_entities()
+	draw_arrows()
 	draw_set_transform(Vector2.ZERO)
 	draw_hud()
-	if game_over:
+	if game_over and arrows.is_empty():
 		draw_game_over()
+
+func draw_arrows() -> void:
+	for arrow in arrows:
+		var origin: Vector2 = arrow["from"]
+		var target: Vector2 = arrow["to"]
+		var elapsed: float = arrow["elapsed"]
+		if elapsed < ARROW_FLIGHT_DURATION:
+			var direction := (target - origin).normalized()
+			var perpendicular := Vector2(-direction.y, direction.x)
+			var tip := origin.lerp(target, elapsed / ARROW_FLIGHT_DURATION)
+			var tail := tip - direction * 22.0
+			draw_line(tail - direction * 12.0, tip, Color(0.43, 0.8, 1.0, 0.3), 6.0, true)
+			draw_line(tail, tip, COLORS["archer"], 3.0, true)
+			draw_colored_polygon(PackedVector2Array([
+				tip, tip - direction * 9.0 + perpendicular * 5.0,
+				tip - direction * 9.0 - perpendicular * 5.0,
+			]), COLORS["text"])
+		else:
+			var progress := (elapsed - ARROW_FLIGHT_DURATION) / ARROW_IMPACT_DURATION
+			var color: Color = COLORS["archer"]
+			color.a = 1.0 - progress
+			draw_arc(target, 10.0 + progress * 16.0, 0.0, TAU, 32, color, 3.0, true)
 
 func draw_dungeon() -> void:
 	for y in range(map_height):
@@ -1068,7 +1110,20 @@ func draw_dungeon() -> void:
 				var color: Color = COLORS["floor"] if (x + y) % 2 == 0 else COLORS["floor_alt"]
 				draw_rect(rect, color)
 
-	draw_tile_symbol(stairs_pos, ">", COLORS["stairs"])
+	draw_stairs_icon()
+
+func draw_stairs_icon() -> void:
+	var origin := Vector2(stairs_pos) * TILE_SIZE
+	var badge := Rect2(origin + Vector2.ONE * 4, Vector2.ONE * 32)
+	draw_rect(badge, COLORS["bg"])
+	draw_rect(badge, COLORS["stairs"], false, 2.0)
+	var steps := PackedVector2Array([
+		origin + Vector2(9, 12), origin + Vector2(16, 12),
+		origin + Vector2(16, 19), origin + Vector2(23, 19),
+		origin + Vector2(23, 26), origin + Vector2(30, 26),
+	])
+	draw_polyline(steps, COLORS["stairs"], 3.0, true)
+	draw_line(origin + Vector2(9, 31), origin + Vector2(30, 31), COLORS["stairs"], 2.0, true)
 
 func draw_entities() -> void:
 	for enemy in enemies:

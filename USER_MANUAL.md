@@ -107,7 +107,7 @@ Combat rules:
 
 ## Stairs and Depth
 
-The green `>` symbol marks the stairs.
+The green stair-step icon inside an outlined square marks the stairs.
 
 Step onto the stairs to:
 
