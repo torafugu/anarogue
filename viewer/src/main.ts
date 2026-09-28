@@ -12,6 +12,8 @@ import {
   type Vector2i,
 } from "./log.ts";
 
+const stairsIcon = `<rect x=".1" y=".1" width=".8" height=".8" rx=".08" /><path d="M .225 .3 H .4 V .475 H .575 V .65 H .75 M .225 .775 H .75" />`;
+
 type FilterName = "all" | "decision" | "combat" | "action" | "floor";
 
 interface ViewerState {
@@ -110,7 +112,7 @@ app.innerHTML = `
             <span><i class="legend-player"></i>Player</span>
             <span><i class="legend-enemy"></i>Melee</span>
             <span><i class="legend-archer"></i>Archer</span>
-            <span><i class="legend-stairs"></i>Stairs</span>
+            <span><svg class="map-stairs legend-stairs" viewBox="0 0 1 1" aria-hidden="true">${stairsIcon}</svg>Stairs</span>
           </div>
         </section>
       </div>
@@ -388,7 +390,7 @@ function renderRouteMap(events: RunEvent[], selected?: RunEvent): void {
       <rect width="${width}" height="${height}" fill="#171b17" />
       <rect width="${width}" height="${height}" fill="url(#map-grid)" />
       ${route ? `<polyline class="route-line" points="${route}" />` : ""}
-      ${stairs ? `<g class="map-stairs"><rect x="${stairs.x + 0.16}" y="${stairs.y + 0.16}" width=".68" height=".68" rx=".1" /><title>Stairs</title></g>` : ""}
+      ${stairs ? `<g class="map-stairs" transform="translate(${stairs.x} ${stairs.y})">${stairsIcon}<title>Stairs · descend to next floor</title></g>` : ""}
       ${enemyMarks}
       ${positions[0] ? `<circle class="route-start" cx="${positions[0].x + 0.5}" cy="${positions[0].y + 0.5}" r=".25"><title>Start</title></circle>` : ""}
       ${selectedPos ? `<circle class="route-selected" cx="${selectedPos.x + 0.5}" cy="${selectedPos.y + 0.5}" r=".44"><title>Selected event</title></circle>` : ""}

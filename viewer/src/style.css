@@ -473,7 +473,17 @@ select,
 }
 
 .map-stairs rect {
-  fill: var(--blue);
+  fill: #171b17;
+  stroke: var(--blue);
+  stroke-width: 0.05;
+}
+
+.map-stairs path {
+  fill: none;
+  stroke: var(--blue);
+  stroke-width: 0.075;
+  stroke-linejoin: round;
+  stroke-linecap: round;
 }
 
 .map-legend {
@@ -506,8 +516,8 @@ select,
 }
 
 .map-legend .legend-stairs {
-  border-radius: 1px;
-  background: var(--blue);
+  width: 16px;
+  height: 16px;
 }
 
 .event-workbench {
