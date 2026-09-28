@@ -1,5 +1,10 @@
 extends Node2D
 
+enum StrategyType {
+	AGGRESSIVE,
+	CAUTIOUS,
+}
+
 const HUD_WIDTH := 360.0
 const TILE_SIZE := 40
 const MIN_ROOM_SIZE := 5
@@ -10,7 +15,9 @@ const TILE_WALL := 0
 const TILE_FLOOR := 1
 const LOG_FILE_PATH := "user://simple_rogue_battle_log.jsonl"
 const LOG_SCHEMA_VERSION := 1
-const DEFAULT_STRATEGY_ID := "default_v1"
+const BASE_MAX_HP := 18
+const BASE_ATTACK := 5
+const COMPARISON_TRANSITION_DELAY := 1.0
 
 const COLORS := {
 	"bg": Color("#15171d"),
@@ -60,18 +67,33 @@ var decision_sequence := 0
 var next_enemy_id := 1
 var auto_turn_elapsed := 0.0
 var auto_exploration_started := false
+var scenario_seed := 0
+var active_strategy: StrategyType = StrategyType.AGGRESSIVE
+var comparison_active := false
+var comparison_phase := 0
+var comparison_transition_elapsed := 0.0
 var start_button: Button
+var compare_button: Button
+var strategy_option: OptionButton
 
 func _ready() -> void:
 	rng.randomize()
-	create_start_button()
+	scenario_seed = create_scenario_seed()
+	create_controls()
 	get_viewport().size_changed.connect(update_layout)
 	open_log_file()
 	start_run_log()
 	new_floor()
 
 func _process(delta: float) -> void:
-	if game_over or not auto_exploration_started:
+	if game_over:
+		if comparison_active and comparison_phase == 0:
+			comparison_transition_elapsed += delta
+			if comparison_transition_elapsed >= COMPARISON_TRANSITION_DELAY:
+				start_cautious_comparison_run()
+		return
+
+	if not auto_exploration_started:
 		return
 
 	auto_turn_elapsed += delta
@@ -90,7 +112,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		log_battle_result("restart", {
 			"reason": "user_restart",
 		})
-		restart_game()
+		comparison_active = false
+		comparison_phase = 0
+		restart_game(false, false)
 		return
 
 	if game_over:
@@ -116,8 +140,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	if direction != Vector2i.ZERO:
 		player_act(direction)
 
-func restart_game() -> void:
-	player["hp"] = player["max_hp"]
+func restart_game(reuse_scenario: bool = false, auto_start: bool = false) -> void:
+	if not reuse_scenario:
+		scenario_seed = create_scenario_seed()
+
+	player["max_hp"] = BASE_MAX_HP
+	player["hp"] = BASE_MAX_HP
+	player["attack"] = BASE_ATTACK
 	player["gold"] = 0
 	player["score"] = 0
 	player["level"] = 1
@@ -128,40 +157,108 @@ func restart_game() -> void:
 	decision_sequence = 0
 	next_enemy_id = 1
 	auto_turn_elapsed = 0.0
-	auto_exploration_started = false
+	auto_exploration_started = auto_start
 	game_over = false
 	messages.clear()
-	update_start_button_state()
 	start_run_log()
 	new_floor()
+	if auto_start:
+		log_user_action("start", "auto_exploration_started", {
+			"comparison": comparison_active,
+		})
+		add_message("%s strategy started." % strategy_display_name(active_strategy))
+	update_controls_state()
 
-func create_start_button() -> void:
+func create_controls() -> void:
+	strategy_option = OptionButton.new()
+	strategy_option.add_item("Aggressive — hunt every enemy", StrategyType.AGGRESSIVE)
+	strategy_option.add_item("Cautious — avoid danger", StrategyType.CAUTIOUS)
+	strategy_option.select(StrategyType.AGGRESSIVE)
+	strategy_option.size = Vector2(HUD_WIDTH - 32, 48)
+	strategy_option.add_theme_font_size_override("font_size", 18)
+	strategy_option.item_selected.connect(_on_strategy_selected)
+	add_child(strategy_option)
+
 	start_button = Button.new()
-	start_button.text = "Start: auto explore"
-	start_button.size = Vector2(HUD_WIDTH - 32, 60)
-	start_button.add_theme_font_size_override("font_size", 24)
+	start_button.text = "Start selected strategy"
+	start_button.size = Vector2(HUD_WIDTH - 32, 52)
+	start_button.add_theme_font_size_override("font_size", 20)
 	start_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	start_button.focus_mode = Control.FOCUS_NONE
 	start_button.pressed.connect(_on_start_button_pressed)
 	add_child(start_button)
 
+	compare_button = Button.new()
+	compare_button.text = "Compare both — same seed"
+	compare_button.size = Vector2(HUD_WIDTH - 32, 52)
+	compare_button.add_theme_font_size_override("font_size", 18)
+	compare_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	compare_button.focus_mode = Control.FOCUS_NONE
+	compare_button.pressed.connect(_on_compare_button_pressed)
+	add_child(compare_button)
+
+func _on_strategy_selected(index: int) -> void:
+	if auto_exploration_started or comparison_active:
+		return
+	active_strategy = index
+	comparison_phase = 0
+	log_battle_result("restart", {
+		"reason": "strategy_changed",
+	})
+	restart_game(true, false)
+
 func _on_start_button_pressed() -> void:
 	if game_over:
 		return
 
+	comparison_phase = 0
 	auto_exploration_started = true
 	auto_turn_elapsed = 0.0
-	update_start_button_state()
+	update_controls_state()
 	log_user_action("start", "auto_exploration_started")
-	add_message("Auto exploration started.")
+	add_message("%s strategy started." % strategy_display_name(active_strategy))
 	queue_redraw()
 
-func update_start_button_state() -> void:
-	if not start_button:
+func _on_compare_button_pressed() -> void:
+	if auto_exploration_started:
+		return
+	comparison_active = true
+	comparison_phase = 0
+	comparison_transition_elapsed = 0.0
+	active_strategy = StrategyType.AGGRESSIVE
+	strategy_option.select(StrategyType.AGGRESSIVE)
+	scenario_seed = create_scenario_seed()
+	restart_game(true, true)
+
+func start_cautious_comparison_run() -> void:
+	comparison_phase = 1
+	comparison_transition_elapsed = 0.0
+	active_strategy = StrategyType.CAUTIOUS
+	strategy_option.select(StrategyType.CAUTIOUS)
+	restart_game(true, true)
+
+func update_controls_state() -> void:
+	if not start_button or not compare_button or not strategy_option:
 		return
 
-	start_button.visible = not auto_exploration_started and not game_over
-	start_button.disabled = auto_exploration_started or game_over
+	var controls_available := not auto_exploration_started and not comparison_active
+	start_button.visible = controls_available
+	start_button.disabled = not controls_available or game_over
+	compare_button.visible = controls_available
+	compare_button.disabled = not controls_available or game_over
+	strategy_option.disabled = not controls_available
+
+func create_scenario_seed() -> int:
+	return rng.randi()
+
+func strategy_id(strategy: StrategyType) -> String:
+	return "cautious_v1" if strategy == StrategyType.CAUTIOUS else "aggressive_v1"
+
+func strategy_display_name(strategy: StrategyType) -> String:
+	return "Cautious" if strategy == StrategyType.CAUTIOUS else "Aggressive"
+
+func current_scenario_id() -> String:
+	return "scenario-%d" % scenario_seed
 
 func map_available_size() -> Vector2:
 	var viewport_size := get_viewport_rect().size
@@ -172,7 +269,9 @@ func update_layout() -> void:
 	var grid_size := Vector2(map_width, map_height) * TILE_SIZE
 	map_scale = minf(available.x / grid_size.x, available.y / grid_size.y)
 	map_offset = (available - grid_size * map_scale) * 0.5
-	start_button.position = Vector2(available.x + 16, 290)
+	strategy_option.position = Vector2(available.x + 16, 292)
+	start_button.position = Vector2(available.x + 16, 350)
+	compare_button.position = Vector2(available.x + 16, 412)
 	queue_redraw()
 
 func new_floor() -> void:
@@ -190,11 +289,20 @@ func new_floor() -> void:
 			row.append(TILE_WALL)
 		map.append(row)
 
-	generate_dungeon()
+	var floor_rng := RandomNumberGenerator.new()
+	var spawn_rng := RandomNumberGenerator.new()
+	var floor_seed := derived_seed("floor", player["depth"])
+	var spawn_seed := derived_seed("spawn", player["depth"])
+	floor_rng.seed = floor_seed
+	spawn_rng.seed = spawn_seed
+
+	generate_dungeon(floor_rng)
 	player["pos"] = rooms[0].get_center()
 	stairs_pos = rooms[rooms.size() - 1].get_center()
-	spawn_enemies()
+	spawn_enemies(spawn_rng)
 	log_event("floor_start", {
+		"floor_seed": floor_seed,
+		"spawn_seed": spawn_seed,
 		"enemy_count": enemies.size(),
 		"enemies": enemies_to_log(),
 		"map_size": {"width": map_width, "height": map_height},
@@ -204,16 +312,19 @@ func new_floor() -> void:
 	add_message("Depth %d. Find the green stairs." % player["depth"])
 	queue_redraw()
 
-func generate_dungeon() -> void:
+func derived_seed(channel: String, depth: int) -> int:
+	return ("%d:%s:%d" % [scenario_seed, channel, depth]).hash()
+
+func generate_dungeon(floor_rng: RandomNumberGenerator) -> void:
 	var room_target := maxi(2, int(round(map_width * map_height / 112.0)))
 	for i in range(room_target * 8):
 		if rooms.size() >= room_target:
 			break
 
-		var w := rng.randi_range(MIN_ROOM_SIZE, MAX_ROOM_SIZE)
-		var h := rng.randi_range(MIN_ROOM_SIZE, MAX_ROOM_SIZE)
-		var x := rng.randi_range(1, map_width - w - 2)
-		var y := rng.randi_range(1, map_height - h - 2)
+		var w := floor_rng.randi_range(MIN_ROOM_SIZE, MAX_ROOM_SIZE)
+		var h := floor_rng.randi_range(MIN_ROOM_SIZE, MAX_ROOM_SIZE)
+		var x := floor_rng.randi_range(1, map_width - w - 2)
+		var y := floor_rng.randi_range(1, map_height - h - 2)
 		var room := Rect2i(x, y, w, h)
 
 		var overlaps := false
@@ -227,7 +338,7 @@ func generate_dungeon() -> void:
 
 		carve_room(room)
 		if not rooms.is_empty():
-			connect_rooms(rooms.back().get_center(), room.get_center())
+			connect_rooms(rooms.back().get_center(), room.get_center(), floor_rng)
 		rooms.append(room)
 
 	if rooms.is_empty():
@@ -240,8 +351,8 @@ func carve_room(room: Rect2i) -> void:
 		for x in range(room.position.x, room.end.x):
 			map[y][x] = TILE_FLOOR
 
-func connect_rooms(a: Vector2i, b: Vector2i) -> void:
-	if rng.randf() < 0.5:
+func connect_rooms(a: Vector2i, b: Vector2i, floor_rng: RandomNumberGenerator) -> void:
+	if floor_rng.randf() < 0.5:
 		carve_horizontal(a.x, b.x, a.y)
 		carve_vertical(a.y, b.y, b.x)
 	else:
@@ -256,16 +367,16 @@ func carve_vertical(y1: int, y2: int, x: int) -> void:
 	for y in range(mini(y1, y2), maxi(y1, y2) + 1):
 		map[y][x] = TILE_FLOOR
 
-func spawn_enemies() -> void:
+func spawn_enemies(spawn_rng: RandomNumberGenerator) -> void:
 	for i in range(1, rooms.size() - 1):
-		if rng.randf() > 0.75:
+		if spawn_rng.randf() > 0.75:
 			continue
 		var room := rooms[i]
 		var pos := Vector2i(
-			rng.randi_range(room.position.x + 1, room.end.x - 2),
-			rng.randi_range(room.position.y + 1, room.end.y - 2)
+			spawn_rng.randi_range(room.position.x + 1, room.end.x - 2),
+			spawn_rng.randi_range(room.position.y + 1, room.end.y - 2)
 		)
-		var enemy_type := "melee" if rng.randf() < 0.5 else "archer"
+		var enemy_type := "melee" if spawn_rng.randf() < 0.5 else "archer"
 		var enemy_id := "enemy-%d" % next_enemy_id
 		next_enemy_id += 1
 		if enemy_type == "archer":
@@ -304,6 +415,11 @@ func run_auto_player_turn() -> void:
 	player_act(direction, decision["decision_id"])
 
 func choose_auto_player_decision(decision_id: String) -> Dictionary:
+	if active_strategy == StrategyType.CAUTIOUS:
+		return choose_cautious_decision(decision_id)
+	return choose_aggressive_decision(decision_id)
+
+func choose_aggressive_decision(decision_id: String) -> Dictionary:
 	var adjacent_enemy_direction := direction_to_adjacent_enemy()
 	if adjacent_enemy_direction != Vector2i.ZERO:
 		var adjacent_enemy := enemies[enemy_at(player["pos"] + adjacent_enemy_direction)]
@@ -353,8 +469,116 @@ func choose_auto_player_decision(decision_id: String) -> Dictionary:
 		},
 	}
 
+func choose_cautious_decision(decision_id: String) -> Dictionary:
+	var adjacent_enemy_direction := direction_to_adjacent_enemy()
+	var stairs_direction := find_low_risk_step_toward(stairs_pos)
+	if stairs_direction != Vector2i.ZERO:
+		var retreating := adjacent_enemy_direction != Vector2i.ZERO
+		return {
+			"decision_id": decision_id,
+			"rule_id": "retreat_from_adjacent_enemy" if retreating else "cautious_seek_stairs",
+			"reason": (
+				"An enemy is adjacent, so the cautious strategy retreats toward the stairs."
+				if retreating
+				else "The cautious strategy takes the lowest-risk route to the stairs."
+			),
+			"action_type": "move",
+			"direction": stairs_direction,
+			"selected_step_danger": danger_cost(player["pos"] + stairs_direction),
+			"target": {
+				"kind": "stairs",
+				"pos": vector_to_log(stairs_pos),
+			},
+		}
+
+	if adjacent_enemy_direction != Vector2i.ZERO:
+		var blocking_enemy := enemies[enemy_at(player["pos"] + adjacent_enemy_direction)]
+		return {
+			"decision_id": decision_id,
+			"rule_id": "attack_blocking_enemy",
+			"reason": "No route to the stairs is open, so the cautious strategy fights.",
+			"action_type": "attack",
+			"direction": adjacent_enemy_direction,
+			"selected_step_danger": danger_cost(player["pos"]),
+			"target": enemy_to_log(blocking_enemy),
+		}
+
+	return {
+		"decision_id": decision_id,
+		"rule_id": "wait_no_safe_path",
+		"reason": "No route to the stairs or adjacent target is currently available.",
+		"action_type": "wait",
+		"direction": Vector2i.ZERO,
+		"selected_step_danger": danger_cost(player["pos"]),
+		"target": {
+			"kind": "stairs",
+			"pos": vector_to_log(stairs_pos),
+		},
+	}
+
 func choose_auto_player_direction() -> Vector2i:
 	return choose_auto_player_decision("preview")["direction"]
+
+func find_low_risk_step_toward(destination: Vector2i) -> Vector2i:
+	var start: Vector2i = player["pos"]
+	var frontier: Array[Vector2i] = [start]
+	var came_from := {start: start}
+	var cost_so_far := {start: 0}
+	var directions := [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]
+
+	while not frontier.is_empty():
+		var best_index := 0
+		for i in range(1, frontier.size()):
+			if cost_so_far[frontier[i]] < cost_so_far[frontier[best_index]]:
+				best_index = i
+		var current: Vector2i = frontier.pop_at(best_index)
+		if current == destination:
+			break
+
+		for direction in directions:
+			var next: Vector2i = current + direction
+			if not is_cautious_path_walkable(next, destination):
+				continue
+			var new_cost: int = cost_so_far[current] + 1 + danger_cost(next)
+			if not cost_so_far.has(next) or new_cost < cost_so_far[next]:
+				cost_so_far[next] = new_cost
+				came_from[next] = current
+				if not frontier.has(next):
+					frontier.append(next)
+
+	if not came_from.has(destination):
+		return Vector2i.ZERO
+
+	var current := destination
+	while came_from[current] != start:
+		current = came_from[current]
+	return current - start
+
+func is_cautious_path_walkable(pos: Vector2i, destination: Vector2i) -> bool:
+	if not is_walkable(pos):
+		return false
+	return pos == destination or enemy_at(pos) == -1
+
+func danger_cost(pos: Vector2i) -> int:
+	var total := 0
+	for enemy in enemies:
+		var enemy_pos: Vector2i = enemy["pos"]
+		var delta: Vector2i = pos - enemy_pos
+		var manhattan := absi(delta.x) + absi(delta.y)
+		var distance_squared := pos.distance_squared_to(enemy_pos)
+		if enemy["type"] == "archer":
+			if distance_squared <= 2:
+				total += 30
+			elif distance_squared <= 49:
+				total += 12
+			elif distance_squared <= 80:
+				total += 3
+		else:
+			if manhattan == 1:
+				total += 30
+			elif manhattan == 2:
+				total += 8
+	return total
 
 func direction_to_adjacent_enemy() -> Vector2i:
 	var directions := [
@@ -484,7 +708,7 @@ func attack_enemy(index: int) -> void:
 	if enemy["hp"] <= 0:
 		var enemy_pos: Vector2i = enemy["pos"]
 		enemies.remove_at(index)
-		var gold := rng.randi_range(1, 4)
+		var gold := gold_reward_for_enemy(enemy)
 		player["gold"] = player["gold"] + gold
 		player["score"] += 2
 		var xp_gain := 5 if enemy["type"] == "archer" else 3
@@ -511,6 +735,13 @@ func attack_enemy(index: int) -> void:
 		})
 		add_message("You hit the enemy.")
 
+func gold_reward_for_enemy(enemy: Dictionary) -> int:
+	var reward_rng := RandomNumberGenerator.new()
+	reward_rng.seed = (
+		"%d:reward:%d:%s" % [scenario_seed, player["depth"], enemy["id"]]
+	).hash()
+	return reward_rng.randi_range(1, 4)
+
 func check_level_up() -> void:
 	var xp_needed: int = player["level"] * 8
 	while player["xp"] >= xp_needed:
@@ -532,6 +763,8 @@ func run_enemy_turn() -> void:
 			run_archer_turn(i, enemy, enemy_pos)
 		else:
 			run_melee_turn(i, enemy, enemy_pos, delta)
+		if game_over:
+			break
 
 func run_melee_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i, delta: Vector2i) -> void:
 	if abs(delta.x) + abs(delta.y) == 1:
@@ -547,15 +780,7 @@ func run_melee_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i, delta: V
 		})
 		add_message("Enemy hits you for %d." % enemy["attack"])
 		if player["hp"] <= 0:
-			player["hp"] = 0
-			game_over = true
-			update_start_button_state()
-			log_battle_result("player_defeated", {
-				"final_depth": player["depth"],
-				"final_gold": player["gold"],
-				"turns": turn_count,
-			})
-			add_message("You fell. Press R to restart.")
+			handle_player_defeat()
 		return
 
 	if can_enemy_see_player(enemy_pos):
@@ -586,15 +811,7 @@ func run_archer_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i) -> void
 		})
 		add_message("Archer punches you for %d." % melee_dmg)
 		if player["hp"] <= 0:
-			player["hp"] = 0
-			game_over = true
-			update_start_button_state()
-			log_battle_result("player_defeated", {
-				"final_depth": player["depth"],
-				"final_gold": player["gold"],
-				"turns": turn_count,
-			})
-			add_message("You fell. Press R to restart.")
+			handle_player_defeat()
 		return
 
 	# In bow range (2-7 tiles): fire arrow
@@ -614,15 +831,7 @@ func run_archer_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i) -> void
 			})
 			add_message("Archer shoots you for %d." % dmg)
 			if player["hp"] <= 0:
-				player["hp"] = 0
-				game_over = true
-				update_start_button_state()
-				log_battle_result("player_defeated", {
-					"final_depth": player["depth"],
-					"final_gold": player["gold"],
-					"turns": turn_count,
-				})
-				add_message("You fell. Press R to restart.")
+				handle_player_defeat()
 		return
 
 	# Too far: move toward player
@@ -672,6 +881,26 @@ func signi(value: int) -> int:
 		return -1
 	return 0
 
+func handle_player_defeat() -> void:
+	player["hp"] = 0
+	game_over = true
+	auto_exploration_started = false
+	log_battle_result("player_defeated", {
+		"final_depth": player["depth"],
+		"final_gold": player["gold"],
+		"turns": turn_count,
+		"strategy_id": strategy_id(active_strategy),
+		"scenario_seed": scenario_seed,
+	})
+	if comparison_active and comparison_phase == 0:
+		add_message("Aggressive run finished. Cautious starts next.")
+	elif comparison_active and comparison_phase == 1:
+		comparison_active = false
+		add_message("Comparison complete. Review both runs in the viewer.")
+	else:
+		add_message("You fell. Press R to restart.")
+	update_controls_state()
+
 func enemy_at(pos: Vector2i) -> int:
 	for i in range(enemies.size()):
 		if enemies[i]["pos"] == pos:
@@ -706,7 +935,11 @@ func start_run_log() -> void:
 	next_enemy_id = 1
 	log_event("run_start", {
 		"log_file": LOG_FILE_PATH,
-		"strategy_id": DEFAULT_STRATEGY_ID,
+		"scenario_id": current_scenario_id(),
+		"scenario_seed": scenario_seed,
+		"strategy_id": strategy_id(active_strategy),
+		"comparison": comparison_active,
+		"comparison_phase": comparison_phase,
 	})
 
 func log_auto_decision(decision: Dictionary) -> void:
@@ -715,13 +948,16 @@ func log_auto_decision(decision: Dictionary) -> void:
 		"direction": vector_to_log(decision["direction"]),
 		"target": decision["target"],
 	}
+	var observation := build_decision_observation()
+	if decision.has("selected_step_danger"):
+		observation["selected_step_danger"] = decision["selected_step_danger"]
 	log_event("decision", {
 		"decision_id": decision["decision_id"],
-		"strategy_id": DEFAULT_STRATEGY_ID,
+		"strategy_id": strategy_id(active_strategy),
 		"rule_id": decision["rule_id"],
 		"reason": decision["reason"],
 		"action_turn": turn_count + 1,
-		"observation": build_decision_observation(),
+		"observation": observation,
 		"action": action,
 	})
 
@@ -734,6 +970,7 @@ func build_decision_observation() -> Dictionary:
 		"enemies": enemies_to_log(),
 		"stairs_pos": vector_to_log(stairs_pos),
 		"stairs_distance_squared": player["pos"].distance_squared_to(stairs_pos),
+		"current_danger": danger_cost(player["pos"]),
 	}
 
 func add_decision_reference(details: Dictionary, decision_id: String) -> void:
@@ -761,6 +998,9 @@ func log_event(event_name: String, details: Dictionary = {}) -> void:
 		"time": Time.get_datetime_string_from_system(false, true),
 		"event": event_name,
 		"run_id": run_id,
+		"scenario_id": current_scenario_id(),
+		"scenario_seed": scenario_seed,
+		"strategy_id": strategy_id(active_strategy),
 		"sequence": event_sequence,
 		"turn": turn_count,
 		"depth": player["depth"],
@@ -856,12 +1096,21 @@ func draw_hud() -> void:
 	draw_string(font, Vector2(hud_x, 176), "HP %d/%d" % [player["hp"], player["max_hp"]], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, COLORS["danger"] if player["hp"] <= 6 else COLORS["text"])
 	draw_string(font, Vector2(hud_x, 214), "Gold %d" % player["gold"], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, COLORS["text"])
 	draw_string(font, Vector2(hud_x, 252), "Score %d" % player["score"], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, COLORS["text"])
+	draw_string(
+		font,
+		Vector2(hud_x, 280),
+		"%s · seed %d" % [strategy_display_name(active_strategy), scenario_seed],
+		HORIZONTAL_ALIGNMENT_LEFT,
+		-1,
+		17,
+		COLORS["muted"],
+	)
 
-	draw_string(font, Vector2(hud_x, 390), "Arrows/. still work", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, COLORS["muted"])
-	draw_string(font, Vector2(hud_x, 426), "R: restart", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, COLORS["muted"])
+	draw_string(font, Vector2(hud_x, 500), "Arrows/. still work", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, COLORS["muted"])
+	draw_string(font, Vector2(hud_x, 536), "R: restart", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, COLORS["muted"])
 
-	draw_string(font, Vector2(hud_x, 474), "Log", HORIZONTAL_ALIGNMENT_LEFT, -1, 28, COLORS["text"])
-	var log_y := 510.0
+	draw_string(font, Vector2(hud_x, 584), "Log", HORIZONTAL_ALIGNMENT_LEFT, -1, 28, COLORS["text"])
+	var log_y := 620.0
 	for message in messages:
 		var message_size := font.get_multiline_string_size(message, HORIZONTAL_ALIGNMENT_LEFT, HUD_WIDTH - 32, 22)
 		if log_y + message_size.y > viewport_size.y:

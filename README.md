@@ -8,7 +8,8 @@ Open this folder in Godot 4 and run the main scene.
 
 Controls:
 
-- Click `Start` on the right side to begin automatic movement and attacks
+- Choose `Aggressive` or `Cautious`, then click `Start selected strategy`
+- Click `Compare both — same seed` to run both strategies on matching floors
 - Arrow keys: manually move or attack
 - `.`: manually wait
 - `R`: restart
@@ -17,6 +18,12 @@ Controls:
 
 - Procedural room-and-corridor dungeon generation
 - Automatic player movement and bump attacks
+- Two automatic strategies:
+  - **Aggressive** — hunts every enemy, then seeks the stairs
+  - **Cautious** — takes a danger-weighted route to the stairs and only fights
+    when its path is blocked
+- Same-seed comparison mode with deterministic floor layouts, enemy spawns, and
+  per-enemy rewards
 - Turn-based player and enemy actions
 - Two enemy types:
   - **Melee** — charges and attacks up close
@@ -33,8 +40,9 @@ See [Run log schema v1](docs/run-log-v1.md) for the event contract and
 
 ## Run viewer
 
-The Vite + TypeScript viewer in [`viewer/`](viewer/) turns a single run into a
-summary, HP chart, route map, searchable event stream, and decision inspector.
+The Vite + TypeScript viewer in [`viewer/`](viewer/) turns a run into a summary,
+HP chart, route map, searchable event stream, and decision inspector. Runs with
+the same scenario ID are grouped into an Aggressive vs. Cautious comparison.
 
 ```bash
 cd viewer

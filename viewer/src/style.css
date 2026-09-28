@@ -321,6 +321,87 @@ select,
   font-size: 13px;
 }
 
+.comparison-panel {
+  margin-bottom: 18px;
+  padding: 20px;
+  border: 1px solid #4a5542;
+  background: linear-gradient(135deg, rgba(214, 232, 106, 0.07), var(--surface));
+}
+
+.comparison-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 15px;
+}
+
+.comparison-heading code {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.comparison-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.comparison-card {
+  display: grid;
+  grid-template-columns: minmax(130px, 1.4fr) repeat(5, minmax(58px, 0.6fr));
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid var(--border);
+  color: #e9ede4;
+  background: #151915;
+  cursor: pointer;
+  text-align: left;
+}
+
+.comparison-card:hover,
+.comparison-card.active {
+  border-color: var(--lime);
+}
+
+.comparison-card.active {
+  background: rgba(214, 232, 106, 0.08);
+}
+
+.comparison-name,
+.comparison-strategy,
+.comparison-stat {
+  display: block;
+}
+
+.comparison-name {
+  color: var(--lime);
+  font-size: 16px;
+  font-weight: 750;
+}
+
+.comparison-strategy {
+  display: none;
+  color: var(--muted);
+  font-family: "DM Mono", monospace;
+  font-size: 9px;
+}
+
+.comparison-stat {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.comparison-stat b {
+  display: block;
+  color: #e9ede4;
+  font-family: "DM Mono", monospace;
+  font-size: 17px;
+  font-weight: 500;
+}
+
 .metrics {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -849,6 +930,10 @@ blockquote {
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }
+
+  .comparison-cards {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 660px) {
@@ -873,8 +958,17 @@ blockquote {
   }
 
   .run-bar,
-  .timeline-tools {
+  .timeline-tools,
+  .comparison-heading {
     flex-direction: column;
+  }
+
+  .comparison-card {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .comparison-name {
+    grid-column: 1 / -1;
   }
 
   .metrics {

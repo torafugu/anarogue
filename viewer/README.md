@@ -27,6 +27,7 @@ The static build is written to `viewer/dist/`.
 
 - Load JSONL using drag and drop or the file picker.
 - Select one run when Godot's append-only log contains multiple runs.
+- Compare Aggressive and Cautious runs automatically when they share a scenario ID.
 - View summary metrics, HP history, and movement by dungeon depth.
 - Filter and search the event stream.
 - Inspect decision rule, reason, observation, action, and raw event JSON.

@@ -82,6 +82,7 @@ app.innerHTML = `
         </label>
       </div>
       <div class="warning" id="warning" hidden></div>
+      <section class="comparison-panel" id="comparison-panel" hidden></section>
       <section class="metrics" id="metrics" aria-label="Run summary"></section>
       <div class="analysis-grid">
         <section class="panel hp-panel">
@@ -156,6 +157,23 @@ const escapeHtml = (value: unknown): string =>
 const eventsForRun = (): RunEvent[] =>
   state.parsed?.runs.get(state.runId) ?? [];
 
+const runStart = (events: RunEvent[]): RunEvent | undefined =>
+  events.find((event) => event.event === "run_start");
+
+const strategyForRun = (events: RunEvent[]): string =>
+  events.find((event) => event.strategy_id)?.strategy_id ??
+  String(runStart(events)?.details.strategy_id ?? "unknown strategy");
+
+const scenarioForRun = (events: RunEvent[]): string =>
+  events.find((event) => event.scenario_id)?.scenario_id ??
+  String(runStart(events)?.details.scenario_id ?? "");
+
+const strategyLabel = (strategy: string): string => {
+  if (strategy.startsWith("aggressive")) return "Aggressive";
+  if (strategy.startsWith("cautious")) return "Cautious";
+  return strategy;
+};
+
 function loadSource(source: string, sourceName: string): void {
   try {
     const parsed = parseJsonLines(source);
@@ -201,18 +219,19 @@ function render(): void {
   const events = eventsForRun();
   const summary = summarizeRun(events);
   const selected = events.find((event) => event.sequence === state.selectedSequence);
-  const strategy = events.find((event) => event.event === "run_start")?.details
-    .strategy_id;
+  const strategy = strategyForRun(events);
+  const scenario = scenarioForRun(events);
 
   getElement("#run-title").textContent = state.runId;
   getElement("#source-label").textContent =
-    `${state.sourceName} · ${events.length} events · ${String(strategy ?? "unknown strategy")}`;
+    `${state.sourceName} · ${events.length} events · ${strategyLabel(strategy)}${scenario ? ` · ${scenario}` : ""}`;
   const status = getElement("#run-status");
   status.textContent = summary.result;
   status.className = `status-pill status-${summary.result}`;
 
   renderRunSelect();
   renderWarnings();
+  renderComparison(events);
   renderMetrics(events);
   renderHpChart(events);
   renderDepthSelect(events);
@@ -228,8 +247,11 @@ function renderRunSelect(): void {
   label.hidden = runIds.length < 2;
   select.innerHTML = runIds
     .map(
-      (id) =>
-        `<option value="${escapeHtml(id)}" ${id === state.runId ? "selected" : ""}>${escapeHtml(id)}</option>`,
+      (id) => {
+        const events = state.parsed?.runs.get(id) ?? [];
+        const label = `${strategyLabel(strategyForRun(events))} · ${id}`;
+        return `<option value="${escapeHtml(id)}" ${id === state.runId ? "selected" : ""}>${escapeHtml(label)}</option>`;
+      },
     )
     .join("");
 }
@@ -239,6 +261,56 @@ function renderWarnings(): void {
   const warnings = state.parsed?.warnings ?? [];
   warning.hidden = warnings.length === 0;
   warning.textContent = warnings.join(" ");
+}
+
+function renderComparison(events: RunEvent[]): void {
+  const panel = getElement<HTMLElement>("#comparison-panel");
+  const scenario = scenarioForRun(events);
+  const peers = [...(state.parsed?.runs.entries() ?? [])].filter(
+    ([, candidate]) => scenario && scenarioForRun(candidate) === scenario,
+  );
+  const strategies = new Set(peers.map(([, candidate]) => strategyForRun(candidate)));
+  if (!scenario || peers.length < 2 || strategies.size < 2) {
+    panel.hidden = true;
+    panel.innerHTML = "";
+    return;
+  }
+
+  panel.hidden = false;
+  panel.innerHTML = `
+    <div class="comparison-heading">
+      <div>
+        <p class="eyebrow">SAME-SEED COMPARISON</p>
+        <h3>Aggressive vs. Cautious</h3>
+      </div>
+      <code>${escapeHtml(scenario)}</code>
+    </div>
+    <div class="comparison-cards">
+      ${peers
+        .map(([runId, candidate]) => {
+          const summary = summarizeRun(candidate);
+          const strategy = strategyForRun(candidate);
+          return `
+            <button class="comparison-card ${runId === state.runId ? "active" : ""}" data-compare-run="${escapeHtml(runId)}" type="button">
+              <span class="comparison-name">${escapeHtml(strategyLabel(strategy))}</span>
+              <span class="comparison-strategy">${escapeHtml(strategy)}</span>
+              <span class="comparison-stat"><b>${summary.maxDepth}</b> depth</span>
+              <span class="comparison-stat"><b>${summary.damageTaken}</b> damage</span>
+              <span class="comparison-stat"><b>${summary.kills}</b> kills</span>
+              <span class="comparison-stat"><b>${summary.gold}</b> gold</span>
+              <span class="comparison-stat"><b>${summary.turns}</b> turns</span>
+            </button>`;
+        })
+        .join("")}
+    </div>`;
+
+  panel.querySelectorAll<HTMLButtonElement>("[data-compare-run]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.runId = button.dataset.compareRun ?? state.runId;
+      selectInitialEvent();
+      render();
+    });
+  });
 }
 
 function renderMetrics(events: RunEvent[]): void {
@@ -466,6 +538,8 @@ function renderDetail(event?: RunEvent): void {
         <div><dt>Action</dt><dd>${escapeHtml(decision.action.type)}</dd></div>
         <div><dt>HP</dt><dd>${decision.observation.hp}/${decision.observation.max_hp}</dd></div>
         <div><dt>Enemies</dt><dd>${decision.observation.enemy_count}</dd></div>
+        <div><dt>Danger here</dt><dd>${decision.observation.current_danger ?? "—"}</dd></div>
+        <div><dt>Next danger</dt><dd>${decision.observation.selected_step_danger ?? "—"}</dd></div>
       </dl>
       <div class="action-vector">
         direction <code>(${decision.action.direction.x}, ${decision.action.direction.y})</code>

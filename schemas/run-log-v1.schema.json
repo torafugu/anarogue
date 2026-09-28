@@ -32,6 +32,9 @@
       ]
     },
     "run_id": { "type": "string", "minLength": 1 },
+    "scenario_id": { "type": "string", "minLength": 1 },
+    "scenario_seed": { "type": "integer" },
+    "strategy_id": { "type": "string", "minLength": 1 },
     "sequence": { "type": "integer", "minimum": 1 },
     "turn": { "type": "integer", "minimum": 0 },
     "depth": { "type": "integer", "minimum": 1 },
@@ -130,7 +133,9 @@
               "items": { "$ref": "#/$defs/enemy_snapshot" }
             },
             "stairs_pos": { "$ref": "#/$defs/vector2i" },
-            "stairs_distance_squared": { "type": "integer", "minimum": 0 }
+            "stairs_distance_squared": { "type": "integer", "minimum": 0 },
+            "current_danger": { "type": "integer", "minimum": 0 },
+            "selected_step_danger": { "type": "integer", "minimum": 0 }
           },
           "additionalProperties": false
         },

@@ -46,6 +46,8 @@ export interface DecisionDetails {
     enemies: EnemySnapshot[];
     stairs_pos: Vector2i;
     stairs_distance_squared: number;
+    current_danger?: number;
+    selected_step_danger?: number;
   };
   action: {
     type: "move" | "attack" | "wait" | string;
@@ -59,6 +61,9 @@ export interface RunEvent {
   time: string;
   event: EventName;
   run_id: string;
+  scenario_id?: string;
+  scenario_seed?: number;
+  strategy_id?: string;
   sequence: number;
   turn: number;
   depth: number;
@@ -125,6 +130,10 @@ function normalizeEvent(value: unknown, lineNumber: number): RunEvent {
     time: asString(value.time),
     event,
     run_id: runId,
+    scenario_id: asString(value.scenario_id) || undefined,
+    scenario_seed:
+      typeof value.scenario_seed === "number" ? value.scenario_seed : undefined,
+    strategy_id: asString(value.strategy_id) || undefined,
     sequence: asNumber(value.sequence, lineNumber),
     turn: asNumber(value.turn),
     depth: Math.max(asNumber(value.depth, 1), 1),

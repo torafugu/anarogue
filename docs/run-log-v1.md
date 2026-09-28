@@ -14,6 +14,9 @@ Every event has the same top-level envelope:
 | `time` | Time at which Godot wrote the event. |
 | `event` | Event category, such as `decision` or `battle_result`. |
 | `run_id` | Identifies one run. Enemy and decision IDs are unique within this run. |
+| `scenario_id` | Groups runs that received the same generated scenario. Optional for older v1 logs. |
+| `scenario_seed` | Seed used to derive floor, spawn, and reward random streams. Optional for older v1 logs. |
+| `strategy_id` | Strategy used for this run, such as `aggressive_v1` or `cautious_v1`. Optional for older v1 logs. |
 | `sequence` | Strictly increasing event order within the run. |
 | `turn` | Last completed turn when the event was written. |
 | `depth` | Current dungeon depth. |
@@ -30,14 +33,14 @@ The automatic player emits a `decision` event immediately before every action.
 Its `details` object contains:
 
 - `decision_id`: joins the decision to the following `user_action` event.
-- `strategy_id`: currently `default_v1`; later this can identify a preset or DSL program.
+- `strategy_id`: identifies the built-in preset now and can identify a DSL program later.
 - `rule_id`: stable name of the rule that won priority evaluation.
 - `reason`: human-readable explanation intended for the log viewer.
 - `action_turn`: turn that the selected action is expected to advance.
 - `observation`: facts available to the strategy when it made the decision.
 - `action`: selected action, direction, and target snapshot.
 
-The current built-in rules are evaluated in this order:
+The Aggressive strategy uses these rules in priority order:
 
 1. `attack_adjacent_enemy`
 2. `hunt_nearest_enemy`
@@ -45,6 +48,20 @@ The current built-in rules are evaluated in this order:
 
 If pathfinding cannot reach the selected target, the corresponding
 `wait_no_path_to_enemy` or `wait_no_path_to_stairs` rule is recorded instead.
+
+The Cautious strategy uses `cautious_seek_stairs` and assigns danger costs to
+tiles threatened by melee enemies and archers. It records
+`retreat_from_adjacent_enemy` when it can step away toward the stairs,
+`attack_blocking_enemy` when no route is open, and `wait_no_safe_path` when it
+cannot do either. Decision observations include `current_danger` and, when a
+step is selected, `selected_step_danger`.
+
+## Same-seed comparisons
+
+The comparison command writes two runs with the same `scenario_id` and
+`scenario_seed`, one per strategy. Dungeon generation, enemy spawning, and gold
+rewards use separately derived random streams, so a strategy consuming a
+different number of turns cannot alter the other strategy's scenario.
 
 The rule identifiers are deliberately independent from GDScript function names.
 They are the future integration point for the strategy DSL and should only be
