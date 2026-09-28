@@ -724,6 +724,7 @@ func player_act(direction: Vector2i, decision_id: String = "") -> void:
 			add_decision_reference(descend_details, decision_id)
 			log_user_action("descend", "stairs_used", descend_details)
 			player["depth"] = player["depth"] + 1
+			player["score"] += 3
 			player["hp"] = mini(player["max_hp"], player["hp"] + 4)
 			log_event("floor_descend", {
 				"to_depth": player["depth"],
@@ -744,7 +745,7 @@ func attack_enemy(index: int) -> void:
 		enemies.remove_at(index)
 		var gold := gold_reward_for_enemy(enemy)
 		player["gold"] = player["gold"] + gold
-		player["score"] += 2
+		player["score"] += 2 if enemy["type"] == "archer" else 1
 		var xp_gain := 5 if enemy["type"] == "archer" else 3
 		player["xp"] += xp_gain
 		check_level_up()

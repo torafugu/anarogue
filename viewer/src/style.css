@@ -349,7 +349,7 @@ select,
 
 .comparison-card {
   display: grid;
-  grid-template-columns: minmax(130px, 1.4fr) repeat(5, minmax(58px, 0.6fr));
+  grid-template-columns: minmax(100px, 1.4fr) repeat(6, minmax(0, 0.6fr));
   align-items: center;
   gap: 12px;
   min-width: 0;
@@ -404,7 +404,7 @@ select,
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   margin-bottom: 18px;
   border: solid var(--border);
   border-width: 1px 0 0 1px;

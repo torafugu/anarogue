@@ -115,6 +115,7 @@ The green stair-step icon inside an outlined square marks the stairs.
 Step onto the stairs to:
 
 - Advance to the next dungeon depth
+- Earn 3 score points
 - Generate a new floor
 - Recover up to 4 HP, without going above maximum HP
 
@@ -127,6 +128,8 @@ Your HP is shown in the HUD.
 If HP reaches 0, the run ends and the game displays a Game Over message. Press `R` to start a new run from Depth 1.
 
 Gold is collected by defeating enemies. It is shown as a score-like progress value for the current run.
+
+Score starts at 0. Defeating a melee enemy earns 1 point, defeating an archer earns 2 points, and descending to the next depth earns 3 points. Taking turns does not award points.
 
 ## Tips
 

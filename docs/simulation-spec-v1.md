@@ -198,9 +198,10 @@ turn. A manual `.` wait has the same simulation effect.
 When the player enters the stairs tile:
 
 1. Increment depth by one.
-2. Restore `4` HP, capped at maximum HP.
-3. Generate the new floor from the new depth.
-4. Skip the old floor's enemy phase.
+2. Add `3` score.
+3. Restore `4` HP, capped at maximum HP.
+4. Generate the new floor from the new depth.
+5. Skip the old floor's enemy phase.
 
 There is no final depth or victory state. A run continues until player defeat or an
 external restart.
@@ -213,7 +214,7 @@ When the player attacks an enemy:
 2. If the enemy survives, leave it in its current array position.
 3. If it dies, remove it from the enemy collection and award:
    - `1` through `4` gold from its deterministic reward stream;
-   - `2` score; and
+   - `1` score for melee or `2` score for archer; and
    - `3` XP for melee or `5` XP for archer.
 4. Apply all earned level-ups.
 
@@ -226,8 +227,8 @@ exceeds the threshold:
 4. restore `2` HP, capped at the new maximum; and
 5. add `1` attack.
 
-The current code does **not** award one score per turn. Score changes only by `+2`
-on a kill.
+The current code does **not** award score per turn. Score changes only when an
+enemy is defeated or the player descends to the next depth.
 
 ## 8. Enemy phase
 
@@ -402,9 +403,10 @@ A replacement core should pass at least these fixtures against the Godot baselin
 3. A wall bump consumes no turn and invokes no enemy.
 4. A wait consumes one turn and invokes each surviving enemy once in order.
 5. A bump attack consumes one turn, removes a killed enemy before the enemy phase,
-   and awards deterministic gold and XP.
-6. Entering stairs consumes one turn, heals up to four HP, increments depth, creates
-   the expected floor, and skips the previous enemy phase.
+   and awards deterministic gold, type-specific score, and XP.
+6. Entering stairs consumes one turn, adds three score, heals up to four HP,
+   increments depth, creates the expected floor, and skips the previous enemy
+   phase.
 7. Multiple level-ups in one award apply all stat increases and retain remaining XP.
 8. Melee and archer boundary distances (`1`, `2`, `49`, and `80` squared where
    applicable) reproduce current attack, retreat, movement, and danger behavior.
