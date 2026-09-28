@@ -84,6 +84,7 @@ export interface RunSummary {
   kills: number;
   damageTaken: number;
   gold: number;
+  score: number;
   decisions: number;
   finalHp: number;
   result: "defeated" | "restarted" | "active";
@@ -206,6 +207,7 @@ export function summarizeRun(events: RunEvent[]): RunSummary {
     kills,
     damageTaken,
     gold: last?.player_state?.gold ?? last?.gold ?? 0,
+    score: last?.player_state?.score ?? 0,
     decisions,
     finalHp: last?.player_state?.hp ?? last?.hp ?? 0,
     result,

@@ -296,6 +296,7 @@ function renderComparison(events: RunEvent[]): void {
             <button class="comparison-card ${runId === state.runId ? "active" : ""}" data-compare-run="${escapeHtml(runId)}" type="button">
               <span class="comparison-name">${escapeHtml(strategyLabel(strategy))}</span>
               <span class="comparison-strategy">${escapeHtml(strategy)}</span>
+              <span class="comparison-stat"><b>${summary.score}</b> score</span>
               <span class="comparison-stat"><b>${summary.maxDepth}</b> depth</span>
               <span class="comparison-stat"><b>${summary.damageTaken}</b> damage</span>
               <span class="comparison-stat"><b>${summary.kills}</b> kills</span>
@@ -318,6 +319,7 @@ function renderComparison(events: RunEvent[]): void {
 function renderMetrics(events: RunEvent[]): void {
   const summary = summarizeRun(events);
   const metrics = [
+    ["Score", summary.score, "latest total"],
     ["Turns", summary.turns, "elapsed actions"],
     ["Depth", summary.maxDepth, "deepest floor"],
     ["Kills", summary.kills, "enemies removed"],
@@ -563,6 +565,7 @@ function renderDetail(event?: RunEvent): void {
       <span>Depth <b>${event.depth}</b></span>
       <span>HP <b>${event.player_state?.hp ?? event.hp}</b></span>
       <span>Gold <b>${event.player_state?.gold ?? event.gold}</b></span>
+      <span>Score <b>${event.player_state?.score ?? 0}</b></span>
     </div>
     <details class="raw-event">
       <summary>Raw event</summary>
