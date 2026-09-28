@@ -51,11 +51,9 @@ func _init() -> void:
 		finish()
 		return
 
-	var expected = JSON.parse_string(fixture_file.get_as_text())
-	if expected == null:
-		failures.append("Fixture is not valid JSON: %s" % FIXTURE_PATH)
-	else:
-		assert_equal(actual, expected, "Generated state must match the v1 fixture")
+	var expected_json := fixture_file.get_as_text().strip_edges()
+	var actual_json := JSON.stringify(actual)
+	assert_equal(actual_json, expected_json, "Generated state must match the v1 fixture")
 
 	finish()
 
@@ -188,7 +186,7 @@ func write_fixture(snapshot: Dictionary) -> void:
 	if fixture_file == null:
 		failures.append("Could not write fixture: %s" % FIXTURE_PATH)
 		return
-	fixture_file.store_string(JSON.stringify(snapshot, "  ") + "\n")
+	fixture_file.store_string(JSON.stringify(snapshot) + "\n")
 	print("Updated %s" % FIXTURE_PATH)
 
 
