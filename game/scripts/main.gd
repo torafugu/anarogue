@@ -485,6 +485,27 @@ func choose_aggressive_decision(decision_id: String) -> Dictionary:
 func choose_cautious_decision(decision_id: String) -> Dictionary:
 	var adjacent_enemy_direction := direction_to_adjacent_enemy()
 	var stairs_direction := find_low_risk_step_toward(stairs_pos)
+	if adjacent_enemy_direction != Vector2i.ZERO:
+		var adjacent_enemy := enemies[enemy_at(player["pos"] + adjacent_enemy_direction)]
+		var player_pos: Vector2i = player["pos"]
+		var can_escape_via_stairs: bool = (
+			stairs_direction != Vector2i.ZERO
+			and player_pos + stairs_direction == stairs_pos
+		)
+		if adjacent_enemy["type"] == "melee" and not can_escape_via_stairs:
+			return {
+				"decision_id": decision_id,
+				"rule_id": "attack_pursuing_melee",
+				"reason": (
+					"An adjacent melee enemy can match the player's speed, "
+					+ "so retreat would not create distance."
+				),
+				"action_type": "attack",
+				"direction": adjacent_enemy_direction,
+				"selected_step_danger": danger_cost(player["pos"]),
+				"target": enemy_to_log(adjacent_enemy),
+			}
+
 	if stairs_direction != Vector2i.ZERO:
 		var retreating := adjacent_enemy_direction != Vector2i.ZERO
 		return {

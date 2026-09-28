@@ -51,7 +51,9 @@ If pathfinding cannot reach the selected target, the corresponding
 
 The Cautious strategy uses `cautious_seek_stairs` and assigns danger costs to
 tiles threatened by melee enemies and archers. It records
-`retreat_from_adjacent_enemy` when it can step away toward the stairs,
+`attack_pursuing_melee` when a speed-matched melee enemy has caught it,
+`retreat_from_adjacent_enemy` when it can step away from another enemy toward
+the stairs,
 `attack_blocking_enemy` when no route is open, and `wait_no_safe_path` when it
 cannot do either. Decision observations include `current_danger` and, when a
 step is selected, `selected_step_danger`.

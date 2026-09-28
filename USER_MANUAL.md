@@ -73,7 +73,10 @@ only heads for the stairs after clearing the floor.
 
 **Cautious** heads for the stairs immediately. Its pathfinder assigns extra cost
 to tiles threatened by melee enemies and archers, so it prefers safer detours.
-It attacks only when no route to the stairs is open and an enemy blocks it.
+It avoids combat before contact, but attacks a melee enemy once caught because
+both move at the same speed and retreating cannot open a gap. If the stairs are
+one step away, it escapes instead. It also attacks when no route to the stairs
+is open and an enemy blocks it.
 
 Comparison mode gives both strategies the same scenario seed. Floor generation,
 enemy placement, and each enemy's gold reward are derived separately from that
