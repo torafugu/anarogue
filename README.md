@@ -38,7 +38,8 @@ Controls:
 
 See [Simulation specification v1](docs/simulation-spec-v1.md) for the current
 state and turn-processing rules, [Run log schema v1](docs/run-log-v1.md) for the
-event contract, and
+event contract, [Portable randomness specification v1](docs/randomness-v1.md)
+for cross-runtime seed derivation and PRNG behavior, and
 [`examples/sample-run-v1.jsonl`](examples/sample-run-v1.jsonl) for sample data.
 
 ## Run viewer
@@ -92,6 +93,13 @@ Run the fixed-seed simulation regression suite with Godot 4.5:
 ```bash
 godot --headless --path game \
   --script res://tests/fixed_seed_regression.gd
+```
+
+Verify the portable FNV-1a and xorshift32 test vectors with:
+
+```bash
+godot --headless --path game \
+  --script res://tests/portable_rng_test.gd
 ```
 
 The committed fixture freezes dungeon tiles, rooms, actors, deterministic rewards,

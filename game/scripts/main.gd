@@ -1,5 +1,7 @@
 extends Node2D
 
+const PortableRandom := preload("res://scripts/portable_rng.gd")
+
 enum StrategyType {
 	AGGRESSIVE,
 	CAUTIOUS,
@@ -42,7 +44,7 @@ var map_height := 28
 var map_scale := 1.0
 var map_offset := Vector2.ZERO
 
-var rng := RandomNumberGenerator.new()
+var metadata_rng := RandomNumberGenerator.new()
 var map: Array = []
 var rooms: Array[Rect2i] = []
 var enemies: Array[Dictionary] = []
@@ -83,7 +85,7 @@ var log_file_path := DEFAULT_LOG_FILE_PATH
 var truncate_log_on_open := false
 
 func _ready() -> void:
-	rng.randomize()
+	metadata_rng.randomize()
 	if not headless_mode:
 		scenario_seed = create_scenario_seed()
 		create_controls()
@@ -281,7 +283,7 @@ func update_controls_state() -> void:
 	strategy_option.disabled = not controls_available
 
 func create_scenario_seed() -> int:
-	return rng.randi()
+	return metadata_rng.randi()
 
 func strategy_id(strategy: StrategyType) -> String:
 	return "cautious_v1" if strategy == StrategyType.CAUTIOUS else "aggressive_v1"
@@ -323,12 +325,10 @@ func new_floor() -> void:
 			row.append(TILE_WALL)
 		map.append(row)
 
-	var floor_rng := RandomNumberGenerator.new()
-	var spawn_rng := RandomNumberGenerator.new()
 	var floor_seed := derived_seed("floor", player["depth"])
 	var spawn_seed := derived_seed("spawn", player["depth"])
-	floor_rng.seed = floor_seed
-	spawn_rng.seed = spawn_seed
+	var floor_rng := PortableRandom.new(floor_seed)
+	var spawn_rng := PortableRandom.new(spawn_seed)
 
 	generate_dungeon(floor_rng)
 	player["pos"] = rooms[0].get_center()
@@ -347,9 +347,9 @@ func new_floor() -> void:
 	queue_redraw()
 
 func derived_seed(channel: String, depth: int) -> int:
-	return ("%d:%s:%d" % [scenario_seed, channel, depth]).hash()
+	return PortableRandom.derive_seed(scenario_seed, channel, depth)
 
-func generate_dungeon(floor_rng: RandomNumberGenerator) -> void:
+func generate_dungeon(floor_rng: PortableRandom) -> void:
 	var room_target := maxi(2, int(round(map_width * map_height / 112.0)))
 	for i in range(room_target * 8):
 		if rooms.size() >= room_target:
@@ -385,8 +385,8 @@ func carve_room(room: Rect2i) -> void:
 		for x in range(room.position.x, room.end.x):
 			map[y][x] = TILE_FLOOR
 
-func connect_rooms(a: Vector2i, b: Vector2i, floor_rng: RandomNumberGenerator) -> void:
-	if floor_rng.randf() < 0.5:
+func connect_rooms(a: Vector2i, b: Vector2i, floor_rng: PortableRandom) -> void:
+	if floor_rng.chance(1, 2):
 		carve_horizontal(a.x, b.x, a.y)
 		carve_vertical(a.y, b.y, b.x)
 	else:
@@ -401,16 +401,16 @@ func carve_vertical(y1: int, y2: int, x: int) -> void:
 	for y in range(mini(y1, y2), maxi(y1, y2) + 1):
 		map[y][x] = TILE_FLOOR
 
-func spawn_enemies(spawn_rng: RandomNumberGenerator) -> void:
+func spawn_enemies(spawn_rng: PortableRandom) -> void:
 	for i in range(1, rooms.size() - 1):
-		if spawn_rng.randf() > 0.75:
+		if not spawn_rng.chance(3, 4):
 			continue
 		var room := rooms[i]
 		var pos := Vector2i(
 			spawn_rng.randi_range(room.position.x + 1, room.end.x - 2),
 			spawn_rng.randi_range(room.position.y + 1, room.end.y - 2)
 		)
-		var enemy_type := "melee" if spawn_rng.randf() < 0.5 else "archer"
+		var enemy_type := "melee" if spawn_rng.chance(1, 2) else "archer"
 		var enemy_id := "enemy-%d" % next_enemy_id
 		next_enemy_id += 1
 		if enemy_type == "archer":
@@ -792,10 +792,13 @@ func attack_enemy(index: int) -> void:
 		add_message("You hit the enemy.")
 
 func gold_reward_for_enemy(enemy: Dictionary) -> int:
-	var reward_rng := RandomNumberGenerator.new()
-	reward_rng.seed = (
-		"%d:reward:%d:%s" % [scenario_seed, player["depth"], enemy["id"]]
-	).hash()
+	var reward_seed := PortableRandom.derive_seed(
+		scenario_seed,
+		"reward",
+		player["depth"],
+		enemy["id"]
+	)
+	var reward_rng := PortableRandom.new(reward_seed)
 	return reward_rng.randi_range(1, 4)
 
 func check_level_up() -> void:
@@ -994,7 +997,7 @@ func open_log_file() -> void:
 		push_warning("Could not open log file: %s" % log_file_path)
 
 func start_run_log() -> void:
-	run_id = "%d-%d" % [Time.get_unix_time_from_system(), rng.randi()]
+	run_id = "%d-%d" % [Time.get_unix_time_from_system(), metadata_rng.randi()]
 	event_sequence = 0
 	decision_sequence = 0
 	next_enemy_id = 1

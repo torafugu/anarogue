@@ -1,6 +1,7 @@
 extends SceneTree
 
 const MainGame := preload("res://scripts/main.gd")
+const PortableRandom := preload("res://scripts/portable_rng.gd")
 const FIXTURE_PATH := "res://tests/fixtures/fixed-seed-v1.json"
 const CASES := [
 	{
@@ -23,6 +24,13 @@ const CASES := [
 		"depth": 1,
 		"map_width": 30,
 		"map_height": 20,
+	},
+	{
+		"name": "portable_seed_with_enemy",
+		"scenario_seed": 1,
+		"depth": 1,
+		"map_width": 24,
+		"map_height": 18,
 	},
 ]
 
@@ -87,10 +95,8 @@ func build_case_snapshot(test_case: Dictionary) -> Dictionary:
 
 	var floor_seed: int = game.derived_seed("floor", game.player["depth"])
 	var spawn_seed: int = game.derived_seed("spawn", game.player["depth"])
-	var floor_rng := RandomNumberGenerator.new()
-	var spawn_rng := RandomNumberGenerator.new()
-	floor_rng.seed = floor_seed
-	spawn_rng.seed = spawn_seed
+	var floor_rng := PortableRandom.new(floor_seed)
+	var spawn_rng := PortableRandom.new(spawn_seed)
 
 	game.generate_dungeon(floor_rng)
 	game.player["pos"] = game.rooms[0].get_center()

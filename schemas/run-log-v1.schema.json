@@ -20,7 +20,7 @@
     },
     "run_id": { "type": "string", "minLength": 1 },
     "scenario_id": { "type": "string", "minLength": 1 },
-    "scenario_seed": { "type": "integer" },
+    "scenario_seed": { "$ref": "#/$defs/u32" },
     "strategy_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
     "sequence": { "type": "integer", "minimum": 1 },
     "turn": { "type": "integer", "minimum": 0 },
@@ -58,6 +58,11 @@
   ],
   "additionalProperties": false,
   "$defs": {
+    "u32": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
     "vector2i": {
       "type": "object",
       "required": ["x", "y"],
@@ -122,7 +127,7 @@
       "properties": {
         "log_file": { "type": "string", "minLength": 1 },
         "scenario_id": { "type": "string", "minLength": 1 },
-        "scenario_seed": { "type": "integer" },
+        "scenario_seed": { "$ref": "#/$defs/u32" },
         "strategy_id": { "type": "string", "minLength": 1 },
         "comparison": { "type": "boolean" },
         "comparison_phase": { "type": "integer", "minimum": 0, "maximum": 1 }
@@ -133,8 +138,8 @@
       "type": "object",
       "required": ["floor_seed", "spawn_seed", "enemy_count", "enemies", "map_size", "player_pos", "stairs_pos"],
       "properties": {
-        "floor_seed": { "type": "integer" },
-        "spawn_seed": { "type": "integer" },
+        "floor_seed": { "$ref": "#/$defs/u32" },
+        "spawn_seed": { "$ref": "#/$defs/u32" },
         "enemy_count": { "type": "integer", "minimum": 0 },
         "enemies": { "type": "array", "items": { "$ref": "#/$defs/enemy_snapshot" } },
         "map_size": { "$ref": "#/$defs/map_size" },
@@ -328,7 +333,7 @@
         "final_gold": { "type": "integer", "minimum": 0 },
         "turns": { "type": "integer", "minimum": 0 },
         "strategy_id": { "type": "string", "minLength": 1 },
-        "scenario_seed": { "type": "integer" }
+        "scenario_seed": { "$ref": "#/$defs/u32" }
       },
       "additionalProperties": false
     },

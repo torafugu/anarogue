@@ -5,6 +5,7 @@ const DEFAULT_STRATEGY := "aggressive"
 const DEFAULT_SEED := 424242
 const DEFAULT_MAX_TURNS := 5000
 const DEFAULT_OUTPUT := "user://anarogue-headless.jsonl"
+const MAX_SCENARIO_SEED := 4294967295
 
 var strategy_name := DEFAULT_STRATEGY
 var scenario_seed := DEFAULT_SEED
@@ -99,8 +100,12 @@ func parse_arguments(args: PackedStringArray) -> int:
 					return 2
 				strategy_name = value
 			"--seed":
-				if not value.is_valid_int():
-					printerr("--seed must be an integer")
+				if (
+					not value.is_valid_int()
+					or value.to_int() < 0
+					or value.to_int() > MAX_SCENARIO_SEED
+				):
+					printerr("--seed must be an integer from 0 through %d" % MAX_SCENARIO_SEED)
 					return 2
 				scenario_seed = value.to_int()
 			"--max-turns":

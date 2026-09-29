@@ -15,7 +15,7 @@ Every event has the same top-level envelope:
 | `event` | Event category, such as `decision` or `battle_result`. |
 | `run_id` | Identifies one run. Enemy and decision IDs are unique within this run. |
 | `scenario_id` | Groups runs that received the same generated scenario. |
-| `scenario_seed` | Seed used to derive floor, spawn, and reward random streams. |
+| `scenario_seed` | Unsigned 32-bit seed used to derive floor, spawn, and reward random streams. |
 | `strategy_id` | Strategy used for this run, such as `aggressive_v1` or `cautious_v1`. |
 | `sequence` | Strictly increasing event order within the run. |
 | `turn` | Last completed turn when the event was written. |
@@ -47,6 +47,8 @@ The `event` field determines the exact shape of `details`:
 Positions are integer `{x, y}` objects. Enemy types are `melee` or `archer`.
 Decision targets are either a complete enemy snapshot or
 `{"kind": "stairs", "pos": {"x": ..., "y": ...}}`.
+Scenario, floor, and spawn seeds are integers from `0` through `4294967295` and
+follow the [portable randomness specification](randomness-v1.md).
 
 ## Decision events
 

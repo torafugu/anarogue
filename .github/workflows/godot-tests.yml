@@ -18,6 +18,11 @@ jobs:
           godot --headless --path game
           --script res://tests/fixed_seed_regression.gd
 
+      - name: Verify portable random-number vectors
+        run: >-
+          godot --headless --path game
+          --script res://tests/portable_rng_test.gd
+
       - name: Run headless simulation smoke test
         run: >-
           godot --headless --path game

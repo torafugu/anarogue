@@ -107,12 +107,12 @@ A floor contains:
 
 ## 4. Randomness and reproducibility
 
-The current implementation creates independent random streams per floor:
+The simulation creates independent random streams per floor:
 
 ```text
-floor seed = hash("<scenario_seed>:floor:<depth>")
-spawn seed = hash("<scenario_seed>:spawn:<depth>")
-reward seed = hash("<scenario_seed>:reward:<depth>:<enemy_id>")
+floor seed = fnv1a32("<scenario_seed>:floor:<depth>")
+spawn seed = fnv1a32("<scenario_seed>:spawn:<depth>")
+reward seed = fnv1a32("<scenario_seed>:reward:<depth>:<enemy_id>")
 ```
 
 - The floor stream controls room sizes, positions, and corridor orientation.
@@ -123,13 +123,15 @@ reward seed = hash("<scenario_seed>:reward:<depth>:<enemy_id>")
 - Given the same scenario seed, depth, map dimensions, and implementation, both
   strategies must receive the same initial floor and enemy population.
 
-The initial `scenario_seed` is generated from Godot's global random source. The
-`run_id` also includes a global random value, but the run ID must not influence the
-simulation.
+`scenario_seed` and all derived seeds are unsigned 32-bit integers. Seed keys use
+FNV-1a 32-bit and streams use xorshift32 with rejection-sampled inclusive integer
+ranges. Probability checks use exact integer fractions rather than floating point.
+The complete algorithms, consumption order, and test vectors are defined in
+[Portable randomness specification v1](randomness-v1.md).
 
-Godot's `String.hash()` is currently part of seed derivation. A server implemented
-in another language must either reproduce that algorithm exactly or introduce a
-specified cross-platform hash in a later specification version.
+The initial `scenario_seed` may be generated from Godot's global random source when
+the user does not supply one. The `run_id` also includes a global random value.
+These metadata values must not consume or otherwise influence a simulation stream.
 
 ## 5. Floor generation
 
@@ -379,7 +381,7 @@ determinism.
 | Area | Current behavior | Required extraction decision |
 | --- | --- | --- |
 | Map dimensions | Derived from current viewport, tile size `40`, and HUD width `360` | Put dimensions in simulation configuration or scenario identity |
-| Seed hashing | Godot `String.hash()` | Reproduce it exactly or define a stable portable hash |
+| Seed hashing and PRNG | FNV-1a 32-bit and xorshift32 are fully specified | Implement the published u32 operations and vectors |
 | Numeric semantics | Archer attack uses `1 + depth / 2` in GDScript | Specify integer rounding and types explicitly |
 | Tie-breaking | Depends on array/frontier insertion order | Preserve and test ordering |
 | Visibility | Radius check only; walls are ignored | Preserve as v1 or introduce line-of-sight in a later version |
