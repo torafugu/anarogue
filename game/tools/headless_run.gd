@@ -18,7 +18,7 @@ func _init() -> void:
 
 
 func run() -> void:
-	var parse_result := parse_arguments(OS.get_cmdline_user_args())
+	var parse_result := parse_arguments(collect_runner_arguments())
 	if parse_result != OK:
 		quit(parse_result)
 		return
@@ -71,6 +71,13 @@ func parse_arguments(args: PackedStringArray) -> int:
 	var index := 0
 	while index < args.size():
 		var argument := args[index]
+		var inline_value := ""
+		var has_inline_value := false
+		if "=" in argument:
+			var parts := argument.split("=", true, 1)
+			argument = parts[0]
+			inline_value = parts[1]
+			has_inline_value = true
 		if argument == "--help":
 			print_usage()
 			should_run = false
@@ -79,12 +86,12 @@ func parse_arguments(args: PackedStringArray) -> int:
 			printerr("Unknown argument: %s" % argument)
 			print_usage()
 			return 2
-		if index + 1 >= args.size():
+		if not has_inline_value and index + 1 >= args.size():
 			printerr("Missing value for %s" % argument)
 			print_usage()
 			return 2
 
-		var value := args[index + 1]
+		var value := inline_value if has_inline_value else args[index + 1]
 		match argument:
 			"--strategy":
 				if value not in ["aggressive", "cautious"]:
@@ -106,8 +113,31 @@ func parse_arguments(args: PackedStringArray) -> int:
 					printerr("--output must not be empty")
 					return 2
 				output_path = value
-		index += 2
+		index += 1 if has_inline_value else 2
 	return OK
+
+
+func collect_runner_arguments() -> PackedStringArray:
+	var result := PackedStringArray()
+	var engine_args := OS.get_cmdline_args()
+	var runner_options := ["--strategy", "--seed", "--max-turns", "--output", "--help"]
+	var index := 0
+	var found_before_separator := false
+	while index < engine_args.size():
+		var argument := engine_args[index]
+		var option := argument.split("=", true, 1)[0]
+		if option in runner_options:
+			found_before_separator = true
+			result.append(argument)
+			if "=" not in argument and option != "--help" and index + 1 < engine_args.size():
+				result.append(engine_args[index + 1])
+				index += 1
+		index += 1
+
+	if found_before_separator:
+		push_warning("Runner arguments should follow the standalone -- separator; accepting them for compatibility.")
+	result.append_array(OS.get_cmdline_user_args())
+	return result
 
 
 func resolve_output_path(path: String) -> String:
@@ -130,5 +160,7 @@ func print_usage() -> void:
 	print(
 		"Usage: godot --headless --path game --script res://tools/headless_run.gd -- "
 		+ "[--strategy aggressive|cautious] [--seed INTEGER] "
-		+ "[--max-turns INTEGER] [--output PATH]"
+		+ "[--max-turns INTEGER] [--output PATH]\n"
+		+ "Runner arguments normally belong after the standalone -- separator. "
+		+ "Both --output PATH and --output=PATH are accepted."
 	)

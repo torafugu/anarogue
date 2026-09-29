@@ -21,11 +21,11 @@ jobs:
       - name: Run headless simulation smoke test
         run: >-
           godot --headless --path game
-          --script res://tools/headless_run.gd --
+          --script res://tools/headless_run.gd
+          --output /tmp/anarogue-headless.jsonl --
           --strategy cautious
           --seed 424242
           --max-turns 100
-          --output /tmp/anarogue-headless.jsonl
 
       - name: Check headless event log
         run: |

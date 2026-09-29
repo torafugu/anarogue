@@ -70,7 +70,10 @@ godot --headless --path game \
 
 `--strategy` accepts `aggressive` or `cautious`. Relative output paths are
 resolved from `game/`; absolute paths and `user://` paths are also accepted. The
-output file is replaced on each invocation. Defaults are equivalent to:
+output file is replaced on each invocation. Keep the standalone `--` before the
+runner arguments; `--output PATH` and `--output=PATH` are both accepted. For
+compatibility, runner arguments placed before the separator are also detected.
+Defaults are equivalent to:
 
 ```text
 --strategy aggressive --seed 424242 --max-turns 5000 \
