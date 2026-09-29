@@ -15,7 +15,7 @@ const ARROW_IMPACT_DURATION := 0.12
 
 const TILE_WALL := 0
 const TILE_FLOOR := 1
-const LOG_FILE_PATH := "user://anarogue.jsonl"
+const DEFAULT_LOG_FILE_PATH := "user://anarogue.jsonl"
 const LOG_SCHEMA_VERSION := 1
 const BASE_MAX_HP := 18
 const BASE_ATTACK := 5
@@ -78,15 +78,44 @@ var start_button: Button
 var compare_button: Button
 var strategy_option: OptionButton
 var arrows: Array[Dictionary] = []
+var headless_mode := false
+var log_file_path := DEFAULT_LOG_FILE_PATH
+var truncate_log_on_open := false
 
 func _ready() -> void:
 	rng.randomize()
-	scenario_seed = create_scenario_seed()
-	create_controls()
-	get_viewport().size_changed.connect(update_layout)
+	if not headless_mode:
+		scenario_seed = create_scenario_seed()
+		create_controls()
+		get_viewport().size_changed.connect(update_layout)
 	open_log_file()
 	start_run_log()
 	new_floor()
+
+func configure_headless(seed_value: int, strategy: StrategyType, output_path: String) -> void:
+	headless_mode = true
+	scenario_seed = seed_value
+	active_strategy = strategy
+	log_file_path = output_path
+	truncate_log_on_open = true
+
+func start_automatic_run() -> void:
+	if game_over:
+		return
+
+	comparison_phase = 0
+	auto_exploration_started = true
+	auto_turn_elapsed = 0.0
+	update_controls_state()
+	log_user_action("start", "auto_exploration_started")
+	add_message("%s strategy started." % strategy_display_name(active_strategy))
+	queue_redraw()
+
+func close_log_file() -> void:
+	if log_file:
+		log_file.flush()
+		log_file.close()
+		log_file = null
 
 func _process(delta: float) -> void:
 	# Finish projectiles even when the final shot has ended the run.
@@ -220,16 +249,7 @@ func _on_strategy_selected(index: int) -> void:
 	restart_game(true, false)
 
 func _on_start_button_pressed() -> void:
-	if game_over:
-		return
-
-	comparison_phase = 0
-	auto_exploration_started = true
-	auto_turn_elapsed = 0.0
-	update_controls_state()
-	log_user_action("start", "auto_exploration_started")
-	add_message("%s strategy started." % strategy_display_name(active_strategy))
-	queue_redraw()
+	start_automatic_run()
 
 func _on_compare_button_pressed() -> void:
 	if auto_exploration_started:
@@ -281,9 +301,10 @@ func update_layout() -> void:
 	var grid_size := Vector2(map_width, map_height) * TILE_SIZE
 	map_scale = minf(available.x / grid_size.x, available.y / grid_size.y)
 	map_offset = (available - grid_size * map_scale) * 0.5
-	strategy_option.position = Vector2(available.x + 16, 292)
-	start_button.position = Vector2(available.x + 16, 350)
-	compare_button.position = Vector2(available.x + 16, 412)
+	if strategy_option and start_button and compare_button:
+		strategy_option.position = Vector2(available.x + 16, 292)
+		start_button.position = Vector2(available.x + 16, 350)
+		compare_button.position = Vector2(available.x + 16, 412)
 	queue_redraw()
 
 func new_floor() -> void:
@@ -852,12 +873,13 @@ func run_archer_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i) -> void
 	# In bow range (2-7 tiles): fire arrow
 	if dist_sq <= 49:
 		if can_enemy_see_player(enemy_pos):
-			arrows.append({
-				"from": Vector2(enemy_pos) * TILE_SIZE + Vector2.ONE * TILE_SIZE * 0.5,
-				"to": Vector2(player["pos"]) * TILE_SIZE + Vector2.ONE * TILE_SIZE * 0.5,
-				"elapsed": 0.0,
-			})
-			queue_redraw()
+			if not headless_mode:
+				arrows.append({
+					"from": Vector2(enemy_pos) * TILE_SIZE + Vector2.ONE * TILE_SIZE * 0.5,
+					"to": Vector2(player["pos"]) * TILE_SIZE + Vector2.ONE * TILE_SIZE * 0.5,
+					"elapsed": 0.0,
+				})
+				queue_redraw()
 			var dmg: int = enemy["attack"]
 			var hp_before: int = player["hp"]
 			player["hp"] = maxi(player["hp"] - dmg, 0)
@@ -959,15 +981,17 @@ func add_message(text: String) -> void:
 		messages.pop_back()
 
 func open_log_file() -> void:
-	if FileAccess.file_exists(LOG_FILE_PATH):
-		log_file = FileAccess.open(LOG_FILE_PATH, FileAccess.READ_WRITE)
+	if truncate_log_on_open:
+		log_file = FileAccess.open(log_file_path, FileAccess.WRITE_READ)
+	elif FileAccess.file_exists(log_file_path):
+		log_file = FileAccess.open(log_file_path, FileAccess.READ_WRITE)
 		if log_file:
 			log_file.seek_end()
 	else:
-		log_file = FileAccess.open(LOG_FILE_PATH, FileAccess.WRITE_READ)
+		log_file = FileAccess.open(log_file_path, FileAccess.WRITE_READ)
 
 	if not log_file:
-		push_warning("Could not open log file: %s" % LOG_FILE_PATH)
+		push_warning("Could not open log file: %s" % log_file_path)
 
 func start_run_log() -> void:
 	run_id = "%d-%d" % [Time.get_unix_time_from_system(), rng.randi()]
@@ -975,7 +999,7 @@ func start_run_log() -> void:
 	decision_sequence = 0
 	next_enemy_id = 1
 	log_event("run_start", {
-		"log_file": LOG_FILE_PATH,
+		"log_file": log_file_path,
 		"scenario_id": current_scenario_id(),
 		"scenario_seed": scenario_seed,
 		"strategy_id": strategy_id(active_strategy),

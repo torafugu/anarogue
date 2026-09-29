@@ -53,6 +53,35 @@ npm install
 npm run dev
 ```
 
+## Run headless simulation
+
+Run one automatic game without opening the UI. The runner advances turns as fast
+as possible, writes the same v1 event stream as the interactive game, and prints
+a final `HEADLESS_RUN_SUMMARY` line to standard output.
+
+```bash
+godot --headless --path game \
+  --script res://tools/headless_run.gd -- \
+  --strategy aggressive \
+  --seed 424242 \
+  --max-turns 5000 \
+  --output ../logs/aggressive-424242.jsonl
+```
+
+`--strategy` accepts `aggressive` or `cautious`. Relative output paths are
+resolved from `game/`; absolute paths and `user://` paths are also accepted. The
+output file is replaced on each invocation. Defaults are equivalent to:
+
+```text
+--strategy aggressive --seed 424242 --max-turns 5000 \
+--output user://anarogue-headless.jsonl
+```
+
+The process exits successfully whether the player is defeated or the turn limit
+is reached. Read the summary's `outcome` field to distinguish
+`player_defeated` from `turn_limit`. A turn-limit stop does not add a synthetic
+event to the v1 stream.
+
 ## Tests
 
 Run the fixed-seed simulation regression suite with Godot 4.5:
