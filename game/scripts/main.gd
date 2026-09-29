@@ -804,14 +804,14 @@ func run_enemy_turn() -> void:
 func run_melee_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i, delta: Vector2i) -> void:
 	if abs(delta.x) + abs(delta.y) == 1:
 		var hp_before: int = player["hp"]
-		player["hp"] = player["hp"] - enemy["attack"]
+		player["hp"] = maxi(player["hp"] - enemy["attack"], 0)
 		log_battle_result("player_hit", {
 			"enemy_id": enemy["id"],
 			"enemy_type": enemy["type"],
 			"enemy_pos": vector_to_log(enemy_pos),
 			"damage": enemy["attack"],
 			"player_hp_before": hp_before,
-			"player_hp_after": maxi(player["hp"], 0),
+			"player_hp_after": player["hp"],
 		})
 		add_message("Enemy hits you for %d." % enemy["attack"])
 		if player["hp"] <= 0:
@@ -835,13 +835,13 @@ func run_archer_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i) -> void
 		# Cornered — weak melee attack
 		var hp_before: int = player["hp"]
 		var melee_dmg := 1
-		player["hp"] = player["hp"] - melee_dmg
+		player["hp"] = maxi(player["hp"] - melee_dmg, 0)
 		log_battle_result("player_hit", {
 			"enemy_id": enemy["id"],
 			"enemy_pos": vector_to_log(enemy_pos),
 			"damage": melee_dmg,
 			"player_hp_before": hp_before,
-			"player_hp_after": maxi(player["hp"], 0),
+			"player_hp_after": player["hp"],
 			"enemy_type": "archer",
 		})
 		add_message("Archer punches you for %d." % melee_dmg)
@@ -860,13 +860,13 @@ func run_archer_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i) -> void
 			queue_redraw()
 			var dmg: int = enemy["attack"]
 			var hp_before: int = player["hp"]
-			player["hp"] = player["hp"] - dmg
+			player["hp"] = maxi(player["hp"] - dmg, 0)
 			log_battle_result("player_hit", {
 				"enemy_id": enemy["id"],
 				"enemy_pos": vector_to_log(enemy_pos),
 				"damage": dmg,
 				"player_hp_before": hp_before,
-				"player_hp_after": maxi(player["hp"], 0),
+				"player_hp_after": player["hp"],
 				"enemy_type": "archer",
 				"ranged": true,
 			})

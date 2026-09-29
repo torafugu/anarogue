@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "validate:logs": "node scripts/validate-run-log.mjs",
     "preview": "vite preview"
   },
   "devDependencies": {
+    "ajv": "^8.20.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.7"
   }

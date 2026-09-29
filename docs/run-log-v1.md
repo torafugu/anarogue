@@ -14,9 +14,9 @@ Every event has the same top-level envelope:
 | `time` | Time at which Godot wrote the event. |
 | `event` | Event category, such as `decision` or `battle_result`. |
 | `run_id` | Identifies one run. Enemy and decision IDs are unique within this run. |
-| `scenario_id` | Groups runs that received the same generated scenario. Optional for older v1 logs. |
-| `scenario_seed` | Seed used to derive floor, spawn, and reward random streams. Optional for older v1 logs. |
-| `strategy_id` | Strategy used for this run, such as `aggressive_v1` or `cautious_v1`. Optional for older v1 logs. |
+| `scenario_id` | Groups runs that received the same generated scenario. |
+| `scenario_seed` | Seed used to derive floor, spawn, and reward random streams. |
+| `strategy_id` | Strategy used for this run, such as `aggressive_v1` or `cautious_v1`. |
 | `sequence` | Strictly increasing event order within the run. |
 | `turn` | Last completed turn when the event was written. |
 | `depth` | Current dungeon depth. |
@@ -26,6 +26,27 @@ Every event has the same top-level envelope:
 
 Old log lines written before this schema do not contain `schema_version` and
 should be treated as legacy version 0 by readers.
+
+All fields in the envelope above are required for version 1. Unknown top-level
+fields, event names, and event-specific detail fields are rejected. Extending the
+contract requires a new schema version rather than silently adding fields to v1.
+
+## Event details
+
+The `event` field determines the exact shape of `details`:
+
+| Event | Allowed result variants | Required payload |
+| --- | --- | --- |
+| `run_start` | One shape | Log path, scenario identity, strategy, comparison flag and phase |
+| `floor_start` | One shape | Derived seeds, enemy snapshots, map size, player and stairs positions |
+| `decision` | One shape | Decision identity, rule, reason, observation and selected action |
+| `user_action` | `start`, `restart`, `wait`, `auto_wait`, `move`, `attack`, `descend` | Action/result pair plus the fields required by that action |
+| `battle_result` | `restart`, `enemy_hit`, `enemy_defeated`, `player_hit`, `player_defeated` | Result-specific actor, damage, HP, reward or terminal fields |
+| `floor_descend` | One shape | New depth and HP after recovery |
+
+Positions are integer `{x, y}` objects. Enemy types are `melee` or `archer`.
+Decision targets are either a complete enemy snapshot or
+`{"kind": "stairs", "pos": {"x": ..., "y": ...}}`.
 
 ## Decision events
 
@@ -80,3 +101,23 @@ relying on its changing position.
 A decision is logged at the current completed `turn`. Its `action_turn` points
 to the next turn. The resulting `user_action` carries the same `decision_id`.
 Use `sequence` as the authoritative order when multiple events share a turn.
+
+The validator also enforces relationships that JSON Schema cannot express across
+JSONL records:
+
+- each run begins with `run_start` at sequence 1, turn 0, and depth 1;
+- sequence strictly increases, while turn and depth never decrease;
+- scenario and strategy identity stay constant within one run;
+- top-level HP and gold match `player_state`;
+- decision `action_turn` equals the current turn plus one;
+- declared enemy counts match their arrays; and
+- `floor_descend` depth and HP agree with the event envelope.
+
+Run it from `viewer/`:
+
+```bash
+npm run validate:logs
+```
+
+The default target is `examples/sample-run-v1.jsonl`. Additional log paths can be
+passed after `--`.

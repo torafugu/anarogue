@@ -2,39 +2,26 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/torafugu/anarogue/schemas/run-log-v1.schema.json",
   "title": "AnaRogue run log event v1",
-  "description": "Schema for one JSON Lines record emitted by the AnaRogue simulator.",
+  "description": "Contract for one JSON Lines event emitted by the AnaRogue simulator.",
   "type": "object",
   "required": [
-    "schema_version",
-    "time",
-    "event",
-    "run_id",
-    "sequence",
-    "turn",
-    "depth",
-    "hp",
-    "gold",
-    "player_state",
-    "details"
+    "schema_version", "time", "event", "run_id", "scenario_id",
+    "scenario_seed", "strategy_id", "sequence", "turn", "depth",
+    "hp", "gold", "player_state", "details"
   ],
   "properties": {
     "schema_version": { "const": 1 },
-    "time": { "type": "string", "minLength": 1 },
-    "event": {
+    "time": {
       "type": "string",
-      "enum": [
-        "run_start",
-        "floor_start",
-        "decision",
-        "user_action",
-        "battle_result",
-        "floor_descend"
-      ]
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}$"
+    },
+    "event": {
+      "enum": ["run_start", "floor_start", "decision", "user_action", "battle_result", "floor_descend"]
     },
     "run_id": { "type": "string", "minLength": 1 },
     "scenario_id": { "type": "string", "minLength": 1 },
     "scenario_seed": { "type": "integer" },
-    "strategy_id": { "type": "string", "minLength": 1 },
+    "strategy_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
     "sequence": { "type": "integer", "minimum": 1 },
     "turn": { "type": "integer", "minimum": 0 },
     "depth": { "type": "integer", "minimum": 1 },
@@ -45,15 +32,28 @@
   },
   "allOf": [
     {
-      "if": {
-        "properties": { "event": { "const": "decision" } },
-        "required": ["event"]
-      },
-      "then": {
-        "properties": {
-          "details": { "$ref": "#/$defs/decision_details" }
-        }
-      }
+      "if": { "properties": { "event": { "const": "run_start" } }, "required": ["event"] },
+      "then": { "properties": { "details": { "$ref": "#/$defs/run_start_details" } } }
+    },
+    {
+      "if": { "properties": { "event": { "const": "floor_start" } }, "required": ["event"] },
+      "then": { "properties": { "details": { "$ref": "#/$defs/floor_start_details" } } }
+    },
+    {
+      "if": { "properties": { "event": { "const": "decision" } }, "required": ["event"] },
+      "then": { "properties": { "details": { "$ref": "#/$defs/decision_details" } } }
+    },
+    {
+      "if": { "properties": { "event": { "const": "user_action" } }, "required": ["event"] },
+      "then": { "properties": { "details": { "$ref": "#/$defs/user_action_details" } } }
+    },
+    {
+      "if": { "properties": { "event": { "const": "battle_result" } }, "required": ["event"] },
+      "then": { "properties": { "details": { "$ref": "#/$defs/battle_result_details" } } }
+    },
+    {
+      "if": { "properties": { "event": { "const": "floor_descend" } }, "required": ["event"] },
+      "then": { "properties": { "details": { "$ref": "#/$defs/floor_descend_details" } } }
     }
   ],
   "additionalProperties": false,
@@ -61,9 +61,15 @@
     "vector2i": {
       "type": "object",
       "required": ["x", "y"],
+      "properties": { "x": { "type": "integer" }, "y": { "type": "integer" } },
+      "additionalProperties": false
+    },
+    "map_size": {
+      "type": "object",
+      "required": ["width", "height"],
       "properties": {
-        "x": { "type": "integer" },
-        "y": { "type": "integer" }
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 }
       },
       "additionalProperties": false
     },
@@ -87,25 +93,59 @@
       "required": ["id", "type", "pos", "hp", "attack", "distance_squared"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
-        "type": { "type": "string", "enum": ["melee", "archer"] },
+        "type": { "enum": ["melee", "archer"] },
         "pos": { "$ref": "#/$defs/vector2i" },
-        "hp": { "type": "integer" },
+        "hp": { "type": "integer", "minimum": 1 },
         "attack": { "type": "integer", "minimum": 0 },
         "distance_squared": { "type": "integer", "minimum": 0 }
       },
       "additionalProperties": false
     },
+    "stairs_target": {
+      "type": "object",
+      "required": ["kind", "pos"],
+      "properties": {
+        "kind": { "const": "stairs" },
+        "pos": { "$ref": "#/$defs/vector2i" }
+      },
+      "additionalProperties": false
+    },
+    "decision_target": {
+      "oneOf": [
+        { "$ref": "#/$defs/enemy_snapshot" },
+        { "$ref": "#/$defs/stairs_target" }
+      ]
+    },
+    "run_start_details": {
+      "type": "object",
+      "required": ["log_file", "scenario_id", "scenario_seed", "strategy_id", "comparison", "comparison_phase"],
+      "properties": {
+        "log_file": { "type": "string", "minLength": 1 },
+        "scenario_id": { "type": "string", "minLength": 1 },
+        "scenario_seed": { "type": "integer" },
+        "strategy_id": { "type": "string", "minLength": 1 },
+        "comparison": { "type": "boolean" },
+        "comparison_phase": { "type": "integer", "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "floor_start_details": {
+      "type": "object",
+      "required": ["floor_seed", "spawn_seed", "enemy_count", "enemies", "map_size", "player_pos", "stairs_pos"],
+      "properties": {
+        "floor_seed": { "type": "integer" },
+        "spawn_seed": { "type": "integer" },
+        "enemy_count": { "type": "integer", "minimum": 0 },
+        "enemies": { "type": "array", "items": { "$ref": "#/$defs/enemy_snapshot" } },
+        "map_size": { "$ref": "#/$defs/map_size" },
+        "player_pos": { "$ref": "#/$defs/vector2i" },
+        "stairs_pos": { "$ref": "#/$defs/vector2i" }
+      },
+      "additionalProperties": false
+    },
     "decision_details": {
       "type": "object",
-      "required": [
-        "decision_id",
-        "strategy_id",
-        "rule_id",
-        "reason",
-        "action_turn",
-        "observation",
-        "action"
-      ],
+      "required": ["decision_id", "strategy_id", "rule_id", "reason", "action_turn", "observation", "action"],
       "properties": {
         "decision_id": { "type": "string", "minLength": 1 },
         "strategy_id": { "type": "string", "minLength": 1 },
@@ -114,24 +154,13 @@
         "action_turn": { "type": "integer", "minimum": 1 },
         "observation": {
           "type": "object",
-          "required": [
-            "player_pos",
-            "hp",
-            "max_hp",
-            "enemy_count",
-            "enemies",
-            "stairs_pos",
-            "stairs_distance_squared"
-          ],
+          "required": ["player_pos", "hp", "max_hp", "enemy_count", "enemies", "stairs_pos", "stairs_distance_squared", "current_danger"],
           "properties": {
             "player_pos": { "$ref": "#/$defs/vector2i" },
             "hp": { "type": "integer", "minimum": 0 },
             "max_hp": { "type": "integer", "minimum": 1 },
             "enemy_count": { "type": "integer", "minimum": 0 },
-            "enemies": {
-              "type": "array",
-              "items": { "$ref": "#/$defs/enemy_snapshot" }
-            },
+            "enemies": { "type": "array", "items": { "$ref": "#/$defs/enemy_snapshot" } },
             "stairs_pos": { "$ref": "#/$defs/vector2i" },
             "stairs_distance_squared": { "type": "integer", "minimum": 0 },
             "current_danger": { "type": "integer", "minimum": 0 },
@@ -143,12 +172,172 @@
           "type": "object",
           "required": ["type", "direction", "target"],
           "properties": {
-            "type": { "type": "string", "enum": ["move", "attack", "wait"] },
+            "type": { "enum": ["move", "attack", "wait"] },
             "direction": { "$ref": "#/$defs/vector2i" },
-            "target": { "type": "object" }
+            "target": { "$ref": "#/$defs/decision_target" }
           },
           "additionalProperties": false
         }
+      },
+      "additionalProperties": false
+    },
+    "user_action_details": {
+      "oneOf": [
+        { "$ref": "#/$defs/start_action" }, { "$ref": "#/$defs/restart_action" },
+        { "$ref": "#/$defs/wait_action" }, { "$ref": "#/$defs/auto_wait_action" },
+        { "$ref": "#/$defs/move_action" }, { "$ref": "#/$defs/attack_action" },
+        { "$ref": "#/$defs/descend_action" }
+      ]
+    },
+    "start_action": {
+      "type": "object",
+      "required": ["action", "result"],
+      "properties": {
+        "action": { "const": "start" },
+        "result": { "const": "auto_exploration_started" },
+        "comparison": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "restart_action": {
+      "type": "object",
+      "required": ["action", "result"],
+      "properties": { "action": { "const": "restart" }, "result": { "const": "new_run" } },
+      "additionalProperties": false
+    },
+    "wait_action": {
+      "type": "object",
+      "required": ["action", "result"],
+      "properties": { "action": { "const": "wait" }, "result": { "const": "turn_advanced" } },
+      "additionalProperties": false
+    },
+    "auto_wait_action": {
+      "type": "object",
+      "required": ["action", "result", "decision_id"],
+      "properties": {
+        "action": { "const": "auto_wait" },
+        "result": { "const": "turn_advanced" },
+        "decision_id": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "move_action": {
+      "type": "object",
+      "required": ["action", "result", "direction", "from", "target"],
+      "properties": {
+        "action": { "const": "move" },
+        "result": { "enum": ["moved", "blocked_wall"] },
+        "decision_id": { "type": "string", "minLength": 1 },
+        "direction": { "$ref": "#/$defs/vector2i" },
+        "from": { "$ref": "#/$defs/vector2i" },
+        "target": { "$ref": "#/$defs/vector2i" }
+      },
+      "additionalProperties": false
+    },
+    "attack_action": {
+      "type": "object",
+      "required": ["action", "result", "enemy_id", "direction", "from", "target"],
+      "properties": {
+        "action": { "const": "attack" },
+        "result": { "const": "enemy_targeted" },
+        "decision_id": { "type": "string", "minLength": 1 },
+        "enemy_id": { "type": "string", "minLength": 1 },
+        "direction": { "$ref": "#/$defs/vector2i" },
+        "from": { "$ref": "#/$defs/vector2i" },
+        "target": { "$ref": "#/$defs/vector2i" }
+      },
+      "additionalProperties": false
+    },
+    "descend_action": {
+      "type": "object",
+      "required": ["action", "result", "from_depth", "hp_before"],
+      "properties": {
+        "action": { "const": "descend" },
+        "result": { "const": "stairs_used" },
+        "decision_id": { "type": "string", "minLength": 1 },
+        "from_depth": { "type": "integer", "minimum": 1 },
+        "hp_before": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "battle_result_details": {
+      "oneOf": [
+        { "$ref": "#/$defs/restart_result" }, { "$ref": "#/$defs/enemy_hit_result" },
+        { "$ref": "#/$defs/enemy_defeated_result" }, { "$ref": "#/$defs/player_hit_result" },
+        { "$ref": "#/$defs/player_defeated_result" }
+      ]
+    },
+    "restart_result": {
+      "type": "object",
+      "required": ["result", "reason"],
+      "properties": {
+        "result": { "const": "restart" },
+        "reason": { "enum": ["user_restart", "strategy_changed"] }
+      },
+      "additionalProperties": false
+    },
+    "enemy_hit_result": {
+      "type": "object",
+      "required": ["result", "enemy_id", "enemy_type", "enemy_pos", "damage", "enemy_hp_before", "enemy_hp_after"],
+      "properties": {
+        "result": { "const": "enemy_hit" },
+        "enemy_id": { "type": "string", "minLength": 1 },
+        "enemy_type": { "enum": ["melee", "archer"] },
+        "enemy_pos": { "$ref": "#/$defs/vector2i" },
+        "damage": { "type": "integer", "minimum": 0 },
+        "enemy_hp_before": { "type": "integer", "minimum": 1 },
+        "enemy_hp_after": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "enemy_defeated_result": {
+      "type": "object",
+      "required": ["result", "enemy_id", "enemy_type", "enemy_pos", "damage", "enemy_hp_before", "gold_gained"],
+      "properties": {
+        "result": { "const": "enemy_defeated" },
+        "enemy_id": { "type": "string", "minLength": 1 },
+        "enemy_type": { "enum": ["melee", "archer"] },
+        "enemy_pos": { "$ref": "#/$defs/vector2i" },
+        "damage": { "type": "integer", "minimum": 0 },
+        "enemy_hp_before": { "type": "integer", "minimum": 1 },
+        "gold_gained": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "player_hit_result": {
+      "type": "object",
+      "required": ["result", "enemy_id", "enemy_type", "enemy_pos", "damage", "player_hp_before", "player_hp_after"],
+      "properties": {
+        "result": { "const": "player_hit" },
+        "enemy_id": { "type": "string", "minLength": 1 },
+        "enemy_type": { "enum": ["melee", "archer"] },
+        "enemy_pos": { "$ref": "#/$defs/vector2i" },
+        "damage": { "type": "integer", "minimum": 0 },
+        "player_hp_before": { "type": "integer", "minimum": 1 },
+        "player_hp_after": { "type": "integer", "minimum": 0 },
+        "ranged": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "player_defeated_result": {
+      "type": "object",
+      "required": ["result", "final_depth", "final_gold", "turns", "strategy_id", "scenario_seed"],
+      "properties": {
+        "result": { "const": "player_defeated" },
+        "final_depth": { "type": "integer", "minimum": 1 },
+        "final_gold": { "type": "integer", "minimum": 0 },
+        "turns": { "type": "integer", "minimum": 0 },
+        "strategy_id": { "type": "string", "minLength": 1 },
+        "scenario_seed": { "type": "integer" }
+      },
+      "additionalProperties": false
+    },
+    "floor_descend_details": {
+      "type": "object",
+      "required": ["to_depth", "hp_after"],
+      "properties": {
+        "to_depth": { "type": "integer", "minimum": 2 },
+        "hp_after": { "type": "integer", "minimum": 0 }
       },
       "additionalProperties": false
     }

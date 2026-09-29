@@ -74,3 +74,17 @@ godot --headless --path game \
 Review the fixture diff before committing it. A fixture update changes the v1
 simulation baseline described in
 [Simulation specification v1](docs/simulation-spec-v1.md).
+
+Validate JSONL events against the v1 JSON Schema and stream invariants with:
+
+```bash
+cd viewer
+npm install
+npm run validate:logs
+```
+
+Pass one or more JSONL paths after `--` to validate other logs:
+
+```bash
+npm run validate:logs -- ../path/to/anarogue.jsonl
+```
