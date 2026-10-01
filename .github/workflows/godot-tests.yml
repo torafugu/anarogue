@@ -29,7 +29,7 @@ jobs:
           --script res://tools/generate_reference_logs.gd
 
       - name: Verify reference logs are reproducible
-        run: git diff --exit-code -- examples/reference
+        run: git -C "$GITHUB_WORKSPACE" diff --exit-code -- examples/reference
 
       - name: Run headless simulation smoke test
         run: >-
