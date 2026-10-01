@@ -41,7 +41,8 @@ state and turn-processing rules, [Run log schema v1](docs/run-log-v1.md) for the
 event contract, [Portable randomness specification v1](docs/randomness-v1.md)
 for cross-runtime seed derivation and PRNG behavior,
 [Fixed-seed reference logs v1](docs/reference-logs-v1.md) for the Godot-to-Rust
-compatibility baseline, and
+compatibility baseline, [Rust Simulation Core](docs/rust-simulation-core.md) for
+the Godot-independent batch implementation, and
 [`examples/sample-run-v1.jsonl`](examples/sample-run-v1.jsonl) for sample data.
 
 ## Run viewer
@@ -116,6 +117,16 @@ godot --headless --path game \
 Review the fixture diff before committing it. A fixture update changes the v1
 simulation baseline described in
 [Simulation specification v1](docs/simulation-spec-v1.md).
+
+Run the Rust simulation-core compatibility suite with:
+
+```bash
+cd simulation-core
+cargo test --all-targets
+```
+
+The Rust tests execute the three fixed-seed full-run cases and compare their final
+state with the Godot reference baseline.
 
 Regenerate the deterministic full-run reference logs with:
 
