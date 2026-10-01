@@ -83,6 +83,11 @@ var arrows: Array[Dictionary] = []
 var headless_mode := false
 var log_file_path := DEFAULT_LOG_FILE_PATH
 var truncate_log_on_open := false
+var configured_map_width := 0
+var configured_map_height := 0
+var fixed_run_id := ""
+var fixed_event_time := ""
+var logged_file_path := ""
 
 func _ready() -> void:
 	metadata_rng.randomize()
@@ -100,6 +105,25 @@ func configure_headless(seed_value: int, strategy: StrategyType, output_path: St
 	active_strategy = strategy
 	log_file_path = output_path
 	truncate_log_on_open = true
+
+func configure_headless_map(width: int, height: int) -> void:
+	assert(headless_mode)
+	assert(width >= MAX_ROOM_SIZE + 4)
+	assert(height >= MAX_ROOM_SIZE + 4)
+	configured_map_width = width
+	configured_map_height = height
+
+func configure_reference_log(
+	run_id_value: String,
+	event_time: String,
+	display_path: String
+) -> void:
+	assert(headless_mode)
+	assert(not run_id_value.is_empty())
+	assert(not event_time.is_empty())
+	fixed_run_id = run_id_value
+	fixed_event_time = event_time
+	logged_file_path = display_path
 
 func start_automatic_run() -> void:
 	if game_over:
@@ -311,10 +335,14 @@ func update_layout() -> void:
 
 func new_floor() -> void:
 	arrows.clear()
-	# Generate for the current viewport; resizing an active floor preserves the run.
-	var available := map_available_size()
-	map_width = maxi(MAX_ROOM_SIZE + 4, int(available.x / TILE_SIZE))
-	map_height = maxi(MAX_ROOM_SIZE + 4, int(available.y / TILE_SIZE))
+	if configured_map_width > 0 and configured_map_height > 0:
+		map_width = configured_map_width
+		map_height = configured_map_height
+	else:
+		# Generate for the current viewport; resizing an active floor preserves the run.
+		var available := map_available_size()
+		map_width = maxi(MAX_ROOM_SIZE + 4, int(available.x / TILE_SIZE))
+		map_height = maxi(MAX_ROOM_SIZE + 4, int(available.y / TILE_SIZE))
 	update_layout()
 	map.clear()
 	rooms.clear()
@@ -997,12 +1025,16 @@ func open_log_file() -> void:
 		push_warning("Could not open log file: %s" % log_file_path)
 
 func start_run_log() -> void:
-	run_id = "%d-%d" % [Time.get_unix_time_from_system(), metadata_rng.randi()]
+	run_id = (
+		fixed_run_id
+		if not fixed_run_id.is_empty()
+		else "%d-%d" % [Time.get_unix_time_from_system(), metadata_rng.randi()]
+	)
 	event_sequence = 0
 	decision_sequence = 0
 	next_enemy_id = 1
 	log_event("run_start", {
-		"log_file": log_file_path,
+		"log_file": logged_file_path if not logged_file_path.is_empty() else log_file_path,
 		"scenario_id": current_scenario_id(),
 		"scenario_seed": scenario_seed,
 		"strategy_id": strategy_id(active_strategy),
@@ -1063,7 +1095,11 @@ func log_event(event_name: String, details: Dictionary = {}) -> void:
 	event_sequence += 1
 	var record := {
 		"schema_version": LOG_SCHEMA_VERSION,
-		"time": Time.get_datetime_string_from_system(false, true),
+		"time": (
+			fixed_event_time
+			if not fixed_event_time.is_empty()
+			else Time.get_datetime_string_from_system(false, true)
+		),
 		"event": event_name,
 		"run_id": run_id,
 		"scenario_id": current_scenario_id(),

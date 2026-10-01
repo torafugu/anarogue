@@ -401,7 +401,8 @@ A replacement core should pass at least these fixtures against the Godot baselin
 1. Same scenario seed, depth, and dimensions generate identical tiles, rooms,
    stairs, enemies, IDs, and stats for both strategies.
 2. Repeating the same complete run produces the same decisions and terminal player
-   state, excluding run ID and wall-clock timestamps.
+   state. Reference mode also fixes run ID, timestamp, file path, and map size for
+   byte-for-byte comparison.
 3. A wall bump consumes no turn and invokes no enemy.
 4. A wait consumes one turn and invokes each surviving enemy once in order.
 5. A bump attack consumes one turn, removes a killed enemy before the enemy phase,
@@ -418,3 +419,5 @@ A replacement core should pass at least these fixtures against the Godot baselin
 
 These tests define parity with v1. Improvements to game rules should intentionally
 change the ruleset version rather than silently changing these fixtures.
+The committed full-run cases and regeneration procedure are specified in
+[Fixed-seed reference logs v1](reference-logs-v1.md).

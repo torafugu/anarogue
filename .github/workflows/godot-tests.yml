@@ -23,6 +23,14 @@ jobs:
           godot --headless --path game
           --script res://tests/portable_rng_test.gd
 
+      - name: Regenerate fixed-seed reference logs
+        run: >-
+          godot --headless --path game
+          --script res://tools/generate_reference_logs.gd
+
+      - name: Verify reference logs are reproducible
+        run: git diff --exit-code -- examples/reference
+
       - name: Run headless simulation smoke test
         run: >-
           godot --headless --path game

@@ -27,5 +27,8 @@ jobs:
       - name: Validate sample run log
         run: npm run validate:logs
 
+      - name: Validate fixed-seed reference logs
+        run: npm run validate:logs -- ../examples/reference/*.jsonl
+
       - name: Build log viewer
         run: npm run build

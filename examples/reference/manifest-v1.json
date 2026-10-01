@@ -1,0 +1,55 @@
+{
+  "cases": [
+    {
+      "file": "examples/reference/aggressive-seed-1.jsonl",
+      "final_depth": 5,
+      "final_gold": 4,
+      "final_hp": 18,
+      "final_score": 14,
+      "max_turns": 120,
+      "name": "aggressive-seed-1",
+      "outcome": "turn_limit",
+      "run_id": "reference-aggressive-seed-1",
+      "scenario_seed": 1,
+      "strategy_id": "aggressive_v1",
+      "turns": 120
+    },
+    {
+      "file": "examples/reference/cautious-seed-1.jsonl",
+      "final_depth": 1,
+      "final_gold": 0,
+      "final_hp": 0,
+      "final_score": 0,
+      "max_turns": 120,
+      "name": "cautious-seed-1",
+      "outcome": "player_defeated",
+      "run_id": "reference-cautious-seed-1",
+      "scenario_seed": 1,
+      "strategy_id": "cautious_v1",
+      "turns": 19
+    },
+    {
+      "file": "examples/reference/aggressive-seed-424242.jsonl",
+      "final_depth": 6,
+      "final_gold": 0,
+      "final_hp": 0,
+      "final_score": 15,
+      "max_turns": 120,
+      "name": "aggressive-seed-424242",
+      "outcome": "player_defeated",
+      "run_id": "reference-aggressive-seed-424242",
+      "scenario_seed": 424242,
+      "strategy_id": "aggressive_v1",
+      "turns": 70
+    }
+  ],
+  "event_schema": "v1",
+  "fixed_event_time": "2000-01-01 00:00:00",
+  "format_version": 1,
+  "map_size": {
+    "height": 18,
+    "width": 24
+  },
+  "randomness_spec": "v1",
+  "simulation_spec": "v1"
+}

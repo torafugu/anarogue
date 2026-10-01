@@ -39,7 +39,9 @@ Controls:
 See [Simulation specification v1](docs/simulation-spec-v1.md) for the current
 state and turn-processing rules, [Run log schema v1](docs/run-log-v1.md) for the
 event contract, [Portable randomness specification v1](docs/randomness-v1.md)
-for cross-runtime seed derivation and PRNG behavior, and
+for cross-runtime seed derivation and PRNG behavior,
+[Fixed-seed reference logs v1](docs/reference-logs-v1.md) for the Godot-to-Rust
+compatibility baseline, and
 [`examples/sample-run-v1.jsonl`](examples/sample-run-v1.jsonl) for sample data.
 
 ## Run viewer
@@ -103,7 +105,7 @@ godot --headless --path game \
 ```
 
 The committed fixture freezes dungeon tiles, rooms, actors, deterministic rewards,
-and the first Aggressive and Cautious decisions for three scenario/depth/map-size
+and the first Aggressive and Cautious decisions for four scenario/depth/map-size
 combinations. When a simulation change is intentional, regenerate it with:
 
 ```bash
@@ -114,6 +116,18 @@ godot --headless --path game \
 Review the fixture diff before committing it. A fixture update changes the v1
 simulation baseline described in
 [Simulation specification v1](docs/simulation-spec-v1.md).
+
+Regenerate the deterministic full-run reference logs with:
+
+```bash
+godot --headless --path game \
+  --script res://tools/generate_reference_logs.gd
+```
+
+With no simulation change, this command must leave `examples/reference/`
+byte-for-byte unchanged. See
+[Fixed-seed reference logs v1](docs/reference-logs-v1.md) for the cases and Rust
+parity workflow.
 
 Validate JSONL events against the v1 JSON Schema and stream invariants with:
 
