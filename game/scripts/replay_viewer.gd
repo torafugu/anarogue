@@ -3,20 +3,25 @@ extends Node2D
 const ReplayData := preload("res://scripts/replay_log.gd")
 const DEFAULT_REPLAY := "res://../examples/reference/aggressive-seed-1.jsonl"
 const AUTO_STEP_SECONDS := 0.28
+const ARROW_FLIGHT_DURATION := 0.28
+const ARROW_IMPACT_DURATION := 0.12
 
 const COLOR_BG := Color("#15171d")
 const COLOR_WALL := Color("#303845")
+const COLOR_WALL_EDGE := Color("#465266")
 const COLOR_FLOOR := Color("#242a32")
-const COLOR_GRID := Color("#343c49")
+const COLOR_FLOOR_ALT := Color("#29313b")
 const COLOR_PLAYER := Color("#f2d16b")
 const COLOR_MELEE := Color("#d85f5f")
 const COLOR_ARCHER := Color("#6ecbff")
 const COLOR_STAIRS := Color("#79c7a6")
+const COLOR_TEXT := Color("#e7e1cf")
 
 var replay := ReplayData.new()
 var frame_index := 0
 var playing := false
 var auto_elapsed := 0.0
+var arrow_elapsed := 0.0
 var font := ThemeDB.fallback_font
 var run_selector: OptionButton
 var status_label: Label
@@ -127,6 +132,7 @@ func set_frame(index: int) -> void:
 	if replay.frames.is_empty():
 		return
 	frame_index = clampi(index, 0, replay.frames.size() - 1)
+	arrow_elapsed = 0.0
 	if frame_index == replay.frames.size() - 1:
 		playing = false
 		play_button.text = "Play"
@@ -147,6 +153,10 @@ func toggle_playing() -> void:
 
 
 func _process(delta: float) -> void:
+	if is_arrow_animating():
+		arrow_elapsed += delta
+		queue_redraw()
+		return
 	if not playing:
 		return
 	auto_elapsed += delta
@@ -198,6 +208,8 @@ func update_status() -> void:
 	]
 	if not rule.is_empty():
 		status_label.text += "\n%s — %s" % [rule, frame["reason"]]
+	elif frame["kind"] == "ranged_hit":
+		status_label.text += "\nArcher ranged attack"
 	elif not replay.warnings.is_empty():
 		status_label.text += "\n%s" % replay.warnings[0]
 
@@ -222,17 +234,22 @@ func _draw() -> void:
 		var row := str(rows[y])
 		for x in range(map_width):
 			var rect := Rect2(origin + Vector2(x, y) * tile_size, Vector2.ONE * tile_size)
-			var color := COLOR_FLOOR if row.substr(x, 1) == "." else COLOR_WALL
-			draw_rect(rect, color)
-			draw_rect(rect, COLOR_GRID, false, 1.0)
+			if row.substr(x, 1) == ".":
+				var floor_color := COLOR_FLOOR if (x + y) % 2 == 0 else COLOR_FLOOR_ALT
+				draw_rect(rect, floor_color)
+			else:
+				draw_rect(rect, COLOR_WALL)
+				draw_rect(rect.grow(-tile_size * 0.2), COLOR_WALL_EDGE)
 
-	draw_actor(frame["stairs_pos"], origin, tile_size, COLOR_STAIRS, 0.28)
+	draw_stairs_icon(frame["stairs_pos"], origin, tile_size)
 	for enemy_value in frame["enemies"]:
 		var enemy: Dictionary = enemy_value
 		var color := COLOR_ARCHER if enemy.get("type", "") == "archer" else COLOR_MELEE
-		draw_actor(enemy.get("pos", {}), origin, tile_size, color, 0.31)
+		var symbol := "A" if enemy.get("type", "") == "archer" else "E"
+		draw_actor(enemy.get("pos", {}), origin, tile_size, color, symbol)
 	var player: Dictionary = frame["player_state"]
-	draw_actor(player.get("pos", {}), origin, tile_size, COLOR_PLAYER, 0.34)
+	draw_actor(player.get("pos", {}), origin, tile_size, COLOR_PLAYER, "@")
+	draw_arrow(frame["arrow"], origin, tile_size)
 
 
 func draw_actor(
@@ -240,9 +257,101 @@ func draw_actor(
 	origin: Vector2,
 	tile_size: float,
 	color: Color,
-	radius_scale: float
+	symbol: String
 ) -> void:
 	if not position_value.has("x") or not position_value.has("y"):
 		return
 	var center := origin + Vector2(position_value["x"] + 0.5, position_value["y"] + 0.5) * tile_size
-	draw_circle(center, tile_size * radius_scale, color)
+	draw_circle(center, tile_size * 0.42, color)
+	var symbol_size := int(tile_size * 0.75)
+	var text_size := font.get_string_size(
+		symbol, HORIZONTAL_ALIGNMENT_CENTER, -1, symbol_size
+	)
+	draw_string(
+		font,
+		center - text_size * 0.5 + Vector2(0, tile_size * 0.55),
+		symbol,
+		HORIZONTAL_ALIGNMENT_CENTER,
+		-1,
+		symbol_size,
+		COLOR_BG
+	)
+
+
+func draw_stairs_icon(position_value: Dictionary, origin: Vector2, tile_size: float) -> void:
+	if not position_value.has("x") or not position_value.has("y"):
+		return
+	var tile_origin := origin + Vector2(position_value["x"], position_value["y"]) * tile_size
+	var scale := tile_size / 40.0
+	var badge := Rect2(tile_origin + Vector2.ONE * 4.0 * scale, Vector2.ONE * 32.0 * scale)
+	draw_rect(badge, COLOR_BG)
+	draw_rect(badge, COLOR_STAIRS, false, 2.0 * scale)
+	var steps := PackedVector2Array([
+		tile_origin + Vector2(9, 12) * scale,
+		tile_origin + Vector2(16, 12) * scale,
+		tile_origin + Vector2(16, 19) * scale,
+		tile_origin + Vector2(23, 19) * scale,
+		tile_origin + Vector2(23, 26) * scale,
+		tile_origin + Vector2(30, 26) * scale,
+	])
+	draw_polyline(steps, COLOR_STAIRS, 3.0 * scale, true)
+	draw_line(
+		tile_origin + Vector2(9, 31) * scale,
+		tile_origin + Vector2(30, 31) * scale,
+		COLOR_STAIRS,
+		2.0 * scale,
+		true
+	)
+
+
+func is_arrow_animating() -> bool:
+	if replay.frames.is_empty():
+		return false
+	var frame: Dictionary = replay.frames[frame_index]
+	return (
+		not frame["arrow"].is_empty()
+		and arrow_elapsed < ARROW_FLIGHT_DURATION + ARROW_IMPACT_DURATION
+	)
+
+
+func draw_arrow(arrow: Dictionary, origin: Vector2, tile_size: float) -> void:
+	if arrow.is_empty() or not is_arrow_animating():
+		return
+	var from_value: Dictionary = arrow["from"]
+	var to_value: Dictionary = arrow["to"]
+	if not from_value.has("x") or not to_value.has("x"):
+		return
+	var arrow_origin := origin + Vector2(from_value["x"] + 0.5, from_value["y"] + 0.5) * tile_size
+	var target := origin + Vector2(to_value["x"] + 0.5, to_value["y"] + 0.5) * tile_size
+	if arrow_elapsed < ARROW_FLIGHT_DURATION:
+		var direction := (target - arrow_origin).normalized()
+		var perpendicular := Vector2(-direction.y, direction.x)
+		var tip := arrow_origin.lerp(target, arrow_elapsed / ARROW_FLIGHT_DURATION)
+		var tail := tip - direction * tile_size * 0.55
+		draw_line(
+			tail - direction * tile_size * 0.3,
+			tip,
+			Color(0.43, 0.8, 1.0, 0.3),
+			maxf(2.0, tile_size * 0.15),
+			true
+		)
+		draw_line(tail, tip, COLOR_ARCHER, maxf(1.0, tile_size * 0.075), true)
+		draw_colored_polygon(PackedVector2Array([
+			tip,
+			tip - direction * tile_size * 0.225 + perpendicular * tile_size * 0.125,
+			tip - direction * tile_size * 0.225 - perpendicular * tile_size * 0.125,
+		]), COLOR_TEXT)
+	else:
+		var progress := (arrow_elapsed - ARROW_FLIGHT_DURATION) / ARROW_IMPACT_DURATION
+		var color := COLOR_ARCHER
+		color.a = 1.0 - progress
+		draw_arc(
+			target,
+			tile_size * (0.25 + progress * 0.4),
+			0.0,
+			TAU,
+			32,
+			color,
+			maxf(1.0, tile_size * 0.075),
+			true
+		)

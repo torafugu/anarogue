@@ -2,6 +2,7 @@ extends SceneTree
 
 const ReplayData := preload("res://scripts/replay_log.gd")
 const REFERENCE_PATH := "res://../examples/reference/aggressive-seed-1.jsonl"
+const ARCHER_REFERENCE_PATH := "res://../examples/reference/cautious-seed-1.jsonl"
 
 
 func _init() -> void:
@@ -36,6 +37,20 @@ func _init() -> void:
 			break
 	if not has_decision:
 		printerr("FAIL: Replay must include decision frames.")
+		quit(1)
+		return
+	var archer_replay := ReplayData.new()
+	if archer_replay.load_file(ARCHER_REFERENCE_PATH) != OK:
+		printerr("FAIL: Could not load Archer reference replay.")
+		quit(1)
+		return
+	var has_ranged_hit := false
+	for frame in archer_replay.frames:
+		if frame["kind"] == "ranged_hit" and not frame["arrow"].is_empty():
+			has_ranged_hit = true
+			break
+	if not has_ranged_hit:
+		printerr("FAIL: Replay must preserve Archer ranged attacks.")
 		quit(1)
 		return
 	print("Replay log test passed (%d frames)." % replay.frames.size())

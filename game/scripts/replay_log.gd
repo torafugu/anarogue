@@ -87,6 +87,20 @@ func build_frames(events: Array) -> Array[Dictionary]:
 			last_enemies = observation.get("enemies", last_enemies).duplicate(true)
 			last_stairs = observation.get("stairs_pos", last_stairs).duplicate(true)
 			result.append(make_frame(event, floors, last_enemies, last_stairs, "decision"))
+		elif (
+			event_name == "battle_result"
+			and details.get("result", "") == "player_hit"
+			and details.get("ranged", false)
+		):
+			var ranged_frame := make_frame(
+				event, floors, last_enemies, last_stairs, "ranged_hit"
+			)
+			var player_state: Dictionary = event.get("player_state", {})
+			ranged_frame["arrow"] = {
+				"from": details.get("enemy_pos", {}).duplicate(true),
+				"to": player_state.get("pos", {}).duplicate(true),
+			}
+			result.append(ranged_frame)
 		elif event_name == "battle_result" and details.get("result", "") == "player_defeated":
 			result.append(make_frame(event, floors, last_enemies, last_stairs, "terminal"))
 	return result
@@ -113,4 +127,5 @@ func make_frame(
 		"map_rows": floors.get(depth, []).duplicate(),
 		"rule_id": str(details.get("rule_id", "")),
 		"reason": str(details.get("reason", "")),
+		"arrow": {},
 	}
