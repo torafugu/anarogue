@@ -2,17 +2,21 @@
 
 A tiny Godot 4 roguelike starter.
 
-## Play
+## Replay in Godot
 
-Open this folder in Godot 4 and run the main scene.
+Open `game/` in Godot 4 and run the project. The default scene is a replay client,
+not the simulator. It opens the committed Aggressive seed-1 reference run.
 
 Controls:
 
-- Choose `Aggressive` or `Cautious`, then click `Start selected strategy`
-- Click `Compare both — same seed` to run both strategies on matching floors
-- Arrow keys: manually move or attack
-- `.`: manually wait
-- `R`: restart
+- `Open JSONL`: choose another run log
+- `Previous` / `Next` or left / right arrows: step through decision frames
+- `Play` or space: automatically advance the replay
+- run selector: switch runs when one JSONL file contains multiple runs
+- `Live check`: open the legacy Godot simulator for occasional visual checks
+
+The former live simulation is retained at `game/scenes/main.tscn`, but it is no
+longer the project's default responsibility.
 
 ## Current Features
 
@@ -37,8 +41,9 @@ Controls:
   actions, and human-readable decision reasons
 
 See [Simulation specification v1](docs/simulation-spec-v1.md) for the current
-state and turn-processing rules, [Run log schema v1](docs/run-log-v1.md) for the
-event contract, [Portable randomness specification v1](docs/randomness-v1.md)
+state and turn-processing rules, [Run log schema v1](docs/run-log-v1.md) and
+[Run log schema v2](docs/run-log-v2.md) for the event contracts,
+[Portable randomness specification v1](docs/randomness-v1.md)
 for cross-runtime seed derivation and PRNG behavior,
 [Fixed-seed reference logs v1](docs/reference-logs-v1.md) for the Godot-to-Rust
 compatibility baseline, [Rust Simulation Core](docs/rust-simulation-core.md) for
@@ -60,7 +65,7 @@ npm run dev
 ## Run headless simulation
 
 Run one automatic game without opening the UI. The runner advances turns as fast
-as possible, writes the same v1 event stream as the interactive game, and prints
+as possible, writes the same v2 event stream as the interactive game, and prints
 a final `HEADLESS_RUN_SUMMARY` line to standard output.
 
 ```bash
@@ -87,7 +92,7 @@ Defaults are equivalent to:
 The process exits successfully whether the player is defeated or the turn limit
 is reached. Read the summary's `outcome` field to distinguish
 `player_defeated` from `turn_limit`. A turn-limit stop does not add a synthetic
-event to the v1 stream.
+event to the v2 stream.
 
 ## Tests
 

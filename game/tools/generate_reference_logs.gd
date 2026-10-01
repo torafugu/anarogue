@@ -64,7 +64,7 @@ func generate() -> void:
 		"format_version": 1,
 		"simulation_spec": "v1",
 		"randomness_spec": "v1",
-		"event_schema": "v1",
+		"event_schema": "v2",
 		"fixed_event_time": FIXED_EVENT_TIME,
 		"map_size": {"width": MAP_WIDTH, "height": MAP_HEIGHT},
 		"cases": manifest_cases,

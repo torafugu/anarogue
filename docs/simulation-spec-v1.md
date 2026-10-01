@@ -386,7 +386,7 @@ determinism.
 | Tie-breaking | Depends on array/frontier insertion order | Preserve and test ordering |
 | Visibility | Radius check only; walls are ignored | Preserve as v1 or introduce line-of-sight in a later version |
 | Termination | Only defeat or external restart | Add an explicit turn budget/result for batch execution |
-| Replay completeness | Events describe actions, but not a versioned full initial state snapshot | Add configuration plus initial/floor snapshots for durable replay |
+| Replay completeness | Schema v2 records terrain and actor snapshots, but enemy movement is inferred at decision boundaries | Add explicit movement events if event-level animation is required |
 | Simulation version | Log has a schema version, not a ruleset version | Add a separate `simulation_version` |
 | UI timing | Auto turns and comparison use wall-clock delays | Keep timing outside the deterministic core |
 

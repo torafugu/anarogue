@@ -161,7 +161,7 @@ export function parseJsonLines(source: string): ParsedLog {
     }
 
     const event = normalizeEvent(raw, index + 1);
-    if (event.schema_version !== 1) {
+    if (event.schema_version !== 1 && event.schema_version !== 2) {
       warnings.push(
         `Run ${event.run_id} contains legacy or unsupported schema data.`,
       );

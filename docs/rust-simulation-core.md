@@ -17,8 +17,9 @@ The Rust core owns deterministic state transitions:
 - floor transitions and run termination at a turn budget.
 
 It deliberately does not own rendering, wall-clock timing, UI input, run IDs, or
-log file paths. Event serialization remains in Godot for now. The next parity
-milestone is to emit the same ordered v1 JSONL events from Rust.
+log file paths. Event serialization remains in the legacy Godot simulation
+harness for now. The default Godot scene is already a log-driven replay client.
+The next parity milestone is to emit the same ordered v2 JSONL events from Rust.
 
 ## Run
 
@@ -47,5 +48,5 @@ cases from `examples/reference/manifest-v1.json` against the Godot final-state
 baseline. GitHub Actions runs these tests independently of the Godot job.
 
 The current tests compare terminal state rather than the entire JSONL stream.
-Until Rust event parity is implemented, Godot's committed reference logs remain
+Until Rust event parity is implemented, Godot's committed v2 reference logs remain
 the authoritative event-level representation.

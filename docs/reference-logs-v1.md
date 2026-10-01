@@ -31,9 +31,13 @@ case list and final-state summary.
 | `cautious-seed-1` | Cautious decisions, enemy attacks, and player defeat |
 | `aggressive-seed-424242` | A second seed, multiple floor descents, and player defeat |
 
-Together the three JSONL files cover all six v1 event categories. The manifest
-records `turn_limit` because the v1 event schema deliberately has no synthetic
+Together the three JSONL files cover all six event categories. The manifest
+records `turn_limit` because the v2 event schema deliberately has no synthetic
 terminal event for an externally imposed turn budget.
+
+The reference-set version remains v1 because its simulation and randomness
+baseline did not change. Its events now use run-log schema v2, whose
+`floor_start.map_rows` field makes the same runs directly replayable in Godot.
 
 ## Regeneration
 

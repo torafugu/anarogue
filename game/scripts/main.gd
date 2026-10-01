@@ -18,7 +18,7 @@ const ARROW_IMPACT_DURATION := 0.12
 const TILE_WALL := 0
 const TILE_FLOOR := 1
 const DEFAULT_LOG_FILE_PATH := "user://anarogue.jsonl"
-const LOG_SCHEMA_VERSION := 1
+const LOG_SCHEMA_VERSION := 2
 const BASE_MAX_HP := 18
 const BASE_ATTACK := 5
 const COMPARISON_TRANSITION_DELAY := 1.0
@@ -368,6 +368,7 @@ func new_floor() -> void:
 		"enemy_count": enemies.size(),
 		"enemies": enemies_to_log(),
 		"map_size": {"width": map_width, "height": map_height},
+		"map_rows": map_rows_to_log(),
 		"player_pos": vector_to_log(player["pos"]),
 		"stairs_pos": vector_to_log(stairs_pos),
 	})
@@ -1005,6 +1006,15 @@ func is_walkable(pos: Vector2i) -> bool:
 	if pos.x < 0 or pos.y < 0 or pos.x >= map_width or pos.y >= map_height:
 		return false
 	return map[pos.y][pos.x] == TILE_FLOOR
+
+func map_rows_to_log() -> Array[String]:
+	var result: Array[String] = []
+	for y in range(map_height):
+		var row := ""
+		for x in range(map_width):
+			row += "." if map[y][x] == TILE_FLOOR else "#"
+		result.append(row)
+	return result
 
 func add_message(text: String) -> void:
 	messages.push_front(text)

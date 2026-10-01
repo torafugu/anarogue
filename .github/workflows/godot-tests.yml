@@ -31,6 +31,11 @@ jobs:
       - name: Verify reference logs are reproducible
         run: sha256sum -c examples/reference/checksums-v1.sha256
 
+      - name: Verify Godot replay data
+        run: >-
+          godot --headless --path game
+          --script res://tests/replay_log_test.gd
+
       - name: Run headless simulation smoke test
         run: >-
           godot --headless --path game
