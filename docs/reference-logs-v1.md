@@ -46,7 +46,10 @@ godot --headless --path game \
 
 The generator checks every final outcome against constants in the script before
 writing the manifest. Regenerating without a simulation change must leave the
-committed files byte-for-byte unchanged.
+committed files byte-for-byte unchanged. CI verifies that property against
+[`checksums-v1.sha256`](../examples/reference/checksums-v1.sha256). When an
+intentional rules change updates the baseline, review the JSONL and manifest
+diffs before updating that checksum file.
 
 Validate the generated event streams with:
 
