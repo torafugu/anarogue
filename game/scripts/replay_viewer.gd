@@ -1,7 +1,7 @@
 extends Node2D
 
 const ReplayData := preload("res://scripts/replay_log.gd")
-const DEFAULT_REPLAY := "res://../examples/reference/aggressive-seed-1.jsonl"
+const DEFAULT_REPLAY := "res://../examples/reference-v2/aggressive-seed-1.jsonl"
 const AUTO_STEP_SECONDS := 0.28
 const ARROW_FLIGHT_DURATION := 0.28
 const ARROW_IMPACT_DURATION := 0.12

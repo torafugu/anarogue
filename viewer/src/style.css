@@ -292,6 +292,11 @@ main {
   color: var(--lime);
 }
 
+.status-cleared {
+  border-color: rgba(121, 199, 166, 0.55);
+  color: #79c7a6;
+}
+
 .select-label {
   display: grid;
   gap: 6px;

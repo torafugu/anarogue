@@ -2,7 +2,7 @@ extends SceneTree
 
 const MainGame := preload("res://scripts/main.gd")
 const PortableRandom := preload("res://scripts/portable_rng.gd")
-const FIXTURE_PATH := "res://tests/fixtures/fixed-seed-v1.json"
+const FIXTURE_PATH := "res://tests/fixtures/fixed-seed-v2.json"
 const CASES := [
 	{
 		"name": "comparison_seed_depth_1",
@@ -61,7 +61,7 @@ func _init() -> void:
 
 	var expected_json := fixture_file.get_as_text().strip_edges()
 	var actual_json := JSON.stringify(actual)
-	assert_equal(actual_json, expected_json, "Generated state must match the v1 fixture")
+	assert_equal(actual_json, expected_json, "Generated state must match the v2 fixture")
 
 	finish()
 
@@ -71,7 +71,7 @@ func build_suite_snapshot() -> Dictionary:
 	for test_case in CASES:
 		snapshots.append(build_case_snapshot(test_case))
 	return {
-		"fixture_version": 1,
+		"fixture_version": 2,
 		"cases": snapshots,
 	}
 
@@ -101,6 +101,8 @@ func build_case_snapshot(test_case: Dictionary) -> Dictionary:
 	game.generate_dungeon(floor_rng)
 	game.player["pos"] = game.rooms[0].get_center()
 	game.stairs_pos = game.rooms[game.rooms.size() - 1].get_center()
+	if game.stairs_pos == game.player["pos"]:
+		game.stairs_pos = game.farthest_walkable_tile_from(game.player["pos"])
 	game.spawn_enemies(spawn_rng)
 
 	game.active_strategy = MainGame.StrategyType.AGGRESSIVE

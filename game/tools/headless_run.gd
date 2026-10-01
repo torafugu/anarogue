@@ -50,7 +50,7 @@ func run() -> void:
 	while not game.game_over and game.turn_count < max_turns:
 		game.run_auto_player_turn()
 
-	var outcome := "player_defeated" if game.game_over else "turn_limit"
+	var outcome: String = game.run_outcome if game.game_over else "turn_limit"
 	var summary := {
 		"outcome": outcome,
 		"scenario_seed": scenario_seed,

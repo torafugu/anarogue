@@ -101,7 +101,10 @@ func build_frames(events: Array) -> Array[Dictionary]:
 				"to": player_state.get("pos", {}).duplicate(true),
 			}
 			result.append(ranged_frame)
-		elif event_name == "battle_result" and details.get("result", "") == "player_defeated":
+		elif (
+			event_name == "battle_result"
+			and details.get("result", "") in ["player_defeated", "dungeon_cleared"]
+		):
 			result.append(make_frame(event, floors, last_enemies, last_stairs, "terminal"))
 	return result
 
@@ -115,6 +118,14 @@ func make_frame(
 ) -> Dictionary:
 	var depth: int = int(event.get("depth", 1))
 	var details: Dictionary = event.get("details", {})
+	var map_rows: Array = floors.get(depth, [])
+	if map_rows.is_empty():
+		var nearest_depth := -1
+		for floor_depth in floors:
+			if int(floor_depth) <= depth and int(floor_depth) > nearest_depth:
+				nearest_depth = int(floor_depth)
+		if nearest_depth != -1:
+			map_rows = floors[nearest_depth]
 	return {
 		"kind": kind,
 		"sequence": int(event.get("sequence", 0)),
@@ -124,7 +135,7 @@ func make_frame(
 		"player_state": event.get("player_state", {}).duplicate(true),
 		"enemies": enemies.duplicate(true),
 		"stairs_pos": stairs.duplicate(true),
-		"map_rows": floors.get(depth, []).duplicate(),
+		"map_rows": map_rows.duplicate(),
 		"rule_id": str(details.get("rule_id", "")),
 		"reason": str(details.get("reason", "")),
 		"arrow": {},

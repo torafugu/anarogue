@@ -40,12 +40,12 @@ longer the project's default responsibility.
 - Versioned run-log schema with automatic-player observations, selected rules,
   actions, and human-readable decision reasons
 
-See [Simulation specification v1](docs/simulation-spec-v1.md) for the current
+See [Simulation specification v2](docs/simulation-spec-v2.md) for the current
 state and turn-processing rules, [Run log schema v1](docs/run-log-v1.md) and
 [Run log schema v2](docs/run-log-v2.md) for the event contracts,
 [Portable randomness specification v1](docs/randomness-v1.md)
 for cross-runtime seed derivation and PRNG behavior,
-[Fixed-seed reference logs v1](docs/reference-logs-v1.md) for the Godot-to-Rust
+[Fixed-seed reference logs v2](docs/reference-logs-v2.md) for the Godot-to-Rust
 compatibility baseline, [Rust Simulation Core](docs/rust-simulation-core.md) for
 the Godot-independent batch implementation, and
 [`examples/sample-run-v1.jsonl`](examples/sample-run-v1.jsonl) for sample data.
@@ -119,9 +119,9 @@ godot --headless --path game \
   --script res://tests/fixed_seed_regression.gd -- --write-fixture
 ```
 
-Review the fixture diff before committing it. A fixture update changes the v1
+Review the fixture diff before committing it. A fixture update changes the v2
 simulation baseline described in
-[Simulation specification v1](docs/simulation-spec-v1.md).
+[Simulation specification v2](docs/simulation-spec-v2.md).
 
 Run the Rust simulation-core compatibility suite with:
 
@@ -140,9 +140,9 @@ godot --headless --path game \
   --script res://tools/generate_reference_logs.gd
 ```
 
-With no simulation change, this command must leave `examples/reference/`
+With no simulation change, this command must leave `examples/reference-v2/`
 byte-for-byte unchanged. See
-[Fixed-seed reference logs v1](docs/reference-logs-v1.md) for the cases and Rust
+[Fixed-seed reference logs v2](docs/reference-logs-v2.md) for the cases and Rust
 parity workflow.
 
 Validate JSONL events against the v1 JSON Schema and stream invariants with:

@@ -41,7 +41,7 @@ The Godot replay client builds visual frames from:
 1. `floor_start` for terrain and initial actors;
 2. `decision` for the complete pre-action observation; and
 3. ranged `player_hit` results for Archer arrow animation; and
-4. terminal `player_defeated` events for the final player state.
+4. terminal `player_defeated` or `dungeon_cleared` events for the final player state.
 
 The current replay is primarily decision-granular, with recorded Archer shots
 inserted between those frames. Explicit enemy-movement events can be added later

@@ -30,7 +30,7 @@ struct ReferenceCase {
 #[test]
 fn godot_reference_runs_match() {
     let manifest: ReferenceManifest =
-        serde_json::from_str(include_str!("../../examples/reference/manifest-v1.json"))
+        serde_json::from_str(include_str!("../../examples/reference-v2/manifest-v2.json"))
             .expect("reference manifest must be valid JSON");
 
     for case in manifest.cases {

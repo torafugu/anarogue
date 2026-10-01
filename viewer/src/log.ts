@@ -87,7 +87,7 @@ export interface RunSummary {
   score: number;
   decisions: number;
   finalHp: number;
-  result: "defeated" | "restarted" | "active";
+  result: "defeated" | "cleared" | "restarted" | "active";
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -198,6 +198,7 @@ export function summarizeRun(events: RunEvent[]): RunSummary {
       damageTaken += asNumber(event.details.damage);
     }
     if (eventResult === "player_defeated") result = "defeated";
+    if (eventResult === "dungeon_cleared") result = "cleared";
     if (eventResult === "restart") result = "restarted";
   }
 
@@ -270,6 +271,9 @@ export function describeEvent(event: RunEvent): { title: string; body: string } 
     }
     if (result === "player_defeated") {
       return { title: "Run ended", body: `Defeated on depth ${event.depth}.` };
+    }
+    if (result === "dungeon_cleared") {
+      return { title: "Dungeon cleared", body: `Cleared on turn ${event.turn}.` };
     }
     return { title: result.replaceAll("_", " "), body: "Combat result" };
   }

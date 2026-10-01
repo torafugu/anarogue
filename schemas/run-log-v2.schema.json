@@ -275,7 +275,7 @@
       "oneOf": [
         { "$ref": "#/$defs/restart_result" }, { "$ref": "#/$defs/enemy_hit_result" },
         { "$ref": "#/$defs/enemy_defeated_result" }, { "$ref": "#/$defs/player_hit_result" },
-        { "$ref": "#/$defs/player_defeated_result" }
+        { "$ref": "#/$defs/player_defeated_result" }, { "$ref": "#/$defs/dungeon_cleared_result" }
       ]
     },
     "restart_result": {
@@ -337,6 +337,20 @@
         "result": { "const": "player_defeated" },
         "final_depth": { "type": "integer", "minimum": 1 },
         "final_gold": { "type": "integer", "minimum": 0 },
+        "turns": { "type": "integer", "minimum": 0 },
+        "strategy_id": { "type": "string", "minLength": 1 },
+        "scenario_seed": { "$ref": "#/$defs/u32" }
+      },
+      "additionalProperties": false
+    },
+    "dungeon_cleared_result": {
+      "type": "object",
+      "required": ["result", "final_depth", "final_gold", "final_score", "turns", "strategy_id", "scenario_seed"],
+      "properties": {
+        "result": { "const": "dungeon_cleared" },
+        "final_depth": { "type": "integer", "minimum": 1 },
+        "final_gold": { "type": "integer", "minimum": 0 },
+        "final_score": { "type": "integer", "minimum": 0 },
         "turns": { "type": "integer", "minimum": 0 },
         "strategy_id": { "type": "string", "minLength": 1 },
         "scenario_seed": { "$ref": "#/$defs/u32" }

@@ -1,8 +1,8 @@
 extends SceneTree
 
 const MainGame := preload("res://scripts/main.gd")
-const OUTPUT_DIRECTORY := "res://../examples/reference"
-const DISPLAY_DIRECTORY := "examples/reference"
+const OUTPUT_DIRECTORY := "res://../examples/reference-v2"
+const DISPLAY_DIRECTORY := "examples/reference-v2"
 const FIXED_EVENT_TIME := "2000-01-01 00:00:00"
 const MAP_WIDTH := 24
 const MAP_HEIGHT := 18
@@ -12,30 +12,21 @@ const CASES := [
 		"strategy": MainGame.StrategyType.AGGRESSIVE,
 		"seed": 1,
 		"max_turns": 120,
-		"expected": {
-			"outcome": "turn_limit", "turns": 120, "final_depth": 5,
-			"final_hp": 18, "final_gold": 4, "final_score": 14,
-		},
+		"expected": {"outcome": "player_defeated", "turns": 38, "final_depth": 2, "final_hp": 0, "final_gold": 4, "final_score": 5},
 	},
 	{
 		"name": "cautious-seed-1",
 		"strategy": MainGame.StrategyType.CAUTIOUS,
 		"seed": 1,
 		"max_turns": 120,
-		"expected": {
-			"outcome": "player_defeated", "turns": 19, "final_depth": 1,
-			"final_hp": 0, "final_gold": 0, "final_score": 0,
-		},
+		"expected": {"outcome": "player_defeated", "turns": 19, "final_depth": 1, "final_hp": 0, "final_gold": 0, "final_score": 0},
 	},
 	{
 		"name": "aggressive-seed-424242",
 		"strategy": MainGame.StrategyType.AGGRESSIVE,
 		"seed": 424242,
 		"max_turns": 120,
-		"expected": {
-			"outcome": "player_defeated", "turns": 70, "final_depth": 6,
-			"final_hp": 0, "final_gold": 0, "final_score": 15,
-		},
+		"expected": {"outcome": "player_defeated", "turns": 27, "final_depth": 2, "final_hp": 0, "final_gold": 3, "final_score": 4},
 	},
 ]
 
@@ -61,15 +52,15 @@ func generate() -> void:
 		manifest_cases.append(result)
 
 	var manifest := {
-		"format_version": 1,
-		"simulation_spec": "v1",
+		"format_version": 2,
+		"simulation_spec": "v2",
 		"randomness_spec": "v1",
 		"event_schema": "v2",
 		"fixed_event_time": FIXED_EVENT_TIME,
 		"map_size": {"width": MAP_WIDTH, "height": MAP_HEIGHT},
 		"cases": manifest_cases,
 	}
-	var manifest_path := OUTPUT_DIRECTORY.path_join("manifest-v1.json")
+	var manifest_path := OUTPUT_DIRECTORY.path_join("manifest-v2.json")
 	var manifest_file := FileAccess.open(manifest_path, FileAccess.WRITE)
 	if manifest_file == null:
 		printerr("Could not write reference manifest: %s" % manifest_path)
@@ -105,7 +96,7 @@ func generate_case(test_case: Dictionary) -> Dictionary:
 	while not game.game_over and game.turn_count < test_case["max_turns"]:
 		game.run_auto_player_turn()
 
-	var outcome := "player_defeated" if game.game_over else "turn_limit"
+	var outcome: String = game.run_outcome if game.game_over else "turn_limit"
 	var result := {
 		"name": case_name,
 		"file": display_path,

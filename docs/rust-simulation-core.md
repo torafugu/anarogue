@@ -44,7 +44,7 @@ cargo test --all-targets
 ```
 
 The test suite checks the published FNV-1a/xorshift32 vectors and runs all three
-cases from `examples/reference/manifest-v1.json` against the Godot final-state
+cases from `examples/reference-v2/manifest-v2.json` against the Godot final-state
 baseline. GitHub Actions runs these tests independently of the Godot job.
 
 The current tests compare terminal state rather than the entire JSONL stream.

@@ -21,6 +21,7 @@ const DEFAULT_LOG_FILE_PATH := "user://anarogue.jsonl"
 const LOG_SCHEMA_VERSION := 2
 const BASE_MAX_HP := 18
 const BASE_ATTACK := 5
+const MAX_DEPTH := 5
 const COMPARISON_TRANSITION_DELAY := 1.0
 
 const COLORS := {
@@ -62,6 +63,7 @@ var player := {
 var stairs_pos := Vector2i.ZERO
 var messages: Array[String] = []
 var game_over := false
+var run_outcome := ""
 var font := ThemeDB.fallback_font
 var log_file: FileAccess
 var run_id := ""
@@ -226,6 +228,7 @@ func restart_game(reuse_scenario: bool = false, auto_start: bool = false) -> voi
 	auto_turn_elapsed = 0.0
 	auto_exploration_started = auto_start
 	game_over = false
+	run_outcome = ""
 	messages.clear()
 	start_run_log()
 	new_floor()
@@ -361,6 +364,8 @@ func new_floor() -> void:
 	generate_dungeon(floor_rng)
 	player["pos"] = rooms[0].get_center()
 	stairs_pos = rooms[rooms.size() - 1].get_center()
+	if stairs_pos == player["pos"]:
+		stairs_pos = farthest_walkable_tile_from(player["pos"])
 	spawn_enemies(spawn_rng)
 	log_event("floor_start", {
 		"floor_seed": floor_seed,
@@ -434,30 +439,60 @@ func spawn_enemies(spawn_rng: PortableRandom) -> void:
 	for i in range(1, rooms.size() - 1):
 		if not spawn_rng.chance(3, 4):
 			continue
-		var room := rooms[i]
-		var pos := Vector2i(
-			spawn_rng.randi_range(room.position.x + 1, room.end.x - 2),
-			spawn_rng.randi_range(room.position.y + 1, room.end.y - 2)
-		)
-		var enemy_type := "melee" if spawn_rng.chance(1, 2) else "archer"
-		var enemy_id := "enemy-%d" % next_enemy_id
-		next_enemy_id += 1
-		if enemy_type == "archer":
-			enemies.append({
-				"id": enemy_id,
-				"type": "archer",
-				"pos": pos,
-				"hp": 5 + player["depth"],
-				"attack": 1 + player["depth"] / 2,
-			})
-		else:
-			enemies.append({
-				"id": enemy_id,
-				"type": "melee",
-				"pos": pos,
-				"hp": 8 + player["depth"] * 2,
-				"attack": 2 + player["depth"],
-			})
+		spawn_enemy_in_room(rooms[i], spawn_rng)
+	if enemies.is_empty():
+		spawn_enemy_in_room(rooms.back(), spawn_rng)
+
+func spawn_enemy_in_room(room: Rect2i, spawn_rng: PortableRandom) -> void:
+	var pos := Vector2i(
+		spawn_rng.randi_range(room.position.x + 1, room.end.x - 2),
+		spawn_rng.randi_range(room.position.y + 1, room.end.y - 2)
+	)
+	if pos == player["pos"] or pos == stairs_pos or enemy_at(pos) != -1:
+		pos = first_free_tile_in_room(room)
+	if pos == Vector2i(-1, -1):
+		return
+	var enemy_type := "melee" if spawn_rng.chance(1, 2) else "archer"
+	var enemy_id := "enemy-%d" % next_enemy_id
+	next_enemy_id += 1
+	if enemy_type == "archer":
+		enemies.append({
+			"id": enemy_id,
+			"type": "archer",
+			"pos": pos,
+			"hp": 5 + player["depth"],
+			"attack": 1 + player["depth"] / 2,
+		})
+	else:
+		enemies.append({
+			"id": enemy_id,
+			"type": "melee",
+			"pos": pos,
+			"hp": 8 + player["depth"] * 2,
+			"attack": 2 + player["depth"],
+		})
+
+func first_free_tile_in_room(room: Rect2i) -> Vector2i:
+	for y in range(room.position.y + 1, room.end.y - 1):
+		for x in range(room.position.x + 1, room.end.x - 1):
+			var candidate := Vector2i(x, y)
+			if candidate != player["pos"] and candidate != stairs_pos and enemy_at(candidate) == -1:
+				return candidate
+	return Vector2i(-1, -1)
+
+func farthest_walkable_tile_from(origin: Vector2i) -> Vector2i:
+	var best := origin
+	var best_distance := -1
+	for y in range(map_height):
+		for x in range(map_width):
+			var candidate := Vector2i(x, y)
+			if not is_walkable(candidate):
+				continue
+			var distance := origin.distance_squared_to(candidate)
+			if distance > best_distance:
+				best = candidate
+				best_distance = distance
+	return best
 
 func run_auto_player_turn() -> void:
 	decision_sequence += 1
@@ -780,6 +815,9 @@ func player_act(direction: Vector2i, decision_id: String = "") -> void:
 				"to_depth": player["depth"],
 				"hp_after": player["hp"],
 			})
+			if player["depth"] >= MAX_DEPTH:
+				handle_dungeon_cleared()
+				return
 			new_floor()
 			return
 
@@ -979,6 +1017,7 @@ func signi(value: int) -> int:
 func handle_player_defeat() -> void:
 	player["hp"] = 0
 	game_over = true
+	run_outcome = "player_defeated"
 	auto_exploration_started = false
 	log_battle_result("player_defeated", {
 		"final_depth": player["depth"],
@@ -994,6 +1033,27 @@ func handle_player_defeat() -> void:
 		add_message("Comparison complete. Review both runs in the viewer.")
 	else:
 		add_message("You fell. Press R to restart.")
+	update_controls_state()
+
+func handle_dungeon_cleared() -> void:
+	game_over = true
+	run_outcome = "dungeon_cleared"
+	auto_exploration_started = false
+	log_battle_result("dungeon_cleared", {
+		"final_depth": player["depth"],
+		"final_gold": player["gold"],
+		"final_score": player["score"],
+		"turns": turn_count,
+		"strategy_id": strategy_id(active_strategy),
+		"scenario_seed": scenario_seed,
+	})
+	if comparison_active and comparison_phase == 0:
+		add_message("Aggressive run cleared the dungeon. Cautious starts next.")
+	elif comparison_active and comparison_phase == 1:
+		comparison_active = false
+		add_message("Comparison complete. Review both runs in the viewer.")
+	else:
+		add_message("Dungeon cleared.")
 	update_controls_state()
 
 func enemy_at(pos: Vector2i) -> int:
@@ -1273,6 +1333,8 @@ func draw_game_over() -> void:
 	draw_set_transform(overlay_origin)
 	var rect := Rect2(0, 0, 560, 190)
 	draw_rect(rect, Color(0, 0, 0, 0.72))
-	draw_string(font, Vector2(150, 60), "Game Over", HORIZONTAL_ALIGNMENT_LEFT, -1, 44, COLORS["danger"])
+	var title := "Dungeon Cleared" if run_outcome == "dungeon_cleared" else "Game Over"
+	var title_color: Color = COLORS["stairs"] if run_outcome == "dungeon_cleared" else COLORS["danger"]
+	draw_string(font, Vector2(110, 60), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 44, title_color)
 	draw_string(font, Vector2(36, 110), "Lv %d  |  Score %d  |  Depth %d" % [player["level"], player["score"], player["depth"]], HORIZONTAL_ALIGNMENT_LEFT, -1, 26, COLORS["text"])
 	draw_string(font, Vector2(36, 156), "Press R to try another run.", HORIZONTAL_ALIGNMENT_LEFT, -1, 26, COLORS["text"])

@@ -1,8 +1,8 @@
 extends SceneTree
 
 const ReplayData := preload("res://scripts/replay_log.gd")
-const REFERENCE_PATH := "res://../examples/reference/aggressive-seed-1.jsonl"
-const ARCHER_REFERENCE_PATH := "res://../examples/reference/cautious-seed-1.jsonl"
+const REFERENCE_PATH := "res://../examples/reference-v2/aggressive-seed-1.jsonl"
+const ARCHER_REFERENCE_PATH := "res://../examples/reference-v2/cautious-seed-1.jsonl"
 
 
 func _init() -> void:

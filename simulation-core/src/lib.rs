@@ -6,6 +6,7 @@ const MIN_ROOM_SIZE: i32 = 5;
 const MAX_ROOM_SIZE: i32 = 11;
 const BASE_MAX_HP: i32 = 18;
 const BASE_ATTACK: i32 = 5;
+const MAX_DEPTH: u32 = 5;
 const ZERO_SEED_FALLBACK: u32 = 0x6d2b_79f5;
 const DIRECTIONS: [Point; 4] = [
     Point { x: 0, y: -1 },
@@ -115,6 +116,7 @@ impl SimulationConfig {
 #[serde(rename_all = "snake_case")]
 pub enum RunOutcome {
     PlayerDefeated,
+    DungeonCleared,
     TurnLimit,
 }
 
@@ -293,6 +295,7 @@ pub struct Simulation {
     turn: u32,
     next_enemy_id: u32,
     game_over: bool,
+    run_outcome: Option<RunOutcome>,
 }
 
 impl Simulation {
@@ -308,6 +311,7 @@ impl Simulation {
             turn: 0,
             next_enemy_id: 1,
             game_over: false,
+            run_outcome: None,
         };
         simulation.new_floor();
         Ok(simulation)
@@ -327,11 +331,7 @@ impl Simulation {
             map_width: self.config.map_width,
             map_height: self.config.map_height,
             max_turns: self.config.max_turns,
-            outcome: if self.game_over {
-                RunOutcome::PlayerDefeated
-            } else {
-                RunOutcome::TurnLimit
-            },
+            outcome: self.run_outcome.unwrap_or(RunOutcome::TurnLimit),
             turns: self.turn,
             final_depth: self.player.depth,
             final_hp: self.player.hp,
@@ -353,6 +353,9 @@ impl Simulation {
         self.generate_dungeon(&mut PortableRng::new(floor_seed));
         self.player.pos = self.rooms[0].center();
         self.stairs = self.rooms[self.rooms.len() - 1].center();
+        if self.stairs == self.player.pos {
+            self.stairs = self.farthest_walkable_tile_from(self.player.pos);
+        }
         self.spawn_enemies(&mut PortableRng::new(spawn_seed));
     }
 
@@ -428,38 +431,85 @@ impl Simulation {
     }
 
     fn spawn_enemies(&mut self, rng: &mut PortableRng) {
-        if self.rooms.len() < 3 {
-            return;
-        }
-        for room_index in 1..self.rooms.len() - 1 {
-            if !rng.chance(3, 4) {
-                continue;
+        if self.rooms.len() >= 3 {
+            for room_index in 1..self.rooms.len() - 1 {
+                if !rng.chance(3, 4) {
+                    continue;
+                }
+                let room = self.rooms[room_index];
+                self.spawn_enemy_in_room(room, rng);
             }
-            let room = self.rooms[room_index];
-            let pos = Point {
-                x: rng.range_inclusive(room.x + 1, room.end_x() - 2),
-                y: rng.range_inclusive(room.y + 1, room.end_y() - 2),
-            };
-            let kind = if rng.chance(1, 2) {
-                EnemyKind::Melee
-            } else {
-                EnemyKind::Archer
-            };
-            let id = format!("enemy-{}", self.next_enemy_id);
-            self.next_enemy_id += 1;
-            let depth = self.player.depth as i32;
-            let (hp, attack) = match kind {
-                EnemyKind::Melee => (8 + depth * 2, 2 + depth),
-                EnemyKind::Archer => (5 + depth, 1 + depth / 2),
-            };
-            self.enemies.push(Enemy {
-                id,
-                kind,
-                pos,
-                hp,
-                attack,
-            });
         }
+        if self.enemies.is_empty() {
+            let room = self.rooms[self.rooms.len() - 1];
+            self.spawn_enemy_in_room(room, rng);
+        }
+    }
+
+    fn spawn_enemy_in_room(&mut self, room: Rect, rng: &mut PortableRng) {
+        let mut pos = Point {
+            x: rng.range_inclusive(room.x + 1, room.end_x() - 2),
+            y: rng.range_inclusive(room.y + 1, room.end_y() - 2),
+        };
+        if pos == self.player.pos || pos == self.stairs || self.enemy_at(pos).is_some() {
+            let Some(free_tile) = self.first_free_tile_in_room(room) else {
+                return;
+            };
+            pos = free_tile;
+        }
+        let kind = if rng.chance(1, 2) {
+            EnemyKind::Melee
+        } else {
+            EnemyKind::Archer
+        };
+        let id = format!("enemy-{}", self.next_enemy_id);
+        self.next_enemy_id += 1;
+        let depth = self.player.depth as i32;
+        let (hp, attack) = match kind {
+            EnemyKind::Melee => (8 + depth * 2, 2 + depth),
+            EnemyKind::Archer => (5 + depth, 1 + depth / 2),
+        };
+        self.enemies.push(Enemy {
+            id,
+            kind,
+            pos,
+            hp,
+            attack,
+        });
+    }
+
+    fn first_free_tile_in_room(&self, room: Rect) -> Option<Point> {
+        for y in room.y + 1..room.end_y() - 1 {
+            for x in room.x + 1..room.end_x() - 1 {
+                let candidate = Point { x, y };
+                if candidate != self.player.pos
+                    && candidate != self.stairs
+                    && self.enemy_at(candidate).is_none()
+                {
+                    return Some(candidate);
+                }
+            }
+        }
+        None
+    }
+
+    fn farthest_walkable_tile_from(&self, origin: Point) -> Point {
+        let mut best = origin;
+        let mut best_distance = -1;
+        for y in 0..self.config.map_height {
+            for x in 0..self.config.map_width {
+                let candidate = Point { x, y };
+                if !self.is_walkable(candidate) {
+                    continue;
+                }
+                let distance = origin.distance_squared(candidate);
+                if distance > best_distance {
+                    best = candidate;
+                    best_distance = distance;
+                }
+            }
+        }
+        best
     }
 
     fn run_auto_player_turn(&mut self) {
@@ -616,6 +666,11 @@ impl Simulation {
                 self.player.depth += 1;
                 self.player.score += 3;
                 self.player.hp = (self.player.hp + 4).min(self.player.max_hp);
+                if self.player.depth >= MAX_DEPTH {
+                    self.game_over = true;
+                    self.run_outcome = Some(RunOutcome::DungeonCleared);
+                    return;
+                }
                 self.new_floor();
                 return;
             }
@@ -718,6 +773,7 @@ impl Simulation {
         self.player.hp = (self.player.hp - damage).max(0);
         if self.player.hp == 0 {
             self.game_over = true;
+            self.run_outcome = Some(RunOutcome::PlayerDefeated);
         }
     }
 
@@ -836,5 +892,31 @@ mod tests {
                 2_398_689_233
             ]
         );
+    }
+
+    #[test]
+    fn reaching_depth_five_clears_the_dungeon() {
+        let mut simulation = Simulation::new(SimulationConfig {
+            scenario_seed: 1,
+            strategy: Strategy::AggressiveV1,
+            map_width: 24,
+            map_height: 18,
+            max_turns: 120,
+        })
+        .expect("simulation starts");
+        simulation.player.depth = MAX_DEPTH - 1;
+        simulation.new_floor();
+        simulation.enemies.clear();
+        let direction = DIRECTIONS
+            .into_iter()
+            .find(|direction| simulation.is_walkable(simulation.stairs - *direction))
+            .expect("stairs have an adjacent walkable tile");
+        simulation.player.pos = simulation.stairs - direction;
+
+        simulation.player_act(direction);
+
+        assert!(simulation.game_over);
+        assert_eq!(simulation.run_outcome, Some(RunOutcome::DungeonCleared));
+        assert_eq!(simulation.player.depth, MAX_DEPTH);
     }
 }
