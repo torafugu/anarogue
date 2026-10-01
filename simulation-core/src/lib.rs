@@ -228,9 +228,12 @@ impl PortableRng {
     }
 
     pub fn fnv1a_32(value: &str) -> u32 {
-        value.as_bytes().iter().fold(2_166_136_261_u32, |hash, byte| {
-            (hash ^ u32::from(*byte)).wrapping_mul(16_777_619)
-        })
+        value
+            .as_bytes()
+            .iter()
+            .fold(2_166_136_261_u32, |hash, byte| {
+                (hash ^ u32::from(*byte)).wrapping_mul(16_777_619)
+            })
     }
 
     pub fn derive_seed(
@@ -338,22 +341,15 @@ impl Simulation {
     }
 
     fn new_floor(&mut self) {
-        self.map = vec![vec![false; self.config.map_width as usize]; self.config.map_height as usize];
+        self.map =
+            vec![vec![false; self.config.map_width as usize]; self.config.map_height as usize];
         self.rooms.clear();
         self.enemies.clear();
 
-        let floor_seed = PortableRng::derive_seed(
-            self.config.scenario_seed,
-            "floor",
-            self.player.depth,
-            None,
-        );
-        let spawn_seed = PortableRng::derive_seed(
-            self.config.scenario_seed,
-            "spawn",
-            self.player.depth,
-            None,
-        );
+        let floor_seed =
+            PortableRng::derive_seed(self.config.scenario_seed, "floor", self.player.depth, None);
+        let spawn_seed =
+            PortableRng::derive_seed(self.config.scenario_seed, "spawn", self.player.depth, None);
         self.generate_dungeon(&mut PortableRng::new(floor_seed));
         self.player.pos = self.rooms[0].center();
         self.stairs = self.rooms[self.rooms.len() - 1].center();
@@ -520,9 +516,7 @@ impl Simulation {
             }
             for direction in DIRECTIONS {
                 let next = current + direction;
-                if came_from.contains_key(&next)
-                    || !self.is_path_walkable(next, destination)
-                {
+                if came_from.contains_key(&next) || !self.is_path_walkable(next, destination) {
                     continue;
                 }
                 frontier.push_back(next);
@@ -781,9 +775,7 @@ impl Simulation {
     }
 
     fn try_move_enemy(&mut self, index: usize, target: Point) {
-        if self.is_walkable(target)
-            && target != self.player.pos
-            && self.enemy_at(target).is_none()
+        if self.is_walkable(target) && target != self.player.pos && self.enemy_at(target).is_none()
         {
             self.enemies[index].pos = target;
         }
@@ -836,7 +828,13 @@ mod tests {
         let mut rng = PortableRng::new(1);
         assert_eq!(
             (0..5).map(|_| rng.next_u32()).collect::<Vec<_>>(),
-            vec![270_369, 67_634_689, 2_647_435_461, 307_599_695, 2_398_689_233]
+            vec![
+                270_369,
+                67_634_689,
+                2_647_435_461,
+                307_599_695,
+                2_398_689_233
+            ]
         );
     }
 }

@@ -29,10 +29,9 @@ struct ReferenceCase {
 
 #[test]
 fn godot_reference_runs_match() {
-    let manifest: ReferenceManifest = serde_json::from_str(include_str!(
-        "../../examples/reference/manifest-v1.json"
-    ))
-    .expect("reference manifest must be valid JSON");
+    let manifest: ReferenceManifest =
+        serde_json::from_str(include_str!("../../examples/reference/manifest-v1.json"))
+            .expect("reference manifest must be valid JSON");
 
     for case in manifest.cases {
         let strategy: Strategy = case
@@ -51,21 +50,9 @@ fn godot_reference_runs_match() {
 
         assert_eq!(summary.outcome, case.outcome, "{} outcome", case.name);
         assert_eq!(summary.turns, case.turns, "{} turns", case.name);
-        assert_eq!(
-            summary.final_depth, case.final_depth,
-            "{} depth",
-            case.name
-        );
+        assert_eq!(summary.final_depth, case.final_depth, "{} depth", case.name);
         assert_eq!(summary.final_hp, case.final_hp, "{} hp", case.name);
-        assert_eq!(
-            summary.final_gold, case.final_gold,
-            "{} gold",
-            case.name
-        );
-        assert_eq!(
-            summary.final_score, case.final_score,
-            "{} score",
-            case.name
-        );
+        assert_eq!(summary.final_gold, case.final_gold, "{} gold", case.name);
+        assert_eq!(summary.final_score, case.final_score, "{} score", case.name);
     }
 }
