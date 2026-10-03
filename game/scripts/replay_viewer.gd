@@ -23,10 +23,10 @@ var playing := false
 var auto_elapsed := 0.0
 var arrow_elapsed := 0.0
 var font := ThemeDB.fallback_font
+var log_selector: OptionButton
 var run_selector: OptionButton
 var status_label: Label
 var play_button: Button
-var file_dialog: FileDialog
 
 
 func _ready() -> void:
@@ -34,18 +34,29 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(layout_controls)
 	layout_controls()
 	var replay_path := command_line_replay_path()
-	if replay_path.is_empty():
-		replay_path = DEFAULT_REPLAY
-	load_replay(replay_path)
+	if not replay_path.is_empty():
+		add_external_log_option(replay_path)
+		load_replay(replay_path)
+	elif not refresh_log_files():
+		add_external_log_option(DEFAULT_REPLAY, "Bundled sample")
+		load_replay(DEFAULT_REPLAY)
 
 
 func create_controls() -> void:
+	log_selector = OptionButton.new()
+	log_selector.name = "LogSelector"
+	log_selector.tooltip_text = "JSONL files stored in user://"
+	log_selector.item_selected.connect(load_log_at)
+	add_child(log_selector)
+
 	run_selector = OptionButton.new()
+	run_selector.name = "RunSelector"
+	run_selector.tooltip_text = "Run contained in the selected JSONL file"
 	run_selector.item_selected.connect(select_run_at)
 	add_child(run_selector)
 
-	var open_button := make_button("Open JSONL", open_file_dialog)
-	open_button.name = "OpenButton"
+	var refresh_button := make_button("Refresh logs", reload_log_files)
+	refresh_button.name = "RefreshButton"
 	var previous_button := make_button("Previous", previous_frame)
 	previous_button.name = "PreviousButton"
 	play_button = make_button("Play", toggle_playing)
@@ -60,14 +71,6 @@ func create_controls() -> void:
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(status_label)
 
-	file_dialog = FileDialog.new()
-	file_dialog.access = FileDialog.ACCESS_FILESYSTEM
-	file_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-	file_dialog.add_filter("*.jsonl", "AnaRogue JSON Lines")
-	file_dialog.file_selected.connect(load_replay)
-	add_child(file_dialog)
-
-
 func make_button(text: String, callback: Callable) -> Button:
 	var button := Button.new()
 	button.text = text
@@ -78,10 +81,13 @@ func make_button(text: String, callback: Callable) -> Button:
 
 func layout_controls() -> void:
 	var width := get_viewport_rect().size.x
-	run_selector.position = Vector2(16, 16)
-	run_selector.size = Vector2(minf(340, width - 32), 44)
+	var selector_width := minf(420, (width - 40) * 0.5)
+	log_selector.position = Vector2(16, 16)
+	log_selector.size = Vector2(selector_width, 44)
+	run_selector.position = Vector2(24 + selector_width, 16)
+	run_selector.size = Vector2(minf(420, width - selector_width - 40), 44)
 	var button_names := [
-		"OpenButton", "PreviousButton", "PlayButton", "NextButton", "SimulatorButton"
+		"RefreshButton", "PreviousButton", "PlayButton", "NextButton", "SimulatorButton"
 	]
 	var x := 16.0
 	for button_name in button_names:
@@ -92,6 +98,59 @@ func layout_controls() -> void:
 	status_label.position = Vector2(16, 126)
 	status_label.size = Vector2(width - 32, 82)
 	queue_redraw()
+
+
+func refresh_log_files(preferred_path: String = "") -> bool:
+	var logs: Array[Dictionary] = []
+	var directory := DirAccess.open("user://")
+	if directory == null:
+		return false
+	for file_name in directory.get_files():
+		if not file_name.to_lower().ends_with(".jsonl"):
+			continue
+		var path := "user://%s" % file_name
+		logs.append({
+			"name": file_name,
+			"path": path,
+			"modified": FileAccess.get_modified_time(path),
+		})
+	logs.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a["modified"]) > int(b["modified"])
+	)
+	log_selector.clear()
+	for log_entry in logs:
+		log_selector.add_item(str(log_entry["name"]))
+		log_selector.set_item_metadata(log_selector.item_count - 1, log_entry["path"])
+	if logs.is_empty():
+		return false
+	var selected_index := 0
+	for index in range(log_selector.item_count):
+		if str(log_selector.get_item_metadata(index)) == preferred_path:
+			selected_index = index
+			break
+	log_selector.select(selected_index)
+	load_log_at(selected_index)
+	return true
+
+
+func reload_log_files() -> void:
+	var preferred_path := replay.source_path if replay.source_path.begins_with("user://") else ""
+	if not refresh_log_files(preferred_path):
+		status_label.text = "No JSONL logs found in user://"
+		queue_redraw()
+
+
+func load_log_at(index: int) -> void:
+	if index < 0 or index >= log_selector.item_count:
+		return
+	load_replay(str(log_selector.get_item_metadata(index)))
+
+
+func add_external_log_option(path: String, label: String = "") -> void:
+	log_selector.clear()
+	log_selector.add_item(label if not label.is_empty() else path.get_file())
+	log_selector.set_item_metadata(0, path)
+	log_selector.select(0)
 
 
 func load_replay(path: String) -> void:
@@ -174,10 +233,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		next_frame()
 	elif event.keycode == KEY_SPACE:
 		toggle_playing()
-
-
-func open_file_dialog() -> void:
-	file_dialog.popup_centered_ratio(0.8)
 
 
 func open_live_simulator() -> void:

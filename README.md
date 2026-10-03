@@ -5,11 +5,14 @@ A tiny Godot 4 roguelike starter.
 ## Replay in Godot
 
 Open `game/` in Godot 4 and run the project. The default scene is a replay client,
-not the simulator. It opens the committed Aggressive seed-1 reference run.
+not the simulator. It lists JSONL files in `user://`, selects the most recently
+modified log, and falls back to the committed Aggressive seed-1 reference run when
+no user log exists.
 
 Controls:
 
-- `Open JSONL`: choose another run log
+- log selector: choose a JSONL file stored directly in `user://`
+- `Refresh logs`: rescan `user://` after generating a log
 - `Previous` / `Next` or left / right arrows: step through decision frames
 - `Play` or space: automatically advance the replay
 - run selector: switch runs when one JSONL file contains multiple runs
