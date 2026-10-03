@@ -752,9 +752,7 @@ impl Simulation {
                 return;
             }
             self.damage_player(1);
-            if self.game_over {
-                return;
-            }
+            return;
         }
         if distance <= 49 {
             if self.can_enemy_see_player(enemy.pos) {
@@ -918,5 +916,34 @@ mod tests {
         assert!(simulation.game_over);
         assert_eq!(simulation.run_outcome, Some(RunOutcome::DungeonCleared));
         assert_eq!(simulation.player.depth, MAX_DEPTH);
+    }
+
+    #[test]
+    fn cornered_archer_does_not_also_fire_a_ranged_attack() {
+        let mut simulation = Simulation::new(SimulationConfig {
+            scenario_seed: 1,
+            strategy: Strategy::AggressiveV1,
+            map_width: 24,
+            map_height: 18,
+            max_turns: 120,
+        })
+        .expect("simulation starts");
+        simulation.map = vec![vec![false; 24]; 18];
+        simulation.player.pos = Point { x: 2, y: 1 };
+        simulation.map[1][1] = true;
+        simulation.map[1][2] = true;
+        simulation.enemies = vec![Enemy {
+            id: "cornered-archer".to_owned(),
+            kind: EnemyKind::Archer,
+            pos: Point { x: 1, y: 1 },
+            hp: 6,
+            attack: 3,
+        }];
+        let archer = simulation.enemies[0].clone();
+
+        simulation.run_archer_turn(0, &archer);
+
+        assert_eq!(simulation.player.hp, BASE_MAX_HP - 1);
+        assert!(!simulation.game_over);
     }
 }
