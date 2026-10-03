@@ -113,6 +113,7 @@ app.innerHTML = `
             <span><i class="legend-player"></i>Player</span>
             <span><i class="legend-enemy"></i>Melee</span>
             <span><i class="legend-archer"></i>Archer</span>
+            <span style="color:#de8fe8">● Health potion</span>
             <span><svg class="map-stairs legend-stairs" viewBox="0 0 1 1" aria-hidden="true">${stairsIcon}</svg>Stairs</span>
           </div>
         </section>
@@ -169,6 +170,9 @@ const strategyForRun = (events: RunEvent[]): string =>
 const scenarioForRun = (events: RunEvent[]): string =>
   events.find((event) => event.scenario_id)?.scenario_id ??
   String(runStart(events)?.details.scenario_id ?? "");
+
+const simulationForRun = (events: RunEvent[]): number =>
+  Number(runStart(events)?.details.simulation_version ?? events[0]?.schema_version ?? 1);
 
 const strategyLabel = (strategy: string): string => {
   if (strategy.startsWith("aggressive")) return "Aggressive";
@@ -269,7 +273,8 @@ function renderComparison(events: RunEvent[]): void {
   const panel = getElement<HTMLElement>("#comparison-panel");
   const scenario = scenarioForRun(events);
   const peers = [...(state.parsed?.runs.entries() ?? [])].filter(
-    ([, candidate]) => scenario && scenarioForRun(candidate) === scenario,
+    ([, candidate]) => scenario && scenarioForRun(candidate) === scenario
+      && simulationForRun(candidate) === simulationForRun(events),
   );
   const strategies = new Set(peers.map(([, candidate]) => strategyForRun(candidate)));
   if (!scenario || peers.length < 2 || strategies.size < 2) {
@@ -326,6 +331,9 @@ function renderMetrics(events: RunEvent[]): void {
     ["Damage", summary.damageTaken, "HP lost"],
     ["Gold", summary.gold, "final total"],
     ["Decisions", summary.decisions, "rules evaluated"],
+    ["Potions found", summary.potionsPickedUp, "picked up"],
+    ["Potions used", summary.potionsUsed, "consumed"],
+    ["Healing", summary.hpHealed, "HP from potions"],
   ];
   getElement("#metrics").innerHTML = metrics
     .map(
@@ -443,6 +451,18 @@ function renderRouteMap(events: RunEvent[], selected?: RunEvent): void {
     : [];
   const selectedPos =
     selected?.depth === state.selectedDepth ? selected.player_state?.pos : undefined;
+  const cutoff = selected?.depth === state.selectedDepth ? selected.sequence : Infinity;
+  let items = (floorStart?.details.items ?? []) as { id: string; type: string; pos: Vector2i }[];
+  for (const event of floorEvents) {
+    if (event.sequence > cutoff) break;
+    const observation = decisionDetails(event)?.observation;
+    if (observation?.items) items = observation.items;
+    if (event.event === "item_result" && event.details.result === "item_picked_up") {
+      const item = event.details.item as { id: string };
+      items = items.filter((candidate) => candidate.id !== item.id);
+    }
+  }
+  const itemMarks = items.map((item) => `<g fill="#de8fe8"><circle cx="${item.pos.x + .5}" cy="${item.pos.y + .5}" r=".28"/><title>${escapeHtml(item.id)} · Health potion</title></g>`).join("");
   const route = positions.map((pos) => `${pos.x + 0.5},${pos.y + 0.5}`).join(" ");
   const enemyMarks = enemies
     .map(
@@ -465,6 +485,7 @@ function renderRouteMap(events: RunEvent[], selected?: RunEvent): void {
       <rect width="${width}" height="${height}" fill="url(#map-grid)" />
       ${route ? `<polyline class="route-line" points="${route}" />` : ""}
       ${stairs ? `<g class="map-stairs" transform="translate(${stairs.x} ${stairs.y})">${stairsIcon}<title>Stairs · descend to next floor</title></g>` : ""}
+      ${itemMarks}
       ${enemyMarks}
       ${positions[0] ? `<circle class="route-start" cx="${positions[0].x + 0.5}" cy="${positions[0].y + 0.5}" r=".25"><title>Start</title></circle>` : ""}
       ${selectedPos ? `<circle class="route-selected" cx="${selectedPos.x + 0.5}" cy="${selectedPos.y + 0.5}" r=".44"><title>Selected event</title></circle>` : ""}
@@ -541,6 +562,7 @@ function renderDetail(event?: RunEvent): void {
         <div><dt>Strategy</dt><dd>${escapeHtml(decision.strategy_id)}</dd></div>
         <div><dt>Action</dt><dd>${escapeHtml(decision.action.type)}</dd></div>
         <div><dt>HP</dt><dd>${decision.observation.hp}/${decision.observation.max_hp}</dd></div>
+        <div><dt>Potions</dt><dd>${decision.observation.inventory?.health_potion ?? 0}/3</dd></div>
         <div><dt>Enemies</dt><dd>${decision.observation.enemy_count}</dd></div>
         <div><dt>Danger here</dt><dd>${decision.observation.current_danger ?? "—"}</dd></div>
         <div><dt>Next danger</dt><dd>${decision.observation.selected_step_danger ?? "—"}</dd></div>
@@ -564,6 +586,7 @@ function renderDetail(event?: RunEvent): void {
       <span>Turn <b>${event.turn}</b></span>
       <span>Depth <b>${event.depth}</b></span>
       <span>HP <b>${event.player_state?.hp ?? event.hp}</b></span>
+      <span>Potions <b>${event.player_state?.inventory?.health_potion ?? 0}/3</b></span>
       <span>Gold <b>${event.player_state?.gold ?? event.gold}</b></span>
       <span>Score <b>${event.player_state?.score ?? 0}</b></span>
     </div>

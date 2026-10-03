@@ -6,7 +6,7 @@ A tiny Godot 4 roguelike starter.
 
 Open `game/` in Godot 4 and run the project. The default scene is a replay client,
 not the simulator. It lists JSONL files in `user://`, selects the most recently
-modified log, and falls back to the committed Aggressive seed-1 reference run when
+modified log, and falls back to the committed Aggressive seed-424242 v3 reference run when
 no user log exists.
 
 Controls:
@@ -31,6 +31,10 @@ longer the project's default responsibility.
     when its path is blocked
 - Same-seed comparison mode with deterministic floor layouts, enemy spawns, and
   per-enemy rewards
+- Floor health potions, automatic pickup and persistent inventory (up to 3)
+- Potion use restores up to 8 HP and consumes one turn before enemy actions
+- Automatic gathering and healing, with conservative safe detours for Cautious
+- Item pickup/use frames in Godot replay and resource totals in the web viewer
 - Turn-based player and enemy actions
 - Two enemy types:
   - **Melee** — charges and attacks up close
@@ -43,12 +47,13 @@ longer the project's default responsibility.
 - Versioned run-log schema with automatic-player observations, selected rules,
   actions, and human-readable decision reasons
 
-See [Simulation specification v2](docs/simulation-spec-v2.md) for the current
+See [Simulation specification v3](docs/simulation-spec-v3.md) for the current
 state and turn-processing rules, [Run log schema v1](docs/run-log-v1.md) and
-[Run log schema v2](docs/run-log-v2.md) for the event contracts,
+[Run log schema v2](docs/run-log-v2.md) and
+[Run log schema v3](docs/run-log-v3.md) for the event contracts,
 [Portable randomness specification v1](docs/randomness-v1.md)
 for cross-runtime seed derivation and PRNG behavior,
-[Fixed-seed reference logs v2](docs/reference-logs-v2.md) for the Godot-to-Rust
+[Fixed-seed reference logs v3](docs/reference-logs-v3.md) for the Godot-to-Rust
 compatibility baseline, [Rust Simulation Core](docs/rust-simulation-core.md) for
 the Godot-independent batch implementation, and
 [`examples/sample-run-v1.jsonl`](examples/sample-run-v1.jsonl) for sample data.
@@ -68,7 +73,7 @@ npm run dev
 ## Run headless simulation
 
 Run one automatic game without opening the UI. The runner advances turns as fast
-as possible, writes the same v2 event stream as the interactive game, and prints
+as possible, writes the same v3 event stream as the interactive game, and prints
 a final `HEADLESS_RUN_SUMMARY` line to standard output.
 
 ```bash
@@ -95,9 +100,15 @@ Defaults are equivalent to:
 The process exits successfully whether the player is defeated or the turn limit
 is reached. Read the summary's `outcome` field to distinguish
 `player_defeated` from `turn_limit`. A turn-limit stop does not add a synthetic
-event to the v2 stream.
+event to the v3 stream.
 
 ## Tests
+
+Verify item pickup, capacity, healing, strategy decisions and replay with:
+
+```bash
+godot --headless --path game --script res://tests/items_test.gd
+```
 
 Run the fixed-seed simulation regression suite with Godot 4.5:
 
@@ -122,9 +133,9 @@ godot --headless --path game \
   --script res://tests/fixed_seed_regression.gd -- --write-fixture
 ```
 
-Review the fixture diff before committing it. A fixture update changes the v2
+Review the fixture diff before committing it. A fixture update changes the v3
 simulation baseline described in
-[Simulation specification v2](docs/simulation-spec-v2.md).
+[Simulation specification v3](docs/simulation-spec-v3.md).
 
 Run the Rust simulation-core compatibility suite with:
 
@@ -133,10 +144,10 @@ cd simulation-core
 cargo test --all-targets
 ```
 
-The Rust tests execute the three fixed-seed full-run cases and compare their final
-state with the Godot reference baseline.
+The Rust tests execute four fixed-seed full-run cases and compare every event
+and final state with the Godot reference baseline.
 
-The Rust CLI can also write a replayable Schema v2 log directly into Godot's
+The Rust CLI can also write a replayable Schema v3 log directly into Godot's
 macOS application-data folder:
 
 ```bash
@@ -157,12 +168,12 @@ godot --headless --path game \
   --script res://tools/generate_reference_logs.gd
 ```
 
-With no simulation change, this command must leave `examples/reference-v2/`
+With no simulation change, this command must leave `examples/reference-v3/`
 byte-for-byte unchanged. See
-[Fixed-seed reference logs v2](docs/reference-logs-v2.md) for the cases and Rust
+[Fixed-seed reference logs v3](docs/reference-logs-v3.md) for the cases and Rust
 parity workflow.
 
-Validate JSONL events against the v1 JSON Schema and stream invariants with:
+Validate JSONL events against their versioned JSON Schema and stream invariants with:
 
 ```bash
 cd viewer

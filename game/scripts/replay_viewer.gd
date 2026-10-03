@@ -1,7 +1,7 @@
 extends Node2D
 
 const ReplayData := preload("res://scripts/replay_log.gd")
-const DEFAULT_REPLAY := "res://../examples/reference-v2/aggressive-seed-1.jsonl"
+const DEFAULT_REPLAY := "res://../examples/reference-v3/aggressive-seed-424242.jsonl"
 const AUTO_STEP_SECONDS := 0.28
 const ARROW_FLIGHT_DURATION := 0.28
 const ARROW_IMPACT_DURATION := 0.12
@@ -320,7 +320,10 @@ func update_status() -> void:
 		frame["strategy_id"], frame_index + 1, replay.frames.size(), frame["turn"],
 		frame["depth"], player.get("hp", 0), player.get("max_hp", 0)
 	]
-	if not rule.is_empty():
+	status_label.text += "  ·  Potions %d/3" % int(player.get("inventory", {}).get("health_potion", 0))
+	if frame["kind"] == "item_result":
+		status_label.text += "\n%s" % frame["reason"]
+	elif not rule.is_empty():
 		status_label.text += "\n%s — %s" % [rule, frame["reason"]]
 	elif frame["kind"] == "ranged_hit":
 		status_label.text += "\nArcher ranged attack"
@@ -356,6 +359,9 @@ func _draw() -> void:
 				draw_rect(rect.grow(-tile_size * 0.2), COLOR_WALL_EDGE)
 
 	draw_stairs_icon(frame["stairs_pos"], origin, tile_size)
+	for item_value in frame.get("items", []):
+		var item: Dictionary = item_value
+		draw_actor(item.get("pos", {}), origin, tile_size, Color("#de8fe8"), "+")
 	for enemy_value in frame["enemies"]:
 		var enemy: Dictionary = enemy_value
 		var color := COLOR_ARCHER if enemy.get("type", "") == "archer" else COLOR_MELEE

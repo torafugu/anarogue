@@ -2,7 +2,7 @@ extends SceneTree
 
 const MainGame := preload("res://scripts/main.gd")
 const PortableRandom := preload("res://scripts/portable_rng.gd")
-const FIXTURE_PATH := "res://tests/fixtures/fixed-seed-v2.json"
+const FIXTURE_PATH := "res://tests/fixtures/fixed-seed-v3.json"
 const CASES := [
 	{
 		"name": "comparison_seed_depth_1",
@@ -61,7 +61,7 @@ func _init() -> void:
 
 	var expected_json := fixture_file.get_as_text().strip_edges()
 	var actual_json := JSON.stringify(actual)
-	assert_equal(actual_json, expected_json, "Generated state must match the v2 fixture")
+	assert_equal(actual_json, expected_json, "Generated state must match the v3 fixture")
 
 	finish()
 
@@ -71,7 +71,7 @@ func build_suite_snapshot() -> Dictionary:
 	for test_case in CASES:
 		snapshots.append(build_case_snapshot(test_case))
 	return {
-		"fixture_version": 2,
+		"fixture_version": 3,
 		"cases": snapshots,
 	}
 
@@ -104,6 +104,7 @@ func build_case_snapshot(test_case: Dictionary) -> Dictionary:
 	if game.stairs_pos == game.player["pos"]:
 		game.stairs_pos = game.farthest_walkable_tile_from(game.player["pos"])
 	game.spawn_enemies(spawn_rng)
+	game.spawn_items(PortableRandom.new(game.derived_seed("items", game.player["depth"])))
 
 	game.active_strategy = MainGame.StrategyType.AGGRESSIVE
 	var aggressive_decision: Dictionary = game.choose_auto_player_decision("regression-aggressive")
@@ -125,6 +126,7 @@ func build_case_snapshot(test_case: Dictionary) -> Dictionary:
 		"player_pos": vector_snapshot(game.player["pos"]),
 		"stairs_pos": vector_snapshot(game.stairs_pos),
 		"enemies": enemy_snapshots(game),
+		"items": game.items_to_log(),
 		"decisions": {
 			"aggressive": decision_snapshot(aggressive_decision),
 			"cautious": decision_snapshot(cautious_decision),

@@ -9,6 +9,8 @@ const MAX_ROOM_SIZE: i32 = 11;
 const BASE_MAX_HP: i32 = 18;
 const BASE_ATTACK: i32 = 5;
 const MAX_DEPTH: u32 = 5;
+const POTION_HEAL: i32 = 8;
+const INVENTORY_CAPACITY: u32 = 3;
 const ZERO_SEED_FALLBACK: u32 = 0x6d2b_79f5;
 const DIRECTIONS: [Point; 4] = [
     Point { x: 0, y: -1 },
@@ -135,6 +137,7 @@ pub struct RunSummary {
     pub final_hp: i32,
     pub final_gold: u32,
     pub final_score: u32,
+    pub final_potions: u32,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -223,6 +226,19 @@ struct Enemy {
     attack: i32,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct FloorItem {
+    id: String,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    pos: Point,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+struct Inventory {
+    health_potion: u32,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Player {
     pos: Point,
@@ -234,6 +250,7 @@ struct Player {
     level: u32,
     xp: u32,
     depth: u32,
+    inventory: Inventory,
 }
 
 #[derive(Clone, Debug)]
@@ -267,6 +284,7 @@ impl Default for Player {
             level: 1,
             xp: 0,
             depth: 1,
+            inventory: Inventory::default(),
         }
     }
 }
@@ -344,6 +362,7 @@ pub struct Simulation {
     map: Vec<Vec<bool>>,
     rooms: Vec<Rect>,
     enemies: Vec<Enemy>,
+    items: Vec<FloorItem>,
     player: Player,
     stairs: Point,
     turn: u32,
@@ -390,6 +409,7 @@ impl Simulation {
             map: Vec::new(),
             rooms: Vec::new(),
             enemies: Vec::new(),
+            items: Vec::new(),
             player: Player::default(),
             stairs: Point::ZERO,
             turn: 0,
@@ -439,6 +459,7 @@ impl Simulation {
             final_hp: self.player.hp,
             final_gold: self.player.gold,
             final_score: self.player.score,
+            final_potions: self.player.inventory.health_potion,
         }
     }
 
@@ -451,6 +472,7 @@ impl Simulation {
             "scenario_id": logger.scenario_id,
             "scenario_seed": self.config.scenario_seed,
             "strategy_id": self.config.strategy.id(),
+            "simulation_version": 3,
             "comparison": false,
             "comparison_phase": 0,
         });
@@ -471,7 +493,7 @@ impl Simulation {
         };
         logger.sequence += 1;
         logger.events.push(RunLogEvent {
-            schema_version: 2,
+            schema_version: 3,
             time: logger.timestamp.clone(),
             event: event.to_owned(),
             run_id: logger.run_id.clone(),
@@ -498,6 +520,7 @@ impl Simulation {
             "score": self.player.score,
             "level": self.player.level,
             "xp": self.player.xp,
+            "inventory": self.player.inventory,
         })
     }
 
@@ -535,6 +558,7 @@ impl Simulation {
             vec![vec![false; self.config.map_width as usize]; self.config.map_height as usize];
         self.rooms.clear();
         self.enemies.clear();
+        self.items.clear();
 
         let floor_seed =
             PortableRng::derive_seed(self.config.scenario_seed, "floor", self.player.depth, None);
@@ -547,11 +571,16 @@ impl Simulation {
             self.stairs = self.farthest_walkable_tile_from(self.player.pos);
         }
         self.spawn_enemies(&mut PortableRng::new(spawn_seed));
+        let item_seed =
+            PortableRng::derive_seed(self.config.scenario_seed, "items", self.player.depth, None);
+        self.spawn_items(&mut PortableRng::new(item_seed));
         self.emit_event(
             "floor_start",
             json!({
                 "floor_seed": floor_seed,
                 "spawn_seed": spawn_seed,
+                "item_seed": item_seed,
+                "items": self.items,
                 "enemy_count": self.enemies.len(),
                 "enemies": self.enemy_snapshots(),
                 "map_size": {"width": self.config.map_width, "height": self.config.map_height},
@@ -560,6 +589,181 @@ impl Simulation {
                 "stairs_pos": self.stairs,
             }),
         );
+    }
+
+    fn spawn_items(&mut self, rng: &mut PortableRng) {
+        // Independent stream: adding items never changes terrain, enemies or rewards.
+        for room_index in 0..self.rooms.len().min(3) {
+            let room = self.rooms[room_index];
+            let mut candidates = Vec::new();
+            for y in room.y + 1..room.end_y() - 1 {
+                for x in room.x + 1..room.end_x() - 1 {
+                    let pos = Point { x, y };
+                    if pos != self.player.pos && pos != self.stairs && self.enemy_at(pos).is_none()
+                    {
+                        candidates.push(pos);
+                    }
+                }
+            }
+            if candidates.is_empty() {
+                continue;
+            }
+            let pos = candidates[rng.range_inclusive(0, candidates.len() as i32 - 1) as usize];
+            self.items.push(FloorItem {
+                id: format!("item-{}-{}", self.player.depth, room_index + 1),
+                kind: "health_potion",
+                pos,
+            });
+        }
+    }
+
+    fn pick_up_items(&mut self, decision_id: &str) {
+        let Some(index) = self
+            .items
+            .iter()
+            .position(|item| item.pos == self.player.pos)
+        else {
+            return;
+        };
+        if self.player.inventory.health_potion >= INVENTORY_CAPACITY {
+            return;
+        }
+        let item = self.items.remove(index);
+        self.player.inventory.health_potion += 1;
+        self.emit_event(
+            "item_result",
+            json!({
+                "result": "item_picked_up", "item": item,
+                "inventory": self.player.inventory, "decision_id": decision_id,
+            }),
+        );
+    }
+
+    fn use_health_potion(&mut self, decision_id: &str) {
+        if self.game_over
+            || self.player.inventory.health_potion == 0
+            || self.player.hp >= self.player.max_hp
+        {
+            return;
+        }
+        self.turn += 1;
+        let hp_before = self.player.hp;
+        self.player.inventory.health_potion -= 1;
+        self.player.hp = (self.player.hp + POTION_HEAL).min(self.player.max_hp);
+        self.emit_event(
+            "user_action",
+            json!({
+                "action": "use_item", "result": "item_used", "item_type": "health_potion",
+                "decision_id": decision_id,
+            }),
+        );
+        self.emit_event(
+            "item_result",
+            json!({
+                "result": "item_used", "item_type": "health_potion",
+                "hp_before": hp_before, "hp_after": self.player.hp,
+                "healed": self.player.hp - hp_before, "inventory": self.player.inventory,
+                "decision_id": decision_id,
+            }),
+        );
+        self.run_enemy_turn();
+    }
+
+    fn choose_item_decision(&self) -> Option<Decision> {
+        let cautious = self.config.strategy == Strategy::CautiousV1;
+        let threshold = if cautious { 2 } else { 3 };
+        let incoming: i32 = self
+            .enemies
+            .iter()
+            .map(|enemy| match enemy.kind {
+                EnemyKind::Melee if enemy.pos.manhattan_distance(self.player.pos) == 1 => {
+                    enemy.attack
+                }
+                EnemyKind::Archer if enemy.pos.distance_squared(self.player.pos) <= 2 => 1,
+                EnemyKind::Archer if enemy.pos.distance_squared(self.player.pos) <= 49 => {
+                    enemy.attack
+                }
+                _ => 0,
+            })
+            .sum();
+        if self.player.inventory.health_potion > 0
+            && self.player.hp < self.player.max_hp
+            && (self.player.max_hp - self.player.hp >= POTION_HEAL
+                || self.player.hp * threshold <= self.player.max_hp
+                || self.player.hp <= incoming)
+        {
+            return Some(Decision {
+                direction: Point::ZERO,
+                rule_id: "use_health_potion",
+                reason: "Healing is efficient, HP is low, or the next enemy phase could be lethal.",
+                action_type: "use_item",
+                target: json!({"kind": "inventory_item", "type": "health_potion"}),
+                selected_step_danger: Some(self.danger_cost(self.player.pos)),
+            });
+        }
+        if self.player.inventory.health_potion >= INVENTORY_CAPACITY
+            || self.direction_to_adjacent_enemy().is_some()
+        {
+            return None;
+        }
+        // Cautious never gathers under current threat; its entire item route must be safe.
+        if cautious && self.danger_cost(self.player.pos) > 0 {
+            return None;
+        }
+        let limit = if cautious { 4 } else { 8 };
+        let mut best: Option<(usize, Point, &FloorItem)> = None;
+        for item in &self.items {
+            if let Some((steps, direction)) = self.item_route(item.pos, limit, cautious) {
+                if best
+                    .as_ref()
+                    .is_none_or(|(best_steps, _, _)| steps < *best_steps)
+                {
+                    best = Some((steps, direction, item));
+                }
+            }
+        }
+        best.map(|(_, direction, item)| Decision {
+            direction,
+            rule_id: if cautious { "cautious_collect_potion" } else { "collect_nearby_potion" },
+            reason: if cautious { "A potion is within four safe steps, so the cautious strategy makes a short detour." }
+                else { "A potion is within eight unobstructed steps, so the aggressive strategy gathers supplies." },
+            action_type: "move", target: json!(item),
+            selected_step_danger: Some(self.danger_cost(self.player.pos + direction)),
+        })
+    }
+
+    fn item_route(
+        &self,
+        destination: Point,
+        limit: usize,
+        safe_only: bool,
+    ) -> Option<(usize, Point)> {
+        let start = self.player.pos;
+        let mut frontier = VecDeque::from([(start, 0)]);
+        let mut came_from = HashMap::from([(start, start)]);
+        while let Some((current, steps)) = frontier.pop_front() {
+            if current == destination {
+                return first_step(start, destination, &came_from)
+                    .map(|direction| (steps, direction));
+            }
+            if steps >= limit {
+                continue;
+            }
+            for direction in DIRECTIONS {
+                let next = current + direction;
+                if came_from.contains_key(&next)
+                    || !self.is_walkable(next)
+                    || next == self.stairs
+                    || self.enemy_at(next).is_some()
+                    || (safe_only && self.danger_cost(next) > 0)
+                {
+                    continue;
+                }
+                came_from.insert(next, current);
+                frontier.push_back((next, steps + 1));
+            }
+        }
+        None
     }
 
     fn generate_dungeon(&mut self, rng: &mut PortableRng) {
@@ -716,12 +920,16 @@ impl Simulation {
     }
 
     fn run_auto_player_turn(&mut self) {
-        let decision = match self.config.strategy {
-            Strategy::AggressiveV1 => self.choose_aggressive_decision(),
-            Strategy::CautiousV1 => self.choose_cautious_decision(),
-        };
+        let decision = self
+            .choose_item_decision()
+            .unwrap_or_else(|| match self.config.strategy {
+                Strategy::AggressiveV1 => self.choose_aggressive_decision(),
+                Strategy::CautiousV1 => self.choose_cautious_decision(),
+            });
         let decision_id = self.emit_decision(&decision);
-        if decision.direction == Point::ZERO {
+        if decision.action_type == "use_item" {
+            self.use_health_potion(&decision_id);
+        } else if decision.direction == Point::ZERO {
             self.turn += 1;
             self.emit_event(
                 "user_action",
@@ -873,6 +1081,8 @@ impl Simulation {
             "stairs_pos": self.stairs,
             "stairs_distance_squared": self.player.pos.distance_squared(self.stairs),
             "current_danger": self.danger_cost(self.player.pos),
+            "items": self.items,
+            "inventory": self.player.inventory,
         });
         if let Some(danger) = decision.selected_step_danger {
             observation["selected_step_danger"] = json!(danger);
@@ -1037,6 +1247,7 @@ impl Simulation {
                     "target": target,
                 }),
             );
+            self.pick_up_items(decision_id);
             if self.player.pos == self.stairs {
                 let from_depth = self.player.depth;
                 let hp_before = self.player.hp;
@@ -1394,7 +1605,162 @@ mod tests {
         assert_eq!(logged_run.events[2].event, "user_action");
         assert_eq!(logged_run.events[3].event, "decision");
         assert_eq!(logged_run.events[0].sequence, 1);
-        assert_eq!(logged_run.events[0].schema_version, 2);
+        assert_eq!(logged_run.events[0].schema_version, 3);
+    }
+
+    fn item_test_simulation(strategy: Strategy) -> Simulation {
+        let mut sim = Simulation::new_logged(
+            SimulationConfig {
+                scenario_seed: 1,
+                strategy,
+                map_width: 24,
+                map_height: 18,
+                max_turns: 120,
+            },
+            "item-test.jsonl".to_owned(),
+        )
+        .unwrap();
+        sim.map = vec![vec![true; 24]; 18];
+        sim.enemies.clear();
+        sim.items.clear();
+        sim.player.pos = Point { x: 2, y: 2 };
+        sim.stairs = Point { x: 20, y: 15 };
+        sim
+    }
+
+    #[test]
+    fn pickup_is_part_of_movement_and_capacity_leaves_item_on_floor() {
+        let mut sim = item_test_simulation(Strategy::AggressiveV1);
+        let pos = sim.player.pos + DIRECTIONS[3];
+        sim.items.push(FloorItem {
+            id: "potion".to_owned(),
+            kind: "health_potion",
+            pos,
+        });
+        sim.player_act(DIRECTIONS[3], "pickup");
+        assert_eq!(sim.turn, 1);
+        assert_eq!(sim.player.inventory.health_potion, 1);
+        assert!(sim.items.is_empty());
+        assert_eq!(
+            sim.logger.as_ref().unwrap().events.last().unwrap().details["result"],
+            "item_picked_up"
+        );
+        sim.items.push(FloorItem {
+            id: "overflow".to_owned(),
+            kind: "health_potion",
+            pos,
+        });
+        sim.player.inventory.health_potion = INVENTORY_CAPACITY;
+        sim.pick_up_items("full");
+        assert_eq!(sim.items.len(), 1);
+        sim.player.depth += 1;
+        sim.new_floor();
+        assert_eq!(sim.player.inventory.health_potion, INVENTORY_CAPACITY);
+    }
+
+    #[test]
+    fn potion_heals_before_enemy_phase_and_invalid_use_consumes_nothing() {
+        let mut sim = item_test_simulation(Strategy::AggressiveV1);
+        sim.player.inventory.health_potion = 2;
+        sim.use_health_potion("full-hp");
+        assert_eq!(sim.turn, 0);
+        assert_eq!(sim.player.inventory.health_potion, 2);
+        sim.player.hp = 15;
+        sim.enemies.push(Enemy {
+            id: "attacker".to_owned(),
+            kind: EnemyKind::Melee,
+            pos: sim.player.pos + DIRECTIONS[3],
+            hp: 10,
+            attack: 3,
+        });
+        sim.use_health_potion("heal");
+        assert_eq!(sim.turn, 1);
+        assert_eq!(sim.player.hp, 15); // 15 -> 18 -> 15, after the enemy attacks.
+        assert_eq!(sim.player.inventory.health_potion, 1);
+        let events = &sim.logger.as_ref().unwrap().events;
+        let used = events
+            .iter()
+            .find(|event| event.event == "item_result")
+            .unwrap();
+        assert_eq!(used.details["healed"], 3);
+        assert_eq!(used.player_state["hp"], 18);
+        assert_eq!(events.last().unwrap().details["result"], "player_hit");
+        sim.player.inventory.health_potion = 0;
+        sim.use_health_potion("empty");
+        assert_eq!(sim.turn, 1);
+        sim.player.inventory.health_potion = 1;
+        sim.game_over = true;
+        sim.use_health_potion("dead");
+        assert_eq!(sim.turn, 1);
+    }
+
+    #[test]
+    fn item_policy_respects_threat_capacity_and_entire_safe_route() {
+        let mut sim = item_test_simulation(Strategy::CautiousV1);
+        let pos = sim.player.pos + DIRECTIONS[3];
+        sim.items.push(FloorItem {
+            id: "safe".to_owned(),
+            kind: "health_potion",
+            pos,
+        });
+        assert_eq!(
+            sim.choose_item_decision().unwrap().rule_id,
+            "cautious_collect_potion"
+        );
+        sim.player.inventory.health_potion = INVENTORY_CAPACITY;
+        assert!(sim.choose_item_decision().is_none());
+        sim.player.hp = 9;
+        assert_eq!(sim.choose_item_decision().unwrap().action_type, "use_item");
+        sim.player.hp = sim.player.max_hp;
+        sim.player.inventory.health_potion = 0;
+        sim.enemies.push(Enemy {
+            id: "guard".to_owned(),
+            kind: EnemyKind::Melee,
+            pos: Point { x: 5, y: 2 },
+            hp: 10,
+            attack: 3,
+        });
+        assert!(sim.choose_item_decision().is_none()); // The target has danger even though start is safe.
+        sim.config.strategy = Strategy::AggressiveV1;
+        assert_eq!(
+            sim.choose_item_decision().unwrap().rule_id,
+            "collect_nearby_potion"
+        );
+        sim.stairs = pos;
+        assert!(sim.choose_item_decision().is_none()); // Never descend on an item detour.
+        sim.stairs = Point { x: 20, y: 15 };
+        sim.player.inventory.health_potion = 1;
+        sim.player.hp = 17;
+        sim.enemies[0].pos = sim.player.pos + DIRECTIONS[3];
+        sim.enemies[0].attack = 17;
+        assert_eq!(sim.choose_item_decision().unwrap().action_type, "use_item");
+    }
+
+    #[test]
+    fn item_spawns_are_deterministic_valid_and_strategy_independent() {
+        for seed in [1, 424242, 20260928] {
+            let config = SimulationConfig {
+                scenario_seed: seed,
+                strategy: Strategy::AggressiveV1,
+                map_width: 24,
+                map_height: 18,
+                max_turns: 120,
+            };
+            let a = Simulation::new(config).unwrap();
+            let b = Simulation::new(SimulationConfig {
+                strategy: Strategy::CautiousV1,
+                ..config
+            })
+            .unwrap();
+            assert_eq!(a.items, b.items);
+            assert!(!a.items.is_empty());
+            for item in &a.items {
+                assert!(a.is_walkable(item.pos));
+                assert_ne!(item.pos, a.player.pos);
+                assert_ne!(item.pos, a.stairs);
+                assert!(a.enemy_at(item.pos).is_none());
+            }
+        }
     }
 
     #[test]
