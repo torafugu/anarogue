@@ -1034,6 +1034,7 @@ func handle_player_defeat() -> void:
 	else:
 		add_message("You fell. Press R to restart.")
 	update_controls_state()
+	queue_redraw()
 
 func handle_dungeon_cleared() -> void:
 	game_over = true
@@ -1055,6 +1056,7 @@ func handle_dungeon_cleared() -> void:
 	else:
 		add_message("Dungeon cleared.")
 	update_controls_state()
+	queue_redraw()
 
 func enemy_at(pos: Vector2i) -> int:
 	for i in range(enemies.size()):
@@ -1228,7 +1230,7 @@ func _draw() -> void:
 	draw_arrows()
 	draw_set_transform(Vector2.ZERO)
 	draw_hud()
-	if game_over and arrows.is_empty():
+	if game_over:
 		draw_game_over()
 
 func draw_arrows() -> void:

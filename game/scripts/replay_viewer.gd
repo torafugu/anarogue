@@ -27,6 +27,9 @@ var log_selector: OptionButton
 var run_selector: OptionButton
 var status_label: Label
 var play_button: Button
+var result_popup: PanelContainer
+var result_title: Label
+var result_stats: Label
 
 
 func _ready() -> void:
@@ -71,6 +74,32 @@ func create_controls() -> void:
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(status_label)
 
+	result_popup = PanelContainer.new()
+	result_popup.name = "ResultPopup"
+	result_popup.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0, 0, 0, 0.85)
+	panel_style.set_content_margin_all(24)
+	result_popup.add_theme_stylebox_override("panel", panel_style)
+	var contents := VBoxContainer.new()
+	contents.add_theme_constant_override("separation", 16)
+	result_popup.add_child(contents)
+	result_title = Label.new()
+	result_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	result_title.add_theme_font_size_override("font_size", 44)
+	contents.add_child(result_title)
+	result_stats = Label.new()
+	result_stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	result_stats.add_theme_font_size_override("font_size", 26)
+	contents.add_child(result_stats)
+	var hint := Label.new()
+	hint.text = "Press Play to watch again."
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.add_theme_font_size_override("font_size", 24)
+	contents.add_child(hint)
+	add_child(result_popup)
+	result_popup.hide()
+
 func make_button(text: String, callback: Callable) -> Button:
 	var button := Button.new()
 	button.text = text
@@ -97,7 +126,23 @@ func layout_controls() -> void:
 		x += 140
 	status_label.position = Vector2(16, 126)
 	status_label.size = Vector2(width - 32, 82)
+	layout_result_popup()
 	queue_redraw()
+
+
+func layout_result_popup() -> void:
+	var viewport_size := get_viewport_rect().size
+	var map_height := maxf(0, viewport_size.y - 236)
+	if not replay.frames.is_empty():
+		var rows: Array = replay.frames[frame_index]["map_rows"]
+		if not rows.is_empty() and not str(rows[0]).is_empty():
+			var tile_size := minf((viewport_size.x - 32) / str(rows[0]).length(), map_height / rows.size())
+			map_height = tile_size * rows.size()
+	result_popup.size = Vector2(maxf(0, minf(560, viewport_size.x - 32)), 190)
+	result_popup.position = Vector2(
+		(viewport_size.x - result_popup.size.x) * 0.5,
+		220 + maxf(0, (map_height - result_popup.size.y) * 0.5)
+	)
 
 
 func refresh_log_files(preferred_path: String = "") -> bool:
@@ -253,11 +298,22 @@ func command_line_replay_path() -> String:
 
 
 func update_status() -> void:
+	result_popup.hide()
 	if replay.frames.is_empty():
 		status_label.text = "No replay frames."
 		return
 	var frame: Dictionary = replay.frames[frame_index]
 	var player: Dictionary = frame["player_state"]
+	var outcome: String = frame.get("outcome", "")
+	if frame["kind"] == "terminal" and outcome in ["player_defeated", "dungeon_cleared"]:
+		var cleared := outcome == "dungeon_cleared"
+		result_title.text = "Dungeon Cleared" if cleared else "Game Over"
+		result_title.add_theme_color_override("font_color", COLOR_STAIRS if cleared else Color("#ff8a80"))
+		result_stats.text = "Lv %d  |  Score %d  |  Depth %d" % [
+			player.get("level", 1), player.get("score", 0), frame["depth"]
+		]
+		result_popup.show()
+		layout_result_popup()
 	var rule: String = frame["rule_id"]
 	var line := "%s  ·  frame %d/%d  ·  turn %d  ·  depth %d  ·  HP %d/%d"
 	status_label.text = line % [

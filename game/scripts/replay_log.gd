@@ -128,6 +128,7 @@ func make_frame(
 			map_rows = floors[nearest_depth]
 	return {
 		"kind": kind,
+		"outcome": str(details.get("result", "")) if kind == "terminal" else "",
 		"sequence": int(event.get("sequence", 0)),
 		"turn": int(event.get("turn", 0)),
 		"depth": depth,

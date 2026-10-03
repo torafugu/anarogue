@@ -15,3 +15,8 @@ Godot_v4.6-stable_win64.exe
 AGENTS.md
 node_modules/
 dist/
+simulation-core/target
+logs/
+.DS_Store
+game/.DS_Store
+Cargo.lock

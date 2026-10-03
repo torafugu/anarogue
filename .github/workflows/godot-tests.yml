@@ -41,6 +41,11 @@ jobs:
           godot --headless --path game
           --script res://tests/replay_log_test.gd
 
+      - name: Verify replay result popups
+        run: >-
+          godot --headless --path game
+          --script res://tests/replay_popup_test.gd
+
       - name: Run headless simulation smoke test
         run: >-
           godot --headless --path game
