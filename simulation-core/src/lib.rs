@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const MIN_ROOM_SIZE: i32 = 5;
 const MAX_ROOM_SIZE: i32 = 11;
@@ -135,6 +137,30 @@ pub struct RunSummary {
     pub final_score: u32,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct RunLogEvent {
+    pub schema_version: u32,
+    pub time: String,
+    pub event: String,
+    pub run_id: String,
+    pub scenario_id: String,
+    pub scenario_seed: u32,
+    pub strategy_id: String,
+    pub sequence: u32,
+    pub turn: u32,
+    pub depth: u32,
+    pub hp: i32,
+    pub gold: u32,
+    pub player_state: Value,
+    pub details: Value,
+}
+
+#[derive(Clone, Debug)]
+pub struct LoggedRun {
+    pub summary: RunSummary,
+    pub events: Vec<RunLogEvent>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Rect {
     x: i32,
@@ -179,6 +205,15 @@ enum EnemyKind {
     Archer,
 }
 
+impl EnemyKind {
+    fn id(self) -> &'static str {
+        match self {
+            Self::Melee => "melee",
+            Self::Archer => "archer",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Enemy {
     id: String,
@@ -199,6 +234,25 @@ struct Player {
     level: u32,
     xp: u32,
     depth: u32,
+}
+
+#[derive(Clone, Debug)]
+struct Decision {
+    direction: Point,
+    rule_id: &'static str,
+    reason: &'static str,
+    action_type: &'static str,
+    target: Value,
+    selected_step_danger: Option<i32>,
+}
+
+struct EventLogger {
+    log_file: String,
+    run_id: String,
+    scenario_id: String,
+    timestamp: String,
+    sequence: u32,
+    events: Vec<RunLogEvent>,
 }
 
 impl Default for Player {
@@ -293,13 +347,43 @@ pub struct Simulation {
     player: Player,
     stairs: Point,
     turn: u32,
+    decision_sequence: u32,
     next_enemy_id: u32,
     game_over: bool,
     run_outcome: Option<RunOutcome>,
+    logger: Option<EventLogger>,
 }
 
 impl Simulation {
     pub fn new(config: SimulationConfig) -> Result<Self, String> {
+        Self::create(config, None)
+    }
+
+    pub fn new_logged(config: SimulationConfig, log_file: String) -> Result<Self, String> {
+        if log_file.is_empty() {
+            return Err("log output path must not be empty".to_owned());
+        }
+        let timestamp_seconds = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| format!("system clock is before Unix epoch: {error}"))?
+            .as_secs();
+        let timestamp = format_utc_timestamp(timestamp_seconds);
+        let run_id = format!("rust-{}-{timestamp_seconds}", config.scenario_seed);
+        let scenario_id = format!("scenario-{}", config.scenario_seed);
+        Self::create(
+            config,
+            Some(EventLogger {
+                log_file,
+                run_id,
+                scenario_id,
+                timestamp,
+                sequence: 0,
+                events: Vec::new(),
+            }),
+        )
+    }
+
+    fn create(config: SimulationConfig, logger: Option<EventLogger>) -> Result<Self, String> {
         let config = config.validate()?;
         let mut simulation = Self {
             config,
@@ -309,19 +393,37 @@ impl Simulation {
             player: Player::default(),
             stairs: Point::ZERO,
             turn: 0,
+            decision_sequence: 0,
             next_enemy_id: 1,
             game_over: false,
             run_outcome: None,
+            logger,
         };
+        simulation.emit_run_start();
         simulation.new_floor();
         Ok(simulation)
     }
 
     pub fn run(mut self) -> RunSummary {
+        self.emit_start_action();
         while !self.game_over && self.turn < self.config.max_turns {
             self.run_auto_player_turn();
         }
         self.summary()
+    }
+
+    pub fn run_logged(mut self) -> LoggedRun {
+        self.emit_start_action();
+        while !self.game_over && self.turn < self.config.max_turns {
+            self.run_auto_player_turn();
+        }
+        let summary = self.summary();
+        let events = self
+            .logger
+            .take()
+            .map(|logger| logger.events)
+            .unwrap_or_default();
+        LoggedRun { summary, events }
     }
 
     pub fn summary(&self) -> RunSummary {
@@ -338,6 +440,94 @@ impl Simulation {
             final_gold: self.player.gold,
             final_score: self.player.score,
         }
+    }
+
+    fn emit_run_start(&mut self) {
+        let Some(logger) = self.logger.as_ref() else {
+            return;
+        };
+        let details = json!({
+            "log_file": logger.log_file,
+            "scenario_id": logger.scenario_id,
+            "scenario_seed": self.config.scenario_seed,
+            "strategy_id": self.config.strategy.id(),
+            "comparison": false,
+            "comparison_phase": 0,
+        });
+        self.emit_event("run_start", details);
+    }
+
+    fn emit_start_action(&mut self) {
+        self.emit_event(
+            "user_action",
+            json!({"action": "start", "result": "auto_exploration_started"}),
+        );
+    }
+
+    fn emit_event(&mut self, event: &str, details: Value) {
+        let player_state = self.player_state();
+        let Some(logger) = self.logger.as_mut() else {
+            return;
+        };
+        logger.sequence += 1;
+        logger.events.push(RunLogEvent {
+            schema_version: 2,
+            time: logger.timestamp.clone(),
+            event: event.to_owned(),
+            run_id: logger.run_id.clone(),
+            scenario_id: logger.scenario_id.clone(),
+            scenario_seed: self.config.scenario_seed,
+            strategy_id: self.config.strategy.id().to_owned(),
+            sequence: logger.sequence,
+            turn: self.turn,
+            depth: self.player.depth,
+            hp: self.player.hp,
+            gold: self.player.gold,
+            player_state,
+            details,
+        });
+    }
+
+    fn player_state(&self) -> Value {
+        json!({
+            "pos": self.player.pos,
+            "hp": self.player.hp,
+            "max_hp": self.player.max_hp,
+            "attack": self.player.attack,
+            "gold": self.player.gold,
+            "score": self.player.score,
+            "level": self.player.level,
+            "xp": self.player.xp,
+        })
+    }
+
+    fn enemy_snapshot(&self, enemy: &Enemy) -> Value {
+        json!({
+            "id": enemy.id,
+            "type": enemy.kind.id(),
+            "pos": enemy.pos,
+            "hp": enemy.hp,
+            "attack": enemy.attack,
+            "distance_squared": enemy.pos.distance_squared(self.player.pos),
+        })
+    }
+
+    fn enemy_snapshots(&self) -> Vec<Value> {
+        self.enemies
+            .iter()
+            .map(|enemy| self.enemy_snapshot(enemy))
+            .collect()
+    }
+
+    fn map_rows(&self) -> Vec<String> {
+        self.map
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|walkable| if *walkable { '.' } else { '#' })
+                    .collect()
+            })
+            .collect()
     }
 
     fn new_floor(&mut self) {
@@ -357,6 +547,19 @@ impl Simulation {
             self.stairs = self.farthest_walkable_tile_from(self.player.pos);
         }
         self.spawn_enemies(&mut PortableRng::new(spawn_seed));
+        self.emit_event(
+            "floor_start",
+            json!({
+                "floor_seed": floor_seed,
+                "spawn_seed": spawn_seed,
+                "enemy_count": self.enemies.len(),
+                "enemies": self.enemy_snapshots(),
+                "map_size": {"width": self.config.map_width, "height": self.config.map_height},
+                "map_rows": self.map_rows(),
+                "player_pos": self.player.pos,
+                "stairs_pos": self.stairs,
+            }),
+        );
     }
 
     fn generate_dungeon(&mut self, rng: &mut PortableRng) {
@@ -513,31 +716,87 @@ impl Simulation {
     }
 
     fn run_auto_player_turn(&mut self) {
-        let direction = match self.config.strategy {
-            Strategy::AggressiveV1 => self.choose_aggressive_direction(),
-            Strategy::CautiousV1 => self.choose_cautious_direction(),
+        let decision = match self.config.strategy {
+            Strategy::AggressiveV1 => self.choose_aggressive_decision(),
+            Strategy::CautiousV1 => self.choose_cautious_decision(),
         };
-        if direction == Point::ZERO {
+        let decision_id = self.emit_decision(&decision);
+        if decision.direction == Point::ZERO {
             self.turn += 1;
+            self.emit_event(
+                "user_action",
+                json!({
+                    "action": "auto_wait",
+                    "result": "turn_advanced",
+                    "decision_id": decision_id,
+                }),
+            );
             self.run_enemy_turn();
         } else {
-            self.player_act(direction);
+            self.player_act(decision.direction, &decision_id);
         }
     }
 
-    fn choose_aggressive_direction(&self) -> Point {
+    fn choose_aggressive_decision(&self) -> Decision {
         if let Some(direction) = self.direction_to_adjacent_enemy() {
-            return direction;
+            let enemy = &self.enemies[self
+                .enemy_at(self.player.pos + direction)
+                .expect("adjacent enemy remains present")];
+            return Decision {
+                direction,
+                rule_id: "attack_adjacent_enemy",
+                reason: "An enemy is adjacent, so the default strategy attacks it.",
+                action_type: "attack",
+                target: self.enemy_snapshot(enemy),
+                selected_step_danger: None,
+            };
         }
         if !self.enemies.is_empty() {
-            let target = self.nearest_enemy().pos;
-            return self.find_next_step_toward(target).unwrap_or(Point::ZERO);
+            let enemy = self.nearest_enemy();
+            let direction = self
+                .find_next_step_toward(enemy.pos)
+                .unwrap_or(Point::ZERO);
+            let has_path = direction != Point::ZERO;
+            return Decision {
+                direction,
+                rule_id: if has_path {
+                    "hunt_nearest_enemy"
+                } else {
+                    "wait_no_path_to_enemy"
+                },
+                reason: if has_path {
+                    "Enemies remain, so the default strategy pursues the nearest one."
+                } else {
+                    "No walkable path to the nearest enemy was found."
+                },
+                action_type: if has_path { "move" } else { "wait" },
+                target: self.enemy_snapshot(enemy),
+                selected_step_danger: None,
+            };
         }
-        self.find_next_step_toward(self.stairs)
-            .unwrap_or(Point::ZERO)
+        let direction = self
+            .find_next_step_toward(self.stairs)
+            .unwrap_or(Point::ZERO);
+        let has_path = direction != Point::ZERO;
+        Decision {
+            direction,
+            rule_id: if has_path {
+                "seek_stairs"
+            } else {
+                "wait_no_path_to_stairs"
+            },
+            reason: if has_path {
+                "No enemies remain, so the default strategy heads for the stairs."
+            } else {
+                "No walkable path to the stairs was found."
+            },
+            action_type: if has_path { "move" } else { "wait" },
+            target: json!({"kind": "stairs", "pos": self.stairs}),
+            selected_step_danger: None,
+        }
     }
 
-    fn choose_cautious_direction(&self) -> Point {
+    fn choose_cautious_decision(&self) -> Decision {
         let adjacent_direction = self.direction_to_adjacent_enemy();
         let stairs_direction = self.find_low_risk_step_toward(self.stairs);
         if let Some(direction) = adjacent_direction {
@@ -547,13 +806,96 @@ impl Simulation {
             let can_escape_via_stairs = stairs_direction
                 .is_some_and(|stairs_step| self.player.pos + stairs_step == self.stairs);
             if self.enemies[enemy_index].kind == EnemyKind::Melee && !can_escape_via_stairs {
-                return direction;
+                return Decision {
+                    direction,
+                    rule_id: "attack_pursuing_melee",
+                    reason: "An adjacent melee enemy can match the player's speed, so retreat would not create distance.",
+                    action_type: "attack",
+                    target: self.enemy_snapshot(&self.enemies[enemy_index]),
+                    selected_step_danger: Some(self.danger_cost(self.player.pos)),
+                };
             }
         }
         if let Some(direction) = stairs_direction {
-            return direction;
+            let retreating = adjacent_direction.is_some();
+            return Decision {
+                direction,
+                rule_id: if retreating {
+                    "retreat_from_adjacent_enemy"
+                } else {
+                    "cautious_seek_stairs"
+                },
+                reason: if retreating {
+                    "An enemy is adjacent, so the cautious strategy retreats toward the stairs."
+                } else {
+                    "The cautious strategy takes the lowest-risk route to the stairs."
+                },
+                action_type: "move",
+                target: json!({"kind": "stairs", "pos": self.stairs}),
+                selected_step_danger: Some(self.danger_cost(self.player.pos + direction)),
+            };
         }
-        adjacent_direction.unwrap_or(Point::ZERO)
+        if let Some(direction) = adjacent_direction {
+            let enemy_index = self
+                .enemy_at(self.player.pos + direction)
+                .expect("adjacent enemy remains present");
+            return Decision {
+                direction,
+                rule_id: "attack_blocking_enemy",
+                reason: "No route to the stairs is open, so the cautious strategy fights.",
+                action_type: "attack",
+                target: self.enemy_snapshot(&self.enemies[enemy_index]),
+                selected_step_danger: Some(self.danger_cost(self.player.pos)),
+            };
+        }
+        Decision {
+            direction: Point::ZERO,
+            rule_id: "wait_no_safe_path",
+            reason: "No route to the stairs or adjacent target is currently available.",
+            action_type: "wait",
+            target: json!({"kind": "stairs", "pos": self.stairs}),
+            selected_step_danger: Some(self.danger_cost(self.player.pos)),
+        }
+    }
+
+    fn emit_decision(&mut self, decision: &Decision) -> String {
+        self.decision_sequence += 1;
+        let run_id = self
+            .logger
+            .as_ref()
+            .map(|logger| logger.run_id.as_str())
+            .unwrap_or("unlogged");
+        let decision_id = format!("{run_id}-decision-{}", self.decision_sequence);
+        let mut observation = json!({
+            "player_pos": self.player.pos,
+            "hp": self.player.hp,
+            "max_hp": self.player.max_hp,
+            "enemy_count": self.enemies.len(),
+            "enemies": self.enemy_snapshots(),
+            "stairs_pos": self.stairs,
+            "stairs_distance_squared": self.player.pos.distance_squared(self.stairs),
+            "current_danger": self.danger_cost(self.player.pos),
+        });
+        if let Some(danger) = decision.selected_step_danger {
+            observation["selected_step_danger"] = json!(danger);
+        }
+        self.emit_event(
+            "decision",
+            json!({
+                "decision_id": decision_id,
+                "strategy_id": self.config.strategy.id(),
+                "rule_id": decision.rule_id,
+                "reason": decision.reason,
+                "action_turn": self.turn + 1,
+                "observation": observation,
+                "action": {
+                    "type": decision.action_type,
+                    "direction": decision.direction,
+                    "target": decision.target,
+                },
+            }),
+        );
+        decision_id
     }
 
     fn find_next_step_toward(&self, destination: Point) -> Option<Point> {
@@ -652,23 +994,86 @@ impl Simulation {
         best
     }
 
-    fn player_act(&mut self, direction: Point) {
+    fn player_act(&mut self, direction: Point, decision_id: &str) {
         let target = self.player.pos + direction;
         if !self.is_walkable(target) {
+            self.emit_event(
+                "user_action",
+                json!({
+                    "action": "move",
+                    "result": "blocked_wall",
+                    "decision_id": decision_id,
+                    "direction": direction,
+                    "from": self.player.pos,
+                    "target": target,
+                }),
+            );
             return;
         }
         self.turn += 1;
         if let Some(enemy_index) = self.enemy_at(target) {
+            self.emit_event(
+                "user_action",
+                json!({
+                    "action": "attack",
+                    "result": "enemy_targeted",
+                    "decision_id": decision_id,
+                    "enemy_id": self.enemies[enemy_index].id,
+                    "direction": direction,
+                    "from": self.player.pos,
+                    "target": target,
+                }),
+            );
             self.attack_enemy(enemy_index);
         } else {
+            let from = self.player.pos;
             self.player.pos = target;
+            self.emit_event(
+                "user_action",
+                json!({
+                    "action": "move",
+                    "result": "moved",
+                    "decision_id": decision_id,
+                    "direction": direction,
+                    "from": from,
+                    "target": target,
+                }),
+            );
             if self.player.pos == self.stairs {
+                let from_depth = self.player.depth;
+                let hp_before = self.player.hp;
+                self.emit_event(
+                    "user_action",
+                    json!({
+                        "action": "descend",
+                        "result": "stairs_used",
+                        "decision_id": decision_id,
+                        "from_depth": from_depth,
+                        "hp_before": hp_before,
+                    }),
+                );
                 self.player.depth += 1;
                 self.player.score += 3;
                 self.player.hp = (self.player.hp + 4).min(self.player.max_hp);
+                self.emit_event(
+                    "floor_descend",
+                    json!({"to_depth": self.player.depth, "hp_after": self.player.hp}),
+                );
                 if self.player.depth >= MAX_DEPTH {
                     self.game_over = true;
                     self.run_outcome = Some(RunOutcome::DungeonCleared);
+                    self.emit_event(
+                        "battle_result",
+                        json!({
+                            "result": "dungeon_cleared",
+                            "final_depth": self.player.depth,
+                            "final_gold": self.player.gold,
+                            "final_score": self.player.score,
+                            "turns": self.turn,
+                            "strategy_id": self.config.strategy.id(),
+                            "scenario_seed": self.config.scenario_seed,
+                        }),
+                    );
                     return;
                 }
                 self.new_floor();
@@ -680,8 +1085,22 @@ impl Simulation {
 
     fn attack_enemy(&mut self, index: usize) {
         let damage = self.player.attack;
+        let hp_before = self.enemies[index].hp;
         self.enemies[index].hp -= damage;
         if self.enemies[index].hp > 0 {
+            let enemy = self.enemies[index].clone();
+            self.emit_event(
+                "battle_result",
+                json!({
+                    "result": "enemy_hit",
+                    "enemy_id": enemy.id,
+                    "enemy_type": enemy.kind.id(),
+                    "enemy_pos": enemy.pos,
+                    "damage": damage,
+                    "enemy_hp_before": hp_before,
+                    "enemy_hp_after": enemy.hp,
+                }),
+            );
             return;
         }
         let enemy = self.enemies.remove(index);
@@ -704,6 +1123,18 @@ impl Simulation {
             }
         }
         self.check_level_up();
+        self.emit_event(
+            "battle_result",
+            json!({
+                "result": "enemy_defeated",
+                "enemy_id": enemy.id,
+                "enemy_type": enemy.kind.id(),
+                "enemy_pos": enemy.pos,
+                "damage": damage,
+                "enemy_hp_before": hp_before,
+                "gold_gained": gold,
+            }),
+        );
     }
 
     fn check_level_up(&mut self) {
@@ -734,7 +1165,7 @@ impl Simulation {
     fn run_melee_turn(&mut self, index: usize, enemy: &Enemy) {
         let delta = self.player.pos - enemy.pos;
         if delta.x.abs() + delta.y.abs() == 1 {
-            self.damage_player(enemy.attack);
+            self.damage_player_from(enemy, enemy.attack, false);
             if self.game_over {
                 return;
             }
@@ -751,12 +1182,12 @@ impl Simulation {
             if self.try_archer_retreat(index, enemy.pos) {
                 return;
             }
-            self.damage_player(1);
+            self.damage_player_from(enemy, 1, false);
             return;
         }
         if distance <= 49 {
             if self.can_enemy_see_player(enemy.pos) {
-                self.damage_player(enemy.attack);
+                self.damage_player_from(enemy, enemy.attack, true);
             }
             return;
         }
@@ -767,11 +1198,36 @@ impl Simulation {
         }
     }
 
-    fn damage_player(&mut self, damage: i32) {
+    fn damage_player_from(&mut self, enemy: &Enemy, damage: i32, ranged: bool) {
+        let hp_before = self.player.hp;
         self.player.hp = (self.player.hp - damage).max(0);
+        let mut details = json!({
+            "result": "player_hit",
+            "enemy_id": enemy.id,
+            "enemy_type": enemy.kind.id(),
+            "enemy_pos": enemy.pos,
+            "damage": damage,
+            "player_hp_before": hp_before,
+            "player_hp_after": self.player.hp,
+        });
+        if ranged {
+            details["ranged"] = json!(true);
+        }
+        self.emit_event("battle_result", details);
         if self.player.hp == 0 {
             self.game_over = true;
             self.run_outcome = Some(RunOutcome::PlayerDefeated);
+            self.emit_event(
+                "battle_result",
+                json!({
+                    "result": "player_defeated",
+                    "final_depth": self.player.depth,
+                    "final_gold": self.player.gold,
+                    "turns": self.turn,
+                    "strategy_id": self.config.strategy.id(),
+                    "scenario_seed": self.config.scenario_seed,
+                }),
+            );
         }
     }
 
@@ -867,6 +1323,29 @@ fn first_step(
     Some(current - start)
 }
 
+fn format_utc_timestamp(seconds_since_epoch: u64) -> String {
+    let days = (seconds_since_epoch / 86_400) as i64;
+    let seconds_of_day = seconds_since_epoch % 86_400;
+    let hour = seconds_of_day / 3_600;
+    let minute = (seconds_of_day % 3_600) / 60;
+    let second = seconds_of_day % 60;
+    let shifted_days = days + 719_468;
+    let era = shifted_days.div_euclid(146_097);
+    let day_of_era = shifted_days - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096)
+            / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+    if month <= 2 {
+        year += 1;
+    }
+    format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -893,6 +1372,35 @@ mod tests {
     }
 
     #[test]
+    fn utc_timestamp_format_matches_schema_v2() {
+        assert_eq!(format_utc_timestamp(0), "1970-01-01 00:00:00");
+        assert_eq!(format_utc_timestamp(1_767_225_600), "2026-01-01 00:00:00");
+    }
+
+    #[test]
+    fn logged_run_starts_with_replay_events() {
+        let logged_run = Simulation::new_logged(
+            SimulationConfig {
+                scenario_seed: 1,
+                strategy: Strategy::AggressiveV1,
+                map_width: 24,
+                map_height: 18,
+                max_turns: 1,
+            },
+            "rust-test.jsonl".to_owned(),
+        )
+        .expect("logged simulation starts")
+        .run_logged();
+
+        assert_eq!(logged_run.events[0].event, "run_start");
+        assert_eq!(logged_run.events[1].event, "floor_start");
+        assert_eq!(logged_run.events[2].event, "user_action");
+        assert_eq!(logged_run.events[3].event, "decision");
+        assert_eq!(logged_run.events[0].sequence, 1);
+        assert_eq!(logged_run.events[0].schema_version, 2);
+    }
+
+    #[test]
     fn reaching_depth_five_clears_the_dungeon() {
         let mut simulation = Simulation::new(SimulationConfig {
             scenario_seed: 1,
@@ -911,7 +1419,7 @@ mod tests {
             .expect("stairs have an adjacent walkable tile");
         simulation.player.pos = simulation.stairs - direction;
 
-        simulation.player_act(direction);
+        simulation.player_act(direction, "test-decision");
 
         assert!(simulation.game_over);
         assert_eq!(simulation.run_outcome, Some(RunOutcome::DungeonCleared));

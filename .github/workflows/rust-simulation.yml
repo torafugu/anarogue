@@ -24,3 +24,19 @@ jobs:
 
       - name: Run tests
         run: cargo test --all-targets
+
+      - name: Generate Rust JSONL run log
+        run: >-
+          cargo run --
+          --strategy aggressive
+          --seed 424242
+          --width 24
+          --height 18
+          --max-turns 120
+          --output /tmp/anarogue-rust.jsonl
+
+      - name: Upload Rust JSONL run log
+        uses: actions/upload-artifact@v4
+        with:
+          name: anarogue-rust-log
+          path: /tmp/anarogue-rust.jsonl

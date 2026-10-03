@@ -1,6 +1,6 @@
 # Rust Simulation Core
 
-`simulation-core/` is the Godot-independent implementation of AnaRogue's v1
+`simulation-core/` is the Godot-independent implementation of AnaRogue's v2
 simulation rules. Godot remains the presentation and replay client; this crate is
 the starting point for batch execution, a server API, and future machine-learning
 interfaces.
@@ -16,10 +16,9 @@ The Rust core owns deterministic state transitions:
 - melee and archer turns; and
 - floor transitions and run termination at a turn budget.
 
-It deliberately does not own rendering, wall-clock timing, UI input, run IDs, or
-log file paths. Event serialization remains in the legacy Godot simulation
-harness for now. The default Godot scene is already a log-driven replay client.
-The next parity milestone is to emit the same ordered v2 JSONL events from Rust.
+It deliberately does not own rendering or UI input. The CLI supplies run metadata
+and an optional log path; the core emits the same Schema v2 event categories used
+by the Godot replay client.
 
 ## Run
 
@@ -37,6 +36,23 @@ cargo run -- \
 The command prints one JSON summary. The map dimensions are independent inputs;
 they are not encoded into or substituted for the scenario seed.
 
+Add `--output PATH` to write a replayable Schema v2 JSONL log while retaining the
+summary on standard output. On macOS, write directly to the Godot project data
+directory so the replay selector can discover it:
+
+```bash
+cargo run --release -- \
+  --strategy aggressive \
+  --seed 424242 \
+  --max-turns 5000 \
+  --output "$HOME/Library/Application Support/Godot/app_userdata/anarogue/rust-aggressive-424242.jsonl"
+```
+
+The CLI accepts a normal operating-system path rather than the Godot-only
+`user://` URI. It creates missing parent directories and replaces an existing
+file at the selected path. Use `Refresh logs` in the Godot replay client after a
+run completes.
+
 ## Compatibility tests
 
 ```bash
@@ -47,6 +63,6 @@ The test suite checks the published FNV-1a/xorshift32 vectors and runs all three
 cases from `examples/reference-v2/manifest-v2.json` against the Godot final-state
 baseline. GitHub Actions runs these tests independently of the Godot job.
 
-The current tests compare terminal state rather than the entire JSONL stream.
-Until Rust event parity is implemented, Godot's committed v2 reference logs remain
-the authoritative event-level representation.
+The final-state parity tests still use the committed Godot reference summaries.
+CI additionally generates a Rust log and validates every event against the shared
+Schema v2 contract and stream invariants.

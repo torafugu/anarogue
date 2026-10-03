@@ -33,5 +33,17 @@ jobs:
       - name: Validate simulation v2 reference logs
         run: npm run validate:logs -- ../examples/reference-v2/*.jsonl
 
+      - name: Build a Rust JSONL run log
+        working-directory: simulation-core
+        run: >-
+          cargo run --
+          --strategy aggressive
+          --seed 424242
+          --max-turns 120
+          --output /tmp/anarogue-rust.jsonl
+
+      - name: Validate Rust JSONL run log
+        run: npm run validate:logs -- /tmp/anarogue-rust.jsonl
+
       - name: Build log viewer
         run: npm run build

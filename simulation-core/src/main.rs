@@ -1,27 +1,69 @@
-use anarogue_simulation::{Simulation, SimulationConfig, Strategy};
+use anarogue_simulation::{RunLogEvent, Simulation, SimulationConfig, Strategy};
+use std::fs::{create_dir_all, File};
+use std::io::{BufWriter, Write};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    match parse_config().and_then(Simulation::new) {
-        Ok(simulation) => {
-            println!(
-                "{}",
-                serde_json::to_string(&simulation.run()).expect("summary is serializable")
-            );
-            ExitCode::SUCCESS
-        }
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
             eprintln!("error: {message}");
             eprintln!(
                 "usage: anarogue-sim [--strategy aggressive|cautious] [--seed N] \
-                 [--width N] [--height N] [--max-turns N]"
+                 [--width N] [--height N] [--max-turns N] [--output PATH]"
             );
             ExitCode::FAILURE
         }
     }
 }
 
-fn parse_config() -> Result<SimulationConfig, String> {
+struct CliOptions {
+    config: SimulationConfig,
+    output: Option<PathBuf>,
+}
+
+fn run() -> Result<(), String> {
+    let options = parse_options()?;
+    if let Some(output) = options.output {
+        let display_path = output.to_string_lossy().into_owned();
+        let logged_run = Simulation::new_logged(options.config, display_path)?.run_logged();
+        write_jsonl(&output, &logged_run.events)?;
+        println!(
+            "{}",
+            serde_json::to_string(&logged_run.summary).expect("summary is serializable")
+        );
+    } else {
+        let summary = Simulation::new(options.config)?.run();
+        println!(
+            "{}",
+            serde_json::to_string(&summary).expect("summary is serializable")
+        );
+    }
+    Ok(())
+}
+
+fn write_jsonl(path: &Path, events: &[RunLogEvent]) -> Result<(), String> {
+    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        create_dir_all(parent)
+            .map_err(|error| format!("could not create {}: {error}", parent.display()))?;
+    }
+    let file = File::create(path)
+        .map_err(|error| format!("could not create {}: {error}", path.display()))?;
+    let mut writer = BufWriter::new(file);
+    for event in events {
+        serde_json::to_writer(&mut writer, event)
+            .map_err(|error| format!("could not serialize run event: {error}"))?;
+        writer
+            .write_all(b"\n")
+            .map_err(|error| format!("could not write {}: {error}", path.display()))?;
+    }
+    writer
+        .flush()
+        .map_err(|error| format!("could not flush {}: {error}", path.display()))
+}
+
+fn parse_options() -> Result<CliOptions, String> {
     let mut config = SimulationConfig {
         scenario_seed: 424_242,
         strategy: Strategy::AggressiveV1,
@@ -29,6 +71,7 @@ fn parse_config() -> Result<SimulationConfig, String> {
         map_height: 18,
         max_turns: 120,
     };
+    let mut output = None;
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
         let value = arguments
@@ -40,10 +83,14 @@ fn parse_config() -> Result<SimulationConfig, String> {
             "--width" => config.map_width = parse_number(&argument, &value)?,
             "--height" => config.map_height = parse_number(&argument, &value)?,
             "--max-turns" => config.max_turns = parse_number(&argument, &value)?,
+            "--output" => output = Some(PathBuf::from(value)),
             _ => return Err(format!("unknown argument: {argument}")),
         }
     }
-    config.validate()
+    Ok(CliOptions {
+        config: config.validate()?,
+        output,
+    })
 }
 
 fn parse_number<T>(argument: &str, value: &str) -> Result<T, String>

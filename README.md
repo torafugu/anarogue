@@ -136,6 +136,20 @@ cargo test --all-targets
 The Rust tests execute the three fixed-seed full-run cases and compare their final
 state with the Godot reference baseline.
 
+The Rust CLI can also write a replayable Schema v2 log directly into Godot's
+macOS application-data folder:
+
+```bash
+cd simulation-core
+cargo run --release -- \
+  --strategy aggressive \
+  --seed 424242 \
+  --max-turns 5000 \
+  --output "$HOME/Library/Application Support/Godot/app_userdata/anarogue/rust-aggressive-424242.jsonl"
+```
+
+Return to the Godot replay client and select `Refresh logs` after the run.
+
 Regenerate the deterministic full-run reference logs with:
 
 ```bash
