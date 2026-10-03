@@ -753,9 +753,7 @@ impl Simulation {
         }
         if !self.enemies.is_empty() {
             let enemy = self.nearest_enemy();
-            let direction = self
-                .find_next_step_toward(enemy.pos)
-                .unwrap_or(Point::ZERO);
+            let direction = self.find_next_step_toward(enemy.pos).unwrap_or(Point::ZERO);
             let has_path = direction != Point::ZERO;
             return Decision {
                 direction,
@@ -1333,8 +1331,7 @@ fn format_utc_timestamp(seconds_since_epoch: u64) -> String {
     let era = shifted_days.div_euclid(146_097);
     let day_of_era = shifted_days - era * 146_097;
     let year_of_era =
-        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096)
-            / 365;
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
     let mut year = year_of_era + era * 400;
     let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
     let month_prime = (5 * day_of_year + 2) / 153;
