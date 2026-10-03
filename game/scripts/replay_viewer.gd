@@ -225,13 +225,16 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not event.is_pressed() or event.is_echo():
+	if not (event is InputEventKey):
 		return
-	if event.keycode == KEY_LEFT:
+	var key_event := event as InputEventKey
+	if not key_event.is_pressed() or key_event.is_echo():
+		return
+	if key_event.keycode == KEY_LEFT:
 		previous_frame()
-	elif event.keycode == KEY_RIGHT:
+	elif key_event.keycode == KEY_RIGHT:
 		next_frame()
-	elif event.keycode == KEY_SPACE:
+	elif key_event.keycode == KEY_SPACE:
 		toggle_playing()
 
 
