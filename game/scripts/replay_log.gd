@@ -62,6 +62,7 @@ func build_frames(events: Array) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	var floors: Dictionary = {}
 	var last_enemies: Array = []
+	var last_items: Array = []
 	var last_stairs := {"x": 0, "y": 0}
 
 	for event_value in events:
@@ -79,21 +80,35 @@ func build_frames(events: Array) -> Array[Dictionary]:
 					% [selected_run_id, depth]
 				)
 			floors[depth] = map_rows.duplicate()
+			last_items = details.get("items", []).duplicate(true)
 			last_enemies = details.get("enemies", []).duplicate(true)
 			last_stairs = details.get("stairs_pos", last_stairs).duplicate(true)
-			result.append(make_frame(event, floors, last_enemies, last_stairs, "floor_start"))
+			result.append(make_frame(event, floors, last_enemies, last_stairs, last_items, "floor_start"))
 		elif event_name == "decision":
 			var observation: Dictionary = details.get("observation", {})
+			last_items = observation.get("items", last_items).duplicate(true)
 			last_enemies = observation.get("enemies", last_enemies).duplicate(true)
 			last_stairs = observation.get("stairs_pos", last_stairs).duplicate(true)
-			result.append(make_frame(event, floors, last_enemies, last_stairs, "decision"))
+			result.append(make_frame(event, floors, last_enemies, last_stairs, last_items, "decision"))
+		elif event_name == "item_result":
+			if details.get("result", "") == "item_picked_up":
+				var picked_up: Dictionary = details.get("item", {})
+				for index in range(last_items.size() - 1, -1, -1):
+					if last_items[index].get("id", "") == picked_up.get("id", ""):
+						last_items.remove_at(index)
+			var item_frame := make_frame(event, floors, last_enemies, last_stairs, last_items, "item_result")
+			item_frame["reason"] = (
+				"Picked up a health potion." if details.get("result", "") == "item_picked_up"
+				else "Health potion restored %d HP." % int(details.get("healed", 0))
+			)
+			result.append(item_frame)
 		elif (
 			event_name == "battle_result"
 			and details.get("result", "") == "player_hit"
 			and details.get("ranged", false)
 		):
 			var ranged_frame := make_frame(
-				event, floors, last_enemies, last_stairs, "ranged_hit"
+				event, floors, last_enemies, last_stairs, last_items, "ranged_hit"
 			)
 			var player_state: Dictionary = event.get("player_state", {})
 			ranged_frame["arrow"] = {
@@ -105,7 +120,7 @@ func build_frames(events: Array) -> Array[Dictionary]:
 			event_name == "battle_result"
 			and details.get("result", "") in ["player_defeated", "dungeon_cleared"]
 		):
-			result.append(make_frame(event, floors, last_enemies, last_stairs, "terminal"))
+			result.append(make_frame(event, floors, last_enemies, last_stairs, last_items, "terminal"))
 	return result
 
 
@@ -114,6 +129,7 @@ func make_frame(
 	floors: Dictionary,
 	enemies: Array,
 	stairs: Dictionary,
+	items: Array,
 	kind: String
 ) -> Dictionary:
 	var depth: int = int(event.get("depth", 1))
@@ -135,6 +151,7 @@ func make_frame(
 		"strategy_id": str(event.get("strategy_id", "unknown")),
 		"player_state": event.get("player_state", {}).duplicate(true),
 		"enemies": enemies.duplicate(true),
+		"items": items.duplicate(true),
 		"stairs_pos": stairs.duplicate(true),
 		"map_rows": map_rows.duplicate(),
 		"rule_id": str(details.get("rule_id", "")),

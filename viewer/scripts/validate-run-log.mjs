@@ -8,6 +8,7 @@ const repositoryRoot = resolve(scriptDirectory, "../..");
 const schemaPaths = [
   resolve(repositoryRoot, "schemas/run-log-v1.schema.json"),
   resolve(repositoryRoot, "schemas/run-log-v2.schema.json"),
+  resolve(repositoryRoot, "schemas/run-log-v3.schema.json"),
 ];
 const defaultLogPath = resolve(repositoryRoot, "examples/sample-run-v1.jsonl");
 
@@ -102,7 +103,7 @@ function validateSemanticInvariants(event, runStates, logPath, lineNumber) {
       location,
       "floor_start enemy_count must match enemies.length",
     );
-    if (event.schema_version === 2) {
+    if (event.schema_version >= 2) {
       assert(
         event.details.map_rows.length === event.details.map_size.height,
         location,
@@ -131,6 +132,20 @@ function validateSemanticInvariants(event, runStates, logPath, lineNumber) {
   if (event.event === "floor_descend") {
     assert(event.details.to_depth === event.depth, location, "floor_descend to_depth mismatch");
     assert(event.details.hp_after === event.hp, location, "floor_descend hp_after mismatch");
+  }
+
+  if (event.schema_version === 3) {
+    assert(event.hp <= event.player_state.max_hp, location, "hp exceeds max_hp");
+    if (event.event === "decision") {
+      assert(JSON.stringify(event.details.observation.inventory) === JSON.stringify(event.player_state.inventory), location, "observation inventory mismatch");
+    }
+    if (event.event === "item_result") {
+      assert(JSON.stringify(event.details.inventory) === JSON.stringify(event.player_state.inventory), location, "item result inventory mismatch");
+      if (event.details.result === "item_used") {
+        assert(event.details.hp_after - event.details.hp_before === event.details.healed, location, "healed amount mismatch");
+        assert(event.details.hp_after === event.hp, location, "item hp_after mismatch");
+      }
+    }
   }
 
   runStates.set(event.run_id, {

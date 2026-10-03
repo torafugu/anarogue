@@ -33,6 +33,9 @@ jobs:
       - name: Validate simulation v2 reference logs
         run: npm run validate:logs -- ../examples/reference-v2/*.jsonl
 
+      - name: Validate simulation v3 reference logs
+        run: npm run validate:logs -- ../examples/reference-v3/*.jsonl
+
       - name: Build a Rust JSONL run log
         working-directory: simulation-core
         run: >-

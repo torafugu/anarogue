@@ -6,6 +6,10 @@ var failures: Array[String] = []
 
 
 func _init() -> void:
+	call_deferred("run_tests")
+
+
+func run_tests() -> void:
 	test_every_playable_floor_has_an_enemy()
 	test_reaching_depth_five_clears_the_dungeon()
 	if failures.is_empty():

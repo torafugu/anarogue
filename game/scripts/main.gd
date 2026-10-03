@@ -18,7 +18,9 @@ const ARROW_IMPACT_DURATION := 0.12
 const TILE_WALL := 0
 const TILE_FLOOR := 1
 const DEFAULT_LOG_FILE_PATH := "user://anarogue.jsonl"
-const LOG_SCHEMA_VERSION := 2
+const LOG_SCHEMA_VERSION := 3
+const POTION_HEAL := 8
+const INVENTORY_CAPACITY := 3
 const BASE_MAX_HP := 18
 const BASE_ATTACK := 5
 const MAX_DEPTH := 5
@@ -49,6 +51,7 @@ var metadata_rng := RandomNumberGenerator.new()
 var map: Array = []
 var rooms: Array[Rect2i] = []
 var enemies: Array[Dictionary] = []
+var items: Array[Dictionary] = []
 var player := {
 	"pos": Vector2i.ZERO,
 	"hp": 18,
@@ -59,6 +62,7 @@ var player := {
 	"level": 1,
 	"xp": 0,
 	"depth": 1,
+	"inventory": {"health_potion": 0},
 }
 var stairs_pos := Vector2i.ZERO
 var messages: Array[String] = []
@@ -189,6 +193,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if game_over or not arrows.is_empty():
 		return
 
+	if event is InputEventKey and event.keycode == KEY_H:
+		use_health_potion()
+		return
 	var direction := Vector2i.ZERO
 	if Input.is_action_just_pressed("move_up"):
 		direction = Vector2i.UP
@@ -220,6 +227,7 @@ func restart_game(reuse_scenario: bool = false, auto_start: bool = false) -> voi
 	player["score"] = 0
 	player["level"] = 1
 	player["xp"] = 0
+	player["inventory"] = {"health_potion": 0}
 	player["depth"] = 1
 	turn_count = 0
 	event_sequence = 0
@@ -350,6 +358,7 @@ func new_floor() -> void:
 	map.clear()
 	rooms.clear()
 	enemies.clear()
+	items.clear()
 	for y in range(map_height):
 		var row := []
 		for x in range(map_width):
@@ -367,9 +376,13 @@ func new_floor() -> void:
 	if stairs_pos == player["pos"]:
 		stairs_pos = farthest_walkable_tile_from(player["pos"])
 	spawn_enemies(spawn_rng)
+	var item_seed := derived_seed("items", player["depth"])
+	spawn_items(PortableRandom.new(item_seed))
 	log_event("floor_start", {
 		"floor_seed": floor_seed,
 		"spawn_seed": spawn_seed,
+		"item_seed": item_seed,
+		"items": items_to_log(),
 		"enemy_count": enemies.size(),
 		"enemies": enemies_to_log(),
 		"map_size": {"width": map_width, "height": map_height},
@@ -379,6 +392,143 @@ func new_floor() -> void:
 	})
 	add_message("Depth %d. Find the green stairs." % player["depth"])
 	queue_redraw()
+
+func spawn_items(item_rng: PortableRandom) -> void:
+	for room_index in range(mini(rooms.size(), 3)):
+		var room := rooms[room_index]
+		var candidates: Array[Vector2i] = []
+		for y in range(room.position.y + 1, room.end.y - 1):
+			for x in range(room.position.x + 1, room.end.x - 1):
+				var pos := Vector2i(x, y)
+				if pos != player["pos"] and pos != stairs_pos and enemy_at(pos) == -1:
+					candidates.append(pos)
+		if candidates.is_empty():
+			continue
+		var pos := candidates[item_rng.randi_range(0, candidates.size() - 1)]
+		items.append({"id": "item-%d-%d" % [player["depth"], room_index + 1], "type": "health_potion", "pos": pos})
+
+func item_to_log(item: Dictionary) -> Dictionary:
+	return {"id": item["id"], "type": item["type"], "pos": vector_to_log(item["pos"])}
+
+func items_to_log() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for item in items:
+		result.append(item_to_log(item))
+	return result
+
+func pick_up_items(decision_id: String = "") -> void:
+	if player["inventory"]["health_potion"] >= INVENTORY_CAPACITY:
+		return
+	for index in range(items.size()):
+		if items[index]["pos"] != player["pos"]:
+			continue
+		var item := items[index]
+		items.remove_at(index)
+		player["inventory"]["health_potion"] += 1
+		log_event("item_result", {
+			"result": "item_picked_up", "item": item_to_log(item),
+			"inventory": player["inventory"].duplicate(), "decision_id": decision_id,
+		})
+		add_message("Picked up a health potion.")
+		return
+
+func use_health_potion(decision_id: String = "") -> void:
+	if game_over or player["inventory"]["health_potion"] == 0 or player["hp"] >= player["max_hp"]:
+		return
+	turn_count += 1
+	var hp_before: int = player["hp"]
+	player["inventory"]["health_potion"] -= 1
+	player["hp"] = mini(player["hp"] + POTION_HEAL, player["max_hp"])
+	var action_details := {"item_type": "health_potion"}
+	add_decision_reference(action_details, decision_id)
+	log_user_action("use_item", "item_used", action_details)
+	log_event("item_result", {
+		"result": "item_used", "item_type": "health_potion",
+		"hp_before": hp_before, "hp_after": player["hp"], "healed": player["hp"] - hp_before,
+		"inventory": player["inventory"].duplicate(), "decision_id": decision_id,
+	})
+	add_message("Health potion restored %d HP." % [player["hp"] - hp_before])
+	run_enemy_turn()
+	queue_redraw()
+
+func choose_item_decision(decision_id: String) -> Dictionary:
+	var cautious := active_strategy == StrategyType.CAUTIOUS
+	var threshold := 2 if cautious else 3
+	var incoming := 0
+	var player_pos: Vector2i = player["pos"]
+	for enemy in enemies:
+		var enemy_pos: Vector2i = enemy["pos"]
+		var delta := enemy_pos - player_pos
+		if enemy["type"] == "melee" and absi(delta.x) + absi(delta.y) == 1:
+			incoming += int(enemy["attack"])
+		elif enemy["type"] == "archer":
+			var distance := enemy_pos.distance_squared_to(player_pos)
+			if distance <= 2:
+				incoming += 1
+			elif distance <= 49:
+				incoming += int(enemy["attack"])
+	if player["inventory"]["health_potion"] > 0 and player["hp"] < player["max_hp"] and (
+		player["max_hp"] - player["hp"] >= POTION_HEAL
+		or player["hp"] * threshold <= player["max_hp"] or player["hp"] <= incoming
+	):
+		return {
+			"decision_id": decision_id, "direction": Vector2i.ZERO,
+			"rule_id": "use_health_potion",
+			"reason": "Healing is efficient, HP is low, or the next enemy phase could be lethal.",
+			"action_type": "use_item", "target": {"kind": "inventory_item", "type": "health_potion"},
+			"selected_step_danger": danger_cost(player_pos),
+		}
+	if player["inventory"]["health_potion"] >= INVENTORY_CAPACITY or direction_to_adjacent_enemy() != Vector2i.ZERO:
+		return {}
+	if cautious and danger_cost(player_pos) > 0:
+		return {}
+	var limit := 4 if cautious else 8
+	var best: Dictionary = {}
+	for item in items:
+		var route := item_route(item["pos"], limit, cautious)
+		if not route.is_empty() and (best.is_empty() or route["steps"] < best["steps"]):
+			best = route
+			best["item"] = item
+	if best.is_empty():
+		return {}
+	var direction: Vector2i = best["direction"]
+	return {
+		"decision_id": decision_id, "direction": direction,
+		"rule_id": "cautious_collect_potion" if cautious else "collect_nearby_potion",
+		"reason": (
+			"A potion is within four safe steps, so the cautious strategy makes a short detour."
+			if cautious else "A potion is within eight unobstructed steps, so the aggressive strategy gathers supplies."
+		),
+		"action_type": "move", "target": item_to_log(best["item"]),
+		"selected_step_danger": danger_cost(player_pos + direction),
+	}
+
+func item_route(destination: Vector2i, limit: int, safe_only: bool) -> Dictionary:
+	var start: Vector2i = player["pos"]
+	var frontier: Array[Vector2i] = [start]
+	var came_from := {start: start}
+	var costs := {start: 0}
+	while not frontier.is_empty():
+		var current: Vector2i = frontier.pop_front()
+		if current == destination:
+			if current == start:
+				return {}
+			var step := destination
+			while came_from[step] != start:
+				step = came_from[step]
+			return {"steps": costs[current], "direction": step - start}
+		if costs[current] >= limit:
+			continue
+		for direction in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
+			var next: Vector2i = current + direction
+			if came_from.has(next) or not is_walkable(next) or next == stairs_pos or enemy_at(next) != -1:
+				continue
+			if safe_only and danger_cost(next) > 0:
+				continue
+			came_from[next] = current
+			costs[next] = costs[current] + 1
+			frontier.append(next)
+	return {}
 
 func derived_seed(channel: String, depth: int) -> int:
 	return PortableRandom.derive_seed(scenario_seed, channel, depth)
@@ -499,6 +649,9 @@ func run_auto_player_turn() -> void:
 	var decision_id := "%s-decision-%d" % [run_id, decision_sequence]
 	var decision := choose_auto_player_decision(decision_id)
 	log_auto_decision(decision)
+	if decision["action_type"] == "use_item":
+		use_health_potion(decision_id)
+		return
 	var direction: Vector2i = decision["direction"]
 	if direction == Vector2i.ZERO:
 		turn_count += 1
@@ -513,6 +666,9 @@ func run_auto_player_turn() -> void:
 	player_act(direction, decision["decision_id"])
 
 func choose_auto_player_decision(decision_id: String) -> Dictionary:
+	var item_decision := choose_item_decision(decision_id)
+	if not item_decision.is_empty():
+		return item_decision
 	if active_strategy == StrategyType.CAUTIOUS:
 		return choose_cautious_decision(decision_id)
 	return choose_aggressive_decision(decision_id)
@@ -801,6 +957,7 @@ func player_act(direction: Vector2i, decision_id: String = "") -> void:
 		}
 		add_decision_reference(move_details, decision_id)
 		log_user_action("move", "moved", move_details)
+		pick_up_items(decision_id)
 		if player["pos"] == stairs_pos:
 			var descend_details := {
 				"from_depth": player["depth"],
@@ -827,7 +984,8 @@ func player_act(direction: Vector2i, decision_id: String = "") -> void:
 func attack_enemy(index: int) -> void:
 	var enemy := enemies[index]
 	var enemy_hp_before: int = enemy["hp"]
-	enemy["hp"] = enemy["hp"] - player["attack"]
+	var damage: int = player["attack"]
+	enemy["hp"] = enemy["hp"] - damage
 	if enemy["hp"] <= 0:
 		var enemy_pos: Vector2i = enemy["pos"]
 		enemies.remove_at(index)
@@ -841,7 +999,7 @@ func attack_enemy(index: int) -> void:
 			"enemy_id": enemy["id"],
 			"enemy_type": enemy["type"],
 			"enemy_pos": vector_to_log(enemy_pos),
-			"damage": player["attack"],
+			"damage": damage,
 			"enemy_hp_before": enemy_hp_before,
 			"gold_gained": gold,
 		})
@@ -852,7 +1010,7 @@ func attack_enemy(index: int) -> void:
 			"enemy_id": enemy["id"],
 			"enemy_type": enemy["type"],
 			"enemy_pos": vector_to_log(enemy["pos"]),
-			"damage": player["attack"],
+			"damage": damage,
 			"enemy_hp_before": enemy_hp_before,
 			"enemy_hp_after": enemy["hp"],
 		})
@@ -1110,6 +1268,7 @@ func start_run_log() -> void:
 		"scenario_id": current_scenario_id(),
 		"scenario_seed": scenario_seed,
 		"strategy_id": strategy_id(active_strategy),
+		"simulation_version": 3,
 		"comparison": comparison_active,
 		"comparison_phase": comparison_phase,
 	})
@@ -1143,6 +1302,8 @@ func build_decision_observation() -> Dictionary:
 		"stairs_pos": vector_to_log(stairs_pos),
 		"stairs_distance_squared": player["pos"].distance_squared_to(stairs_pos),
 		"current_danger": danger_cost(player["pos"]),
+		"items": items_to_log(),
+		"inventory": player["inventory"].duplicate(),
 	}
 
 func add_decision_reference(details: Dictionary, decision_id: String) -> void:
@@ -1204,6 +1365,7 @@ func player_state_to_log() -> Dictionary:
 		"score": player["score"],
 		"level": player["level"],
 		"xp": player["xp"],
+		"inventory": player["inventory"].duplicate(),
 	}
 
 func enemy_to_log(enemy: Dictionary) -> Dictionary:
@@ -1283,6 +1445,8 @@ func draw_stairs_icon() -> void:
 	draw_line(origin + Vector2(9, 31), origin + Vector2(30, 31), COLORS["stairs"], 2.0, true)
 
 func draw_entities() -> void:
+	for item in items:
+		draw_tile_symbol(item["pos"], "+", Color("#de8fe8"))
 	for enemy in enemies:
 		var symbol := "A" if enemy["type"] == "archer" else "E"
 		var color := COLORS["archer"] if enemy["type"] == "archer" else COLORS["enemy"]
@@ -1318,6 +1482,7 @@ func draw_hud() -> void:
 		COLORS["muted"],
 	)
 
+	draw_string(font, Vector2(hud_x, 470), "Potions %d/%d · H: use" % [player["inventory"]["health_potion"], INVENTORY_CAPACITY], HORIZONTAL_ALIGNMENT_LEFT, -1, 22, COLORS["text"])
 	draw_string(font, Vector2(hud_x, 500), "Arrows/. still work", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, COLORS["muted"])
 	draw_string(font, Vector2(hud_x, 536), "R: restart", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, COLORS["muted"])
 
