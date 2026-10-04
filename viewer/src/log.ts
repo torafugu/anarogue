@@ -12,6 +12,12 @@ export interface Vector2i {
   y: number;
 }
 
+export interface ItemSnapshot {
+  id: string;
+  type: "health_potion";
+  pos: Vector2i;
+}
+
 export interface PlayerState {
   pos: Vector2i;
   hp: number;
@@ -21,6 +27,7 @@ export interface PlayerState {
   score: number;
   level: number;
   xp: number;
+  inventory?: { health_potion: number };
 }
 
 export interface EnemySnapshot {
@@ -46,8 +53,12 @@ export interface DecisionDetails {
     enemies: EnemySnapshot[];
     stairs_pos: Vector2i;
     stairs_distance_squared: number;
+    items?: ItemSnapshot[];
+    inventory?: { health_potion: number };
     current_danger?: number;
     selected_step_danger?: number;
+    selected_step_revisit_cost?: number;
+    current_tile_visits?: number;
   };
   action: {
     type: "move" | "attack" | "wait" | string;
@@ -83,6 +94,9 @@ export interface RunSummary {
   maxDepth: number;
   kills: number;
   damageTaken: number;
+  potionsPickedUp: number;
+  potionsUsed: number;
+  hpHealed: number;
   gold: number;
   score: number;
   decisions: number;
@@ -161,7 +175,7 @@ export function parseJsonLines(source: string): ParsedLog {
     }
 
     const event = normalizeEvent(raw, index + 1);
-    if (event.schema_version !== 1 && event.schema_version !== 2) {
+    if (event.schema_version !== 1 && event.schema_version !== 2 && event.schema_version !== 3) {
       warnings.push(
         `Run ${event.run_id} contains legacy or unsupported schema data.`,
       );
@@ -187,10 +201,20 @@ export function summarizeRun(events: RunEvent[]): RunSummary {
   let kills = 0;
   let damageTaken = 0;
   let decisions = 0;
+  let potionsPickedUp = 0;
+  let potionsUsed = 0;
+  let hpHealed = 0;
   let result: RunSummary["result"] = "active";
 
   for (const event of events) {
     if (event.event === "decision") decisions += 1;
+    if (event.event === "item_result") {
+      if (event.details.result === "item_picked_up") potionsPickedUp += 1;
+      if (event.details.result === "item_used") {
+        potionsUsed += 1;
+        hpHealed += asNumber(event.details.healed);
+      }
+    }
     if (event.event !== "battle_result") continue;
     const eventResult = asString(event.details.result);
     if (eventResult === "enemy_defeated") kills += 1;
@@ -207,6 +231,9 @@ export function summarizeRun(events: RunEvent[]): RunSummary {
     maxDepth: Math.max(...events.map((event) => event.depth), 1),
     kills,
     damageTaken,
+    potionsPickedUp,
+    potionsUsed,
+    hpHealed,
     gold: last?.player_state?.gold ?? last?.gold ?? 0,
     score: last?.player_state?.score ?? 0,
     decisions,
@@ -224,12 +251,17 @@ export function decisionDetails(event: RunEvent): DecisionDetails | null {
 export function eventCategory(event: RunEvent): string {
   if (event.event === "decision") return "decision";
   if (event.event === "battle_result") return "combat";
-  if (event.event === "user_action") return "action";
+  if (event.event === "user_action" || event.event === "item_result") return "action";
   return "floor";
 }
 
 export function describeEvent(event: RunEvent): { title: string; body: string } {
   const details = event.details;
+  if (event.event === "item_result") {
+    return details.result === "item_picked_up"
+      ? { title: "Health potion picked up", body: `Inventory: ${asNumber((details.inventory as Record<string, unknown>)?.health_potion)}/3.` }
+      : { title: `Health potion restored ${asNumber(details.healed)} HP`, body: `HP ${asNumber(details.hp_before)} → ${asNumber(details.hp_after)}.` };
+  }
   if (event.event === "decision") {
     const decision = decisionDetails(event);
     return {

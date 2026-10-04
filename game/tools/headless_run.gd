@@ -60,6 +60,7 @@ func run() -> void:
 		"hp": game.player["hp"],
 		"gold": game.player["gold"],
 		"score": game.player["score"],
+		"potions": game.player["inventory"]["health_potion"],
 		"log_file": resolved_output,
 	}
 	game.close_log_file()

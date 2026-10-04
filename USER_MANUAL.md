@@ -2,22 +2,22 @@
 
 ## Overview
 
-SimpleRogue is a small turn-based roguelike made with Godot 4. You explore procedurally generated dungeon floors, avoid or defeat enemies, collect gold, and descend as deeply as you can.
+AnaRogue is a small turn-based roguelike made with Godot 4. You explore procedurally generated dungeon floors, avoid or defeat enemies, collect gold, and descend as deeply as you can.
 
 Each action you take advances the game by one turn. Move carefully, watch your HP, and use the stairs to continue to the next depth.
 
 ## Starting the Game
 
-1. Open the project folder in Godot 4.
-2. Run the main scene: `res://scenes/Main.tscn`.
-3. The game starts immediately on Depth 1.
+1. Open `game/` in Godot 4 and run the project to open the replay client.
+2. Select a JSONL log, or use the bundled v3 reference. Pickup and healing have their own frames.
+3. For a live run, select `Live check` (`res://scenes/main.tscn`); it starts on Depth 1.
 4. Choose an automatic strategy on the right side of the screen.
 5. Click `Start selected strategy`, or run both strategies with
    `Compare both — same seed`.
 
 ## Goal
 
-Your goal is to survive for as many dungeon depths as possible.
+Your goal is to reach Depth 5. Floors 1–4 are playable; descending from Depth 4 completes the dungeon.
 
 Find the green stairs on each floor and step onto them to descend. When you enter a new floor, your depth increases and you recover a small amount of HP.
 
@@ -33,6 +33,7 @@ Find the green stairs on each floor and step onto them to descend. When you ente
 | Arrow Left | Manually move left or attack left |
 | Arrow Right | Manually move right or attack right |
 | `.` | Manually wait one turn |
+| `H` | Use one health potion in Live check |
 | `R` | Restart the game |
 
 ## Screen Guide
@@ -44,6 +45,7 @@ Find the green stairs on each floor and step onto them to descend. When you ente
 | `@` | Player |
 | `E` | Melee enemy |
 | `A` | Archer enemy |
+| Purple `+` | Health potion |
 | `>` | Stairs to the next floor |
 
 ### HUD
@@ -52,6 +54,7 @@ The right side of the screen shows:
 
 - Current dungeon depth
 - Current and maximum HP
+- Health potions carried (0–3)
 - Gold collected
 - Control reminders
 - Recent message log
@@ -62,7 +65,7 @@ The game also writes a persistent JSON Lines log to `user://anarogue.jsonl`. It 
 
 ## How Turns Work
 
-SimpleRogue is turn-based. After you click `Start`, the player takes turns automatically.
+AnaRogue is turn-based. After you click `Start`, the player takes turns automatically.
 
 After you move, attack, or wait, enemies get a turn. Enemies may move toward you if they can sense you nearby, or attack if they are next to you.
 
@@ -79,16 +82,37 @@ one step away, it escapes instead. It also attacks when no route to the stairs
 is open and an enemy blocks it.
 
 Comparison mode gives both strategies the same scenario seed. Floor generation,
-enemy placement, and each enemy's gold reward are derived separately from that
+enemy placement, potion placement, and each enemy's gold reward are derived separately from that
 seed, so different decisions do not change the scenario itself.
 
-Walking into a wall does not advance the turn.
+Walking into a wall does not advance the turn. The pathfinder remembers visited
+tiles and adds a growing cost after the second visit, so changing enemy positions
+do not trap the player in an endless back-and-forth. Returning through a corridor
+remains possible; this is a preference, not a movement restriction.
 
 ## Movement
 
 After `Start` is clicked, the player automatically moves one tile at a time. You can still use the arrow keys to take manual turns.
 
 You can walk on floor tiles, but not through walls. Rooms and corridors are generated randomly each run and each floor.
+
+## Health Potions
+
+Step onto a purple `+` to collect a potion automatically. Pickup is part of the
+movement turn. Carry up to 3; a full inventory leaves the potion on the floor.
+Use `H` in Live check to restore up to 8 HP. Use consumes a turn and enemies act
+immediately afterward. At full HP or with no potion, pressing `H` does nothing.
+Potions carry over to the next floor and clear on restart. Uncollected potions
+are left behind when descending.
+
+Both strategies use potions when a full 8 HP can be recovered, HP is low, or the
+estimated next enemy phase could be lethal. Aggressive gathers potions within
+8 unobstructed steps; Cautious only gathers within 4 steps along an entirely
+unthreatened route. Neither detours for items while an enemy is adjacent.
+Full details are in [simulation v3](docs/simulation-spec-v3.md).
+
+The web viewer shows potions found/used, actual HP healed and current inventory.
+Pickup/use events are included under the Actions filter.
 
 ## Combat
 
