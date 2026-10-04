@@ -1,7 +1,7 @@
 extends Node2D
 
 const ReplayData := preload("res://scripts/replay_log.gd")
-const DEFAULT_REPLAY := "res://../examples/reference-v5/aggressive-seed-424242.jsonl"
+const DEFAULT_REPLAY := "res://../examples/reference-v6/aggressive-seed-424242.jsonl"
 const AUTO_STEP_SECONDS := 0.28
 const ARROW_FLIGHT_DURATION := 0.28
 const ARROW_IMPACT_DURATION := 0.12
@@ -321,7 +321,11 @@ func update_status() -> void:
 		frame["depth"], player.get("level", 1), player.get("xp", 0), int(player.get("level", 1)) * 8,
 		player.get("hp", 0), player.get("max_hp", 0)
 	]
-	status_label.text += "  ·  ATK %d (%d+%d)  DEF %d (%d+%d)" % [player.get("attack", 0), player.get("base_attack", player.get("attack", 0)), player.get("attack_bonus", 0), player.get("defense", 0), player.get("base_defense", 0), player.get("defense_bonus", 0)]
+	var raw_attack_text := "%d+%d" % [player.get("base_attack", player.get("attack", 0)), player.get("attack_bonus", 0)]
+	if player.get("weapon_kind", "melee") == "bow":
+		raw_attack_text = "(%s)/2" % raw_attack_text
+	status_label.text += "  ·  ATK %d [%s]  DEF %d (%d+%d)" % [player.get("attack", 0), raw_attack_text, player.get("defense", 0), player.get("base_defense", 0), player.get("defense_bonus", 0)]
+	status_label.text += " · %s range %d" % [player.get("weapon_kind", "melee"), player.get("attack_range", 1)]
 	status_label.text += "  ·  Potions %d/3" % int(player.get("inventory", {}).get("health_potion", 0))
 	var equipment: Dictionary = player.get("equipment", {})
 	var weapon = equipment.get("weapon")
@@ -342,6 +346,8 @@ func update_status() -> void:
 		status_label.text += "\n%s" % frame["reason"]
 	elif not rule.is_empty():
 		status_label.text += "\n%s" % rule if not progression.is_empty() else "\n%s — %s" % [rule, frame["reason"]]
+	elif frame["kind"] == "player_ranged_hit":
+		status_label.text += "\nPlayer bow shot"
 	elif frame["kind"] == "ranged_hit":
 		status_label.text += "\nArcher ranged attack"
 	elif not replay.warnings.is_empty():
@@ -378,7 +384,7 @@ func _draw() -> void:
 	draw_stairs_icon(frame["stairs_pos"], origin, tile_size)
 	for item_value in frame.get("items", []):
 		var item: Dictionary = item_value
-		draw_actor(item.get("pos", {}), origin, tile_size, Color("#de8fe8"), "W" if item.get("type", "") == "weapon" else ("D" if item.get("type", "") == "armor" else "+"))
+		draw_actor(item.get("pos", {}), origin, tile_size, Color("#de8fe8"), ("B" if item.get("weapon_kind", "melee") == "bow" else "W") if item.get("type", "") == "weapon" else ("D" if item.get("type", "") == "armor" else "+"))
 	for enemy_value in frame["enemies"]:
 		var enemy: Dictionary = enemy_value
 		var color := COLOR_ARCHER if enemy.get("type", "") == "archer" else COLOR_MELEE
@@ -472,7 +478,7 @@ func draw_arrow(arrow: Dictionary, origin: Vector2, tile_size: float) -> void:
 			maxf(2.0, tile_size * 0.15),
 			true
 		)
-		draw_line(tail, tip, COLOR_ARCHER, maxf(1.0, tile_size * 0.075), true)
+		draw_line(tail, tip, COLOR_PLAYER if arrow.get("player_shot", false) else COLOR_ARCHER, maxf(1.0, tile_size * 0.075), true)
 		draw_colored_polygon(PackedVector2Array([
 			tip,
 			tip - direction * tile_size * 0.225 + perpendicular * tile_size * 0.125,
@@ -480,7 +486,7 @@ func draw_arrow(arrow: Dictionary, origin: Vector2, tile_size: float) -> void:
 		]), COLOR_TEXT)
 	else:
 		var progress := (arrow_elapsed - ARROW_FLIGHT_DURATION) / ARROW_IMPACT_DURATION
-		var color := COLOR_ARCHER
+		var color := COLOR_PLAYER if arrow.get("player_shot", false) else COLOR_ARCHER
 		color.a = 1.0 - progress
 		draw_arc(
 			target,

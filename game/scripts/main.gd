@@ -18,7 +18,8 @@ const ARROW_IMPACT_DURATION := 0.12
 const TILE_WALL := 0
 const TILE_FLOOR := 1
 const DEFAULT_LOG_FILE_PATH := "user://anarogue.jsonl"
-const LOG_SCHEMA_VERSION := 5
+const LOG_SCHEMA_VERSION := 6
+const BOW_RANGE := 5
 const POTION_HEAL := 8
 const INVENTORY_CAPACITY := 3
 const BASE_MAX_HP := 18
@@ -198,6 +199,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	if game_over or not arrows.is_empty():
 		return
 
+	if event is InputEventKey and event.keycode == KEY_F:
+		var shot := choose_bow_decision("manual", true)
+		if not shot.is_empty():
+			player_shoot(shot["target"]["id"])
+		return
 	if event is InputEventKey and event.keycode == KEY_H:
 		use_health_potion()
 		return
@@ -427,8 +433,41 @@ func defense_bonus() -> int:
 	var armor = player["equipment"]["armor"]
 	return int(armor["defense_bonus"]) if armor != null else 0
 
+func weapon_kind() -> String:
+	var weapon = player["equipment"]["weapon"]
+	return str(weapon.get("weapon_kind", "melee")) if weapon != null else "melee"
+
+func attack_range() -> int:
+	return BOW_RANGE if weapon_kind() == "bow" else 1
+
 func effective_attack() -> int:
-	return int(player["base_attack"]) + attack_bonus()
+	var raw := int(player["base_attack"]) + attack_bonus()
+	return maxi(1, int(raw / 2)) if weapon_kind() == "bow" else raw
+
+func gear_to_log(gear) -> Variant:
+	if gear == null:
+		return null
+	var result: Dictionary = gear.duplicate(true)
+	result["weapon_kind"] = gear.get("weapon_kind", "melee" if gear["type"] == "weapon" else null)
+	return result
+
+func equipment_to_log() -> Dictionary:
+	return {"weapon": gear_to_log(player["equipment"]["weapon"]), "armor": gear_to_log(player["equipment"]["armor"])}
+
+func preferred_weapon_kind() -> String:
+	return "bow" if active_strategy == StrategyType.CAUTIOUS else "melee"
+
+func item_priority(item: Dictionary) -> int:
+	return 1 if item["type"] == "weapon" and item.get("weapon_kind", "melee") == preferred_weapon_kind() else 0
+
+func wants_weapon(item: Dictionary) -> bool:
+	var weapon = player["equipment"]["weapon"]
+	if weapon == null:
+		return true
+	var candidate_kind: String = item.get("weapon_kind", "melee")
+	if candidate_kind != weapon_kind():
+		return candidate_kind == preferred_weapon_kind()
+	return int(item.get("attack_bonus", 0)) > attack_bonus()
 
 func effective_defense() -> int:
 	return int(player["base_defense"]) + defense_bonus()
@@ -439,7 +478,7 @@ func calculate_damage(attack: int, defense: int) -> int:
 func wants_item(item: Dictionary) -> bool:
 	match item["type"]:
 		"health_potion": return player["inventory"]["health_potion"] < INVENTORY_CAPACITY
-		"weapon": return int(item.get("attack_bonus", 0)) > attack_bonus()
+		"weapon": return wants_weapon(item)
 		"armor": return int(item.get("defense_bonus", 0)) > defense_bonus()
 	return false
 
@@ -463,11 +502,32 @@ func spawn_equipment() -> void:
 		var pos := candidates[equipment_rng.randi_range(0, candidates.size() - 1)]
 		items.append({"id": "%s-%d" % [kind, player["depth"]], "type": kind, "pos": pos,
 			"attack_bonus": int(player["depth"]) + 1 if kind == "weapon" else 0,
-			"defense_bonus": (int(player["depth"]) + 1) / 2 if kind == "armor" else 0})
+			"defense_bonus": (int(player["depth"]) + 1) / 2 if kind == "armor" else 0,
+			"weapon_kind": "melee" if kind == "weapon" else null})
+	spawn_bow()
+
+func spawn_bow() -> void:
+	var candidates: Array[Vector2i] = []
+	var room := rooms[0]
+	for y in range(room.position.y + 1, room.end.y - 1):
+		for x in range(room.position.x + 1, room.end.x - 1):
+			var pos := Vector2i(x, y)
+			var occupied := false
+			for item in items:
+				occupied = occupied or item["pos"] == pos
+			if pos != player["pos"] and pos != stairs_pos and enemy_at(pos) == -1 and not occupied:
+				candidates.append(pos)
+	if candidates.is_empty():
+		return
+	var bow_rng := PortableRandom.new(derived_seed("bows", player["depth"]))
+	items.append({"id": "bow-%d" % player["depth"], "type": "weapon", "weapon_kind": "bow",
+		"pos": candidates[bow_rng.randi_range(0, candidates.size() - 1)],
+		"attack_bonus": int(player["depth"]) + 1, "defense_bonus": 0})
 
 func item_to_log(item: Dictionary) -> Dictionary:
 	return {"id": item["id"], "type": item["type"], "pos": vector_to_log(item["pos"]),
-		"attack_bonus": int(item.get("attack_bonus", 0)), "defense_bonus": int(item.get("defense_bonus", 0))}
+		"attack_bonus": int(item.get("attack_bonus", 0)), "defense_bonus": int(item.get("defense_bonus", 0)),
+		"weapon_kind": item.get("weapon_kind", "melee" if item["type"] == "weapon" else null)}
 
 func items_to_log() -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
@@ -492,13 +552,14 @@ func pick_up_items(decision_id: String = "") -> void:
 		var slot: String = item["type"]
 		var previous = player["equipment"][slot]
 		player["equipment"][slot] = {"id": item["id"], "type": slot,
-			"attack_bonus": int(item.get("attack_bonus", 0)), "defense_bonus": int(item.get("defense_bonus", 0))}
+			"attack_bonus": int(item.get("attack_bonus", 0)), "defense_bonus": int(item.get("defense_bonus", 0)),
+		"weapon_kind": item.get("weapon_kind", "melee" if item["type"] == "weapon" else null)}
 		if previous != null:
 			var dropped: Dictionary = previous.duplicate(true)
 			dropped["pos"] = player["pos"]
 			items.append(dropped)
 		log_event("item_result", {"result": "item_equipped", "item": item_to_log(item),
-			"previous_equipment": previous, "equipment": player["equipment"].duplicate(true),
+			"previous_equipment": gear_to_log(previous), "equipment": equipment_to_log(),
 			"items": items_to_log(), "inventory": player["inventory"].duplicate(), "decision_id": decision_id})
 		add_message("Equipped %s." % slot)
 
@@ -547,7 +608,7 @@ func choose_item_decision(decision_id: String) -> Dictionary:
 		if not wants_item(item):
 			continue
 		var route := item_route(item["pos"], limit, cautious)
-		if not route.is_empty() and (best.is_empty() or route["steps"] < best["steps"]):
+		if not route.is_empty() and (best.is_empty() or item_priority(item) > item_priority(best["item"]) or (item_priority(item) == item_priority(best["item"]) and route["steps"] < best["steps"])):
 			best = route
 			best["item"] = item
 	if best.is_empty():
@@ -557,7 +618,7 @@ func choose_item_decision(decision_id: String) -> Dictionary:
 	return {
 		"decision_id": decision_id, "direction": direction,
 		"rule_id": ("cautious_collect_potion" if cautious else "collect_nearby_potion") if is_potion else ("cautious_collect_equipment" if cautious else "collect_nearby_equipment"),
-		"reason": "A stronger piece of equipment is within the item detour limit." if not is_potion else (
+		"reason": "A preferred weapon type or stronger equipment is within the item detour limit." if not is_potion else (
 			"A potion is within four safe steps, so the cautious strategy makes a short detour."
 			if cautious else "A potion is within eight unobstructed steps, so the aggressive strategy gathers supplies."
 		),
@@ -720,6 +781,9 @@ func run_auto_player_turn() -> void:
 	if decision["action_type"] == "use_item":
 		use_health_potion(decision_id)
 		return
+	if decision["action_type"] == "ranged_attack":
+		player_shoot(decision["target"]["id"], decision_id)
+		return
 	var direction: Vector2i = decision["direction"]
 	if direction == Vector2i.ZERO:
 		turn_count += 1
@@ -735,11 +799,63 @@ func run_auto_player_turn() -> void:
 
 func choose_auto_player_decision(decision_id: String) -> Dictionary:
 	var item_decision := choose_item_decision(decision_id)
+	if not item_decision.is_empty() and item_decision["action_type"] == "use_item":
+		return item_decision
+	var bow_decision := choose_bow_decision(decision_id)
+	if not bow_decision.is_empty():
+		return bow_decision
 	if not item_decision.is_empty():
 		return item_decision
 	if active_strategy == StrategyType.CAUTIOUS:
 		return choose_cautious_decision(decision_id)
 	return choose_aggressive_decision(decision_id)
+
+func can_player_shoot_from(origin: Vector2i, target: Vector2i) -> bool:
+	return weapon_kind() == "bow" and origin != target and origin.distance_squared_to(target) <= BOW_RANGE * BOW_RANGE and has_line_of_sight(origin, target)
+
+func choose_bow_decision(decision_id: String, allow_adjacent: bool = false) -> Dictionary:
+	if weapon_kind() != "bow" or (not allow_adjacent and direction_to_adjacent_enemy() != Vector2i.ZERO):
+		return {}
+	if not allow_adjacent and active_strategy == StrategyType.CAUTIOUS and absi(stairs_pos.x - player["pos"].x) + absi(stairs_pos.y - player["pos"].y) == 1:
+		return {}
+	var best: Dictionary = {}
+	for enemy in enemies:
+		if not can_player_shoot_from(player["pos"], enemy["pos"]):
+			continue
+		if enemy["id"] == growth_target_id:
+			best = enemy
+			break
+		if best.is_empty() or player["pos"].distance_squared_to(enemy["pos"]) < player["pos"].distance_squared_to(best["pos"]):
+			best = enemy
+	if best.is_empty():
+		return {}
+	var excluded := str(best["id"]) if int(best["hp"]) <= calculate_damage(effective_attack(), int(best.get("defense", 0))) else ""
+	if not allow_adjacent and incoming_damage_at(player["pos"], excluded) >= player["hp"]:
+		return {}
+	return {"decision_id": decision_id, "rule_id": "shoot_in_range", "reason": "The bow has a clear shot within five tiles; fire in place at its lower damage.",
+		"action_type": "ranged_attack", "direction": Vector2i.ZERO, "target": enemy_to_log(best), "selected_step_danger": danger_cost(player["pos"])}
+
+func player_shoot(enemy_id: String, decision_id: String = "") -> bool:
+	if game_over:
+		return false
+	var index := -1
+	for i in range(enemies.size()):
+		if enemies[i]["id"] == enemy_id:
+			index = i
+			break
+	if index == -1 or not can_player_shoot_from(player["pos"], enemies[index]["pos"]):
+		return false
+	turn_count += 1
+	var details := {"from": vector_to_log(player["pos"]), "target": vector_to_log(enemies[index]["pos"]), "enemy_id": enemy_id}
+	add_decision_reference(details, decision_id)
+	log_user_action("shoot", "arrow_fired", details)
+	if not headless_mode:
+		arrows.append({"from": Vector2(player["pos"]) * TILE_SIZE + Vector2.ONE * TILE_SIZE * 0.5,
+			"to": Vector2(enemies[index]["pos"]) * TILE_SIZE + Vector2.ONE * TILE_SIZE * 0.5, "elapsed": 0.0, "player_shot": true})
+	attack_enemy(index, true)
+	run_enemy_turn()
+	queue_redraw()
+	return true
 
 func choose_aggressive_decision(decision_id: String) -> Dictionary:
 	var adjacent_enemy_direction := direction_to_adjacent_enemy()
@@ -942,29 +1058,38 @@ func choose_progression_decision(decision_id: String) -> Dictionary:
 			projected_xp -= projected_level * 8
 			projected_level += 1
 		var levels_gained: int = projected_level - player["level"]
-		var attack_pos: Vector2i = player["pos"] if route.size() == 1 else route[route.size() - 2]
-		var damage := (attack_turns - 1) * calculate_damage(1 if enemy["type"] == "archer" else int(enemy["attack"]), effective_defense())
+		var approach: Array[Vector2i] = []
+		if not can_player_shoot_from(player["pos"], enemy["pos"]):
+			for index in range(route.size() - 1):
+				approach.append(route[index])
+				if can_player_shoot_from(route[index], enemy["pos"]):
+					break
+		var attack_pos: Vector2i = player["pos"] if approach.is_empty() else approach.back()
+		var gap: Vector2i = enemy["pos"] - attack_pos
+		var retaliation_turns := maxi(0, attack_turns - (absi(gap.x) + absi(gap.y))) if enemy["type"] == "melee" else attack_turns - 1
+		var target_attack: int = int(enemy["attack"]) if enemy["type"] == "melee" or attack_pos.distance_squared_to(enemy["pos"]) > 2 else 1
+		var damage := retaliation_turns * calculate_damage(target_attack, effective_defense())
 		damage += attack_turns * incoming_damage_at(attack_pos, enemy["id"])
 		var repeated_cost := 0
-		for index in range(route.size() - 1):
-			damage += incoming_damage_at(route[index])
-			repeated_cost += revisit_cost(route[index])
+		for pos in approach:
+			damage += incoming_damage_at(pos)
+			repeated_cost += revisit_cost(pos)
 		var score: int = xp_gain * (2 if cautious else 4) + levels_gained * (8 + (MAX_DEPTH - 1 - player["depth"]) * 6)
-		score -= (route.size() - 1) * (2 if cautious else 1) + attack_turns + damage * (3 if cautious else 2) + repeated_cost
+		score -= approach.size() * (2 if cautious else 1) + attack_turns + damage * (3 if cautious else 2) + repeated_cost
 		var rejection := ""
 		if player["hp"] - damage <= (4 if cautious else 2):
 			rejection = "hp_reserve"
-		elif cautious and enemy["type"] == "archer":
+		elif cautious and enemy["type"] == "archer" and weapon_kind() != "bow":
 			rejection = "mobile_target"
 		elif cautious and levels_gained == 0:
 			rejection = "no_level_up"
-		var candidate := {"enemy_id": enemy["id"], "steps": route.size() - 1, "attack_turns": attack_turns,
+		var candidate := {"enemy_id": enemy["id"], "steps": approach.size(), "attack_pos": vector_to_log(attack_pos), "attack_turns": attack_turns,
 			"xp_gain": xp_gain, "levels_gained": levels_gained, "estimated_damage": damage, "score": score,
 			"eligible": rejection.is_empty(), "rejection": rejection, "revisit_penalty": repeated_cost}
 		candidates.append(candidate)
 		if not rejection.is_empty():
 			continue
-		var choice := {"enemy": enemy, "direction": route[0] - player["pos"], "score": score}
+		var choice := {"enemy": enemy, "direction": approach[0] - player["pos"] if not approach.is_empty() else Vector2i.ZERO, "score": score}
 		if best.is_empty() or score > best["score"]:
 			best = choice
 		if enemy["id"] == growth_target_id and score > stairs_score:
@@ -978,7 +1103,7 @@ func choose_progression_decision(decision_id: String) -> Dictionary:
 	var direction: Vector2i = best["direction"] if fight else stairs_direction
 	return {"decision_id": decision_id, "rule_id": "hunt_for_growth" if fight else "descend_for_progress",
 		"reason": "A survivable fight offers more XP and level-up value than descending; keep the selected target while that remains true." if fight else "Descending offers more progress, recovery or completion value than the available growth fights.",
-		"action_type": "move", "direction": direction, "selected_step_danger": danger_cost(player["pos"] + direction),
+		"action_type": "ranged_attack" if fight and direction == Vector2i.ZERO else "move", "direction": direction, "selected_step_danger": danger_cost(player["pos"] + direction),
 		"target": enemy_to_log(best["enemy"]) if fight else {"kind": "stairs", "pos": vector_to_log(stairs_pos)},
 		"progression": comparison}
 
@@ -1206,7 +1331,7 @@ func player_act(direction: Vector2i, decision_id: String = "") -> void:
 	run_enemy_turn()
 	queue_redraw()
 
-func attack_enemy(index: int) -> void:
+func attack_enemy(index: int, ranged: bool = false) -> void:
 	var enemy := enemies[index]
 	var enemy_hp_before: int = enemy["hp"]
 	var attack := effective_attack()
@@ -1227,6 +1352,7 @@ func attack_enemy(index: int) -> void:
 			"enemy_type": enemy["type"],
 			"enemy_pos": vector_to_log(enemy_pos),
 			"damage": damage, "attack_power": attack, "defense_power": defense,
+			"ranged": ranged, "attacker_pos": vector_to_log(player["pos"]),
 			"enemy_hp_before": enemy_hp_before,
 			"gold_gained": gold,
 		})
@@ -1238,6 +1364,7 @@ func attack_enemy(index: int) -> void:
 			"enemy_type": enemy["type"],
 			"enemy_pos": vector_to_log(enemy["pos"]),
 			"damage": damage, "attack_power": attack, "defense_power": defense,
+			"ranged": ranged, "attacker_pos": vector_to_log(player["pos"]),
 			"enemy_hp_before": enemy_hp_before,
 			"enemy_hp_after": enemy["hp"],
 		})
@@ -1527,7 +1654,7 @@ func start_run_log() -> void:
 		"scenario_id": current_scenario_id(),
 		"scenario_seed": scenario_seed,
 		"strategy_id": strategy_id(active_strategy),
-		"simulation_version": 5,
+		"simulation_version": 6,
 		"comparison": comparison_active,
 		"comparison_phase": comparison_phase,
 	})
@@ -1628,9 +1755,10 @@ func player_state_to_log() -> Dictionary:
 		"hp": player["hp"],
 		"max_hp": player["max_hp"],
 		"attack": effective_attack(), "defense": effective_defense(),
+		"weapon_kind": weapon_kind(), "attack_range": attack_range(),
 		"base_attack": player["base_attack"], "base_defense": player["base_defense"],
 		"attack_bonus": attack_bonus(), "defense_bonus": defense_bonus(),
-		"equipment": player["equipment"].duplicate(true),
+		"equipment": equipment_to_log(),
 		"gold": player["gold"],
 		"score": player["score"],
 		"level": player["level"],
@@ -1676,14 +1804,14 @@ func draw_arrows() -> void:
 			var tip := origin.lerp(target, elapsed / ARROW_FLIGHT_DURATION)
 			var tail := tip - direction * 22.0
 			draw_line(tail - direction * 12.0, tip, Color(0.43, 0.8, 1.0, 0.3), 6.0, true)
-			draw_line(tail, tip, COLORS["archer"], 3.0, true)
+			draw_line(tail, tip, COLORS["player"] if arrow.get("player_shot", false) else COLORS["archer"], 3.0, true)
 			draw_colored_polygon(PackedVector2Array([
 				tip, tip - direction * 9.0 + perpendicular * 5.0,
 				tip - direction * 9.0 - perpendicular * 5.0,
 			]), COLORS["text"])
 		else:
 			var progress := (elapsed - ARROW_FLIGHT_DURATION) / ARROW_IMPACT_DURATION
-			var color: Color = COLORS["archer"]
+			var color: Color = COLORS["player"] if arrow.get("player_shot", false) else COLORS["archer"]
 			color.a = 1.0 - progress
 			draw_arc(target, 10.0 + progress * 16.0, 0.0, TAU, 32, color, 3.0, true)
 
@@ -1716,7 +1844,7 @@ func draw_stairs_icon() -> void:
 
 func draw_entities() -> void:
 	for item in items:
-		draw_tile_symbol(item["pos"], "W" if item["type"] == "weapon" else ("D" if item["type"] == "armor" else "+"), Color("#de8fe8"))
+		draw_tile_symbol(item["pos"], ("B" if item.get("weapon_kind", "melee") == "bow" else "W") if item["type"] == "weapon" else ("D" if item["type"] == "armor" else "+"), Color("#de8fe8"))
 	for enemy in enemies:
 		var symbol := "A" if enemy["type"] == "archer" else "E"
 		var color := COLORS["archer"] if enemy["type"] == "archer" else COLORS["enemy"]
@@ -1752,7 +1880,8 @@ func draw_hud() -> void:
 		COLORS["muted"],
 	)
 
-	draw_string(font, Vector2(hud_x, 430), "ATK %d (%d+%d)  DEF %d (%d+%d)" % [effective_attack(), player["base_attack"], attack_bonus(), effective_defense(), player["base_defense"], defense_bonus()], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
+	draw_string(font, Vector2(hud_x, 430), "ATK %d [%s]  DEF %d (%d+%d)" % [effective_attack(), ("(%d+%d)/2" if weapon_kind() == "bow" else "%d+%d") % [player["base_attack"], attack_bonus()], effective_defense(), player["base_defense"], defense_bonus()], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
+	draw_string(font, Vector2(hud_x, 450), "%s · range %d%s" % [weapon_kind(), attack_range(), " · F: shoot" if weapon_kind() == "bow" else ""], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["muted"])
 	draw_string(font, Vector2(hud_x, 470), "Potions %d/%d · H: use" % [player["inventory"]["health_potion"], INVENTORY_CAPACITY], HORIZONTAL_ALIGNMENT_LEFT, -1, 22, COLORS["text"])
 	draw_string(font, Vector2(hud_x, 500), "Arrows/. still work", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, COLORS["muted"])
 	draw_string(font, Vector2(hud_x, 536), "R: restart", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, COLORS["muted"])

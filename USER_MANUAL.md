@@ -9,7 +9,7 @@ Each action you take advances the game by one turn. Move carefully, watch your H
 ## Starting the Game
 
 1. Open `game/` in Godot 4 and run the project to open the replay client.
-2. Select a JSONL log, or use the bundled v5 reference. Pickup and healing have their own frames.
+2. Select a JSONL log, or use the bundled v6 reference. Pickup and healing have their own frames.
 3. For a live run, select `Live check` (`res://scenes/main.tscn`); it starts on Depth 1.
 4. Choose an automatic strategy on the right side of the screen.
 5. Click `Start selected strategy`, or run both strategies with
@@ -34,6 +34,7 @@ Find the green stairs on each floor and step onto them to descend. When you ente
 | Arrow Right | Manually move right or attack right |
 | `.` | Manually wait one turn |
 | `H` | Use one health potion in Live check |
+| `F` | Fire an equipped bow at a visible enemy in Live check |
 | `R` | Restart the game |
 
 ## Screen Guide
@@ -46,6 +47,9 @@ Find the green stairs on each floor and step onto them to descend. When you ente
 | `E` | Melee enemy |
 | `A` | Archer enemy |
 | Purple `+` | Health potion |
+| `W` | Melee weapon |
+| `B` | Bow |
+| `D` | Armor |
 | `>` | Stairs to the next floor |
 
 ### HUD
@@ -83,7 +87,7 @@ fight. When descending offers more value, it may leave enemies behind.
 
 **Cautious** normally heads for the stairs, but can take a short melee detour
 when the next kill would yield a level-up and its estimated cost beats descent.
-It avoids chasing retreating Archers for growth. Its pathfinder assigns extra cost
+Without a bow, it avoids chasing retreating Archers for growth. Its pathfinder assigns extra cost
 to tiles threatened by melee enemies and archers, so it prefers safer detours.
 It avoids combat before contact, but attacks a melee enemy once caught because
 both move at the same speed and retreating cannot open a gap. If the stairs are
@@ -186,23 +190,27 @@ contribution to automatic exploration's danger and emergency-healing estimates.
 
 ## Weapons, armor and combat
 
-Floor icons are `+` for healing potions, `W` for weapons and `D` for armor.
-You have one weapon slot and one armor slot. Moving onto better equipment picks
-it up and equips it immediately, within the same movement turn. Previous gear is
-dropped on that tile. Equal or weaker equipment stays on the floor; it does not
+Floor icons are `+` for healing potions, `W` for melee weapons, `B` for bows and `D` for armor.
+You have one weapon slot and one armor slot. Moving onto wanted equipment picks
+it up and equips it immediately, within the same movement turn. Aggressive prefers
+melee weapons; Cautious prefers bows, even if the other kind has a higher bonus.
+Within the same kind, only a higher bonus is an upgrade. An empty weapon slot
+accepts either kind until a preferred weapon is found. Previous gear is
+dropped on that tile. Unwanted equipment stays on the floor; it does not
 cause repeated swapping. Gear is separate from the three-potion capacity.
 Equipment survives floor transitions and is cleared when starting a new run.
 
-Effective attack = base attack + weapon bonus. Effective defense = base defense +
+Melee effective attack = base attack + weapon bonus. Bow effective attack =
+max(1, floor((base attack + weapon bonus) / 2)). For base attack 5 and bonus 2,
+melee attack is 7 and bow attack is 3. Effective defense = base defense +
 armor bonus. Damage = max(1, attack - defense), for melee and arrows alike. Existing
 enemies have zero defense. Level gains increase base attack, keeping the equipment
 bonus unchanged. The replay and web viewer show these components separately.
 
-Each playable floor places one weapon and one armor when a free tile is available.
+Each playable floor places one melee weapon, one bow and one armor when a free tile is available.
 Weapon bonus is depth + 1; armor bonus is floor((depth + 1) / 2). Aggressive looks
 for upgrades within eight steps; Cautious within four fully safe steps. Emergency
-healing estimates damage after armor. Logs generated under Schema v4 include
-these rules; earlier logs remain readable and retain their recorded outcomes.
+healing estimates damage after armor. New runs use Schema v6; earlier logs remain readable and retain their recorded outcomes.
 
 ## Growth and descent decisions
 
@@ -219,4 +227,25 @@ XP reward, projected levels, attack count, estimated damage, revisit penalties,
 scores and reasons a fight was skipped. Comparison cards show final level and XP.
 The scores are policy preferences, not actual score rewards. Damage is a static
 estimate using current enemy positions; it does not guarantee survival. Generate
-a new v5 log to see this behavior; earlier logs retain their original decisions.
+a new v6 log to see this behavior; earlier logs retain their original decisions.
+
+## Player bows
+
+A bow reaches five tiles in a circle (`dx² + dy² <= 25`) and requires the same
+wall and corner line-of-sight check as Archer arrows. A shot takes one turn,
+leaves the player in place and is followed by the enemy phase. Arrows are unlimited.
+Press `F` to shoot the current visible growth target, or the nearest visible enemy.
+An invalid shot spends no turn. Bump attacks with a bow also use its lower attack.
+
+Automatic healing takes priority over shooting. With no adjacent enemy, both
+strategies shoot an in-range target before taking item detours. Automatic shooting
+skips a shot when predicted immediate counterfire would be lethal; Cautious also
+yields to its normal progression comparison when stairs are one step away.
+Adjacent combat and escape retain their existing rules. There is no automatic
+kiting. Growth estimates stop the approach at the first firing position and
+account for low bow damage and melee enemies closing the gap. Archer movement
+can still change actual costs.
+
+Godot replay draws Player arrows in yellow and updates enemy HP / removal in the
+impact frame. Both viewers show weapon kind and range. Generate a new v6 log to
+see bows; historical logs keep their recorded behavior.

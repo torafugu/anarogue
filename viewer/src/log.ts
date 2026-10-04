@@ -24,6 +24,7 @@ export interface GearSnapshot {
   id: string;
   type: "weapon" | "armor";
   attack_bonus: number;
+  weapon_kind?: "melee" | "bow" | null;
   defense_bonus: number;
 }
 
@@ -40,6 +41,8 @@ export interface PlayerState {
   equipment?: { weapon: GearSnapshot | null; armor: GearSnapshot | null };
   gold: number;
   score: number;
+  weapon_kind?: "melee" | "bow";
+  attack_range?: number;
   level: number;
   xp: number;
   inventory?: { health_potion: number };
@@ -68,6 +71,7 @@ export interface ProgressionComparison {
     rejection: "" | "hp_reserve" | "no_level_up" | "mobile_target" | "out_of_reach";
     steps?: number;
     attack_turns?: number;
+    attack_pos?: Vector2i;
     xp_gain?: number;
     levels_gained?: number;
     estimated_damage?: number;
@@ -218,7 +222,7 @@ export function parseJsonLines(source: string): ParsedLog {
     }
 
     const event = normalizeEvent(raw, index + 1);
-    if (event.schema_version !== 1 && event.schema_version !== 2 && event.schema_version !== 3 && event.schema_version !== 4 && event.schema_version !== 5) {
+    if (event.schema_version !== 1 && event.schema_version !== 2 && event.schema_version !== 3 && event.schema_version !== 4 && event.schema_version !== 5 && event.schema_version !== 6) {
       warnings.push(
         `Run ${event.run_id} contains legacy or unsupported schema data.`,
       );
@@ -302,10 +306,13 @@ export function eventCategory(event: RunEvent): string {
 
 export function describeEvent(event: RunEvent): { title: string; body: string } {
   const details = event.details;
+  if (event.event === "user_action" && details.action === "shoot") {
+    return { title: "Player fired a bow", body: `Target: ${asString(details.enemy_id)}. One turn consumed.` };
+  }
   if (event.event === "item_result") {
     if (details.result === "item_equipped") {
       const item = details.item as GearSnapshot;
-      return { title: `${item.type === "weapon" ? "Weapon" : "Armor"} equipped`, body: `${item.id} · ATK +${item.attack_bonus} · DEF +${item.defense_bonus}. ${details.previous_equipment ? "Previous equipment dropped on the floor." : "Previously empty slot."}` };
+      return { title: `${item.type === "weapon" ? item.weapon_kind === "bow" ? "Bow" : "Melee weapon" : "Armor"} equipped`, body: `${item.id} · ATK +${item.attack_bonus} · DEF +${item.defense_bonus}. ${details.previous_equipment ? "Previous equipment dropped on the floor." : "Previously empty slot."}` };
     }
     return details.result === "item_picked_up"
       ? { title: "Health potion picked up", body: `Inventory: ${asNumber((details.inventory as Record<string, unknown>)?.health_potion)}/3.` }

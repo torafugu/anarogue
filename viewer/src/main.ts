@@ -454,7 +454,7 @@ function renderRouteMap(events: RunEvent[], selected?: RunEvent): void {
   const selectedPos =
     selected?.depth === state.selectedDepth ? selected.player_state?.pos : undefined;
   const cutoff = selected?.depth === state.selectedDepth ? selected.sequence : Infinity;
-  let items = (floorStart?.details.items ?? []) as { id: string; type: string; pos: Vector2i }[];
+  let items = (floorStart?.details.items ?? []) as { id: string; type: string; weapon_kind?: string | null; pos: Vector2i }[];
   for (const event of floorEvents) {
     if (event.sequence > cutoff) break;
     const observation = decisionDetails(event)?.observation;
@@ -467,7 +467,7 @@ function renderRouteMap(events: RunEvent[], selected?: RunEvent): void {
       items = items.filter((candidate) => candidate.id !== item.id);
     }
   }
-  const itemMarks = items.map((item) => `<g fill="#de8fe8"><circle cx="${item.pos.x + .5}" cy="${item.pos.y + .5}" r=".28"/><text x="${item.pos.x + .5}" y="${item.pos.y + .68}" text-anchor="middle" font-size=".45" fill="#17212b">${item.type === "weapon" ? "W" : item.type === "armor" ? "D" : "+"}</text><title>${escapeHtml(item.id)} · ${escapeHtml(item.type)}</title></g>`).join("");
+  const itemMarks = items.map((item) => `<g fill="#de8fe8"><circle cx="${item.pos.x + .5}" cy="${item.pos.y + .5}" r=".28"/><text x="${item.pos.x + .5}" y="${item.pos.y + .68}" text-anchor="middle" font-size=".45" fill="#17212b">${item.type === "weapon" ? item.weapon_kind === "bow" ? "B" : "W" : item.type === "armor" ? "D" : "+"}</text><title>${escapeHtml(item.id)} · ${escapeHtml(item.type)}</title></g>`).join("");
   const route = positions.map((pos) => `${pos.x + 0.5},${pos.y + 0.5}`).join(" ");
   const enemyMarks = enemies
     .map(
@@ -612,7 +612,8 @@ function renderDetail(event?: RunEvent): void {
       <span>Lv <b>${event.player_state?.level ?? 1}</b></span>
       <span>XP <b>${event.player_state?.xp ?? 0}/${(event.player_state?.level ?? 1) * 8}</b></span>
       <span>HP <b>${event.player_state?.hp ?? event.hp}</b></span>
-      <span>ATK <b>${event.player_state?.attack ?? 0}</b> (${event.player_state?.base_attack ?? event.player_state?.attack ?? 0} + ${event.player_state?.attack_bonus ?? 0})</span>
+      <span>ATK <b>${event.player_state?.attack ?? 0}</b> (${event.player_state?.base_attack ?? event.player_state?.attack ?? 0} + ${event.player_state?.attack_bonus ?? 0})${event.player_state?.weapon_kind === "bow" ? " / 2, rounded down" : ""}</span>
+      <span>Weapon type <b>${event.player_state?.weapon_kind ?? "melee"}</b> · range <b>${event.player_state?.attack_range ?? 1}</b></span>
       <span>DEF <b>${event.player_state?.defense ?? 0}</b> (${event.player_state?.base_defense ?? 0} + ${event.player_state?.defense_bonus ?? 0})</span>
       <span>Weapon <b>${escapeHtml(event.player_state?.equipment?.weapon?.id ?? "None")}</b></span>
       <span>Armor <b>${escapeHtml(event.player_state?.equipment?.armor?.id ?? "None")}</b></span>

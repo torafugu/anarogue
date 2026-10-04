@@ -6,7 +6,7 @@ A tiny Godot 4 roguelike starter.
 
 Open `game/` in Godot 4 and run the project. The default scene is a replay client,
 not the simulator. It lists JSONL files in `user://`, selects the most recently
-modified log, and falls back to the committed Aggressive seed-424242 v5 reference run when
+modified log, and falls back to the committed Aggressive seed-424242 v6 reference run when
 no user log exists.
 
 Controls:
@@ -27,15 +27,16 @@ longer the project's default responsibility.
 - Automatic player movement and bump attacks
 - Repeated-visit path costs prevent pursuit-induced movement loops
 - Two automatic strategies:
-  - **Aggressive** — hunts every enemy, then seeks the stairs
-  - **Cautious** — takes a danger-weighted route to the stairs and only fights
-    when its path is blocked
+  - **Aggressive** — prefers melee weapons and compares combat growth with descent
+  - **Cautious** — prefers bows, fires at visible targets and takes safer routes
 - Same-seed comparison mode with deterministic floor layouts, enemy spawns, and
   per-enemy rewards
 - Floor health potions, automatic pickup and persistent inventory (up to 3)
 - Potion use restores up to 8 HP and consumes one turn before enemy actions
 - Automatic gathering and healing, with conservative safe detours for Cautious
 - Weapon and armor slots with automatic upgrades, separate base stats and bonuses
+- Melee weapons favor damage; bows reach five tiles with clear line of sight and half attack
+- Aggressive prefers melee equipment; Cautious prefers bows; `F` fires manually
 - Damage = max(1, effective attack - effective defense)
 - Item pickup/use/equipment frames in Godot replay and resource totals in the web viewer
 - Turn-based player and enemy actions
@@ -50,14 +51,14 @@ longer the project's default responsibility.
 - Versioned run-log schema with automatic-player observations, selected rules,
   actions, and human-readable decision reasons
 
-See [Simulation specification v5](docs/simulation-spec-v5.md) for the current
+See [Simulation specification v6](docs/simulation-spec-v6.md) for the current
 state and turn-processing rules, [Run log schema v1](docs/run-log-v1.md) and
 [Run log schema v2](docs/run-log-v2.md) and
 [Run log schema v3](docs/run-log-v3.md) and
-[Run log schema v5](docs/run-log-v5.md) for the event contracts,
+[Run log schema v6](docs/run-log-v6.md) for the event contracts,
 [Portable randomness specification v1](docs/randomness-v1.md)
 for cross-runtime seed derivation and PRNG behavior,
-[Fixed-seed reference logs v5](docs/reference-logs-v5.md) for the Godot-to-Rust
+[Fixed-seed reference logs v6](docs/reference-logs-v6.md) for the Godot-to-Rust
 compatibility baseline, [Rust Simulation Core](docs/rust-simulation-core.md) for
 the Godot-independent batch implementation, and
 [`examples/sample-run-v1.jsonl`](examples/sample-run-v1.jsonl) for sample data.
@@ -77,7 +78,7 @@ npm run dev
 ## Run headless simulation
 
 Run one automatic game without opening the UI. The runner advances turns as fast
-as possible, writes the same v5 event stream as the interactive game, and prints
+as possible, writes the same v6 event stream as the interactive game, and prints
 a final `HEADLESS_RUN_SUMMARY` line to standard output.
 
 ```bash
@@ -104,7 +105,7 @@ Defaults are equivalent to:
 The process exits successfully whether the player is defeated or the turn limit
 is reached. Read the summary's `outcome` field to distinguish
 `player_defeated` from `turn_limit`. A turn-limit stop does not add a synthetic
-event to the v5 stream.
+event to the v6 stream.
 
 ## Tests
 
@@ -112,6 +113,12 @@ Verify repeated movement recovery and required backtracking with:
 
 ```bash
 godot --headless --path game --script res://tests/navigation_test.gd
+```
+
+Verify Player bow range, wall occlusion, damage, weapon preferences and replay with:
+
+```bash
+godot --headless --path game --script res://tests/bow_test.gd
 ```
 
 Verify equipment upgrades, base stats, damage and replay with:
@@ -155,9 +162,9 @@ godot --headless --path game \
   --script res://tests/fixed_seed_regression.gd -- --write-fixture
 ```
 
-Review the fixture diff before committing it. A fixture update changes the v5
+Review the fixture diff before committing it. A fixture update changes the v6
 simulation baseline described in
-[Simulation specification v5](docs/simulation-spec-v5.md).
+[Simulation specification v6](docs/simulation-spec-v6.md).
 
 Run the Rust simulation-core compatibility suite with:
 
@@ -169,7 +176,7 @@ cargo test --all-targets
 The Rust tests execute six fixed-seed full-run cases and compare every event
 and final state with the Godot reference baseline.
 
-The Rust CLI can also write a replayable Schema v5 log directly into Godot's
+The Rust CLI can also write a replayable Schema v6 log directly into Godot's
 macOS application-data folder:
 
 ```bash
@@ -190,9 +197,9 @@ godot --headless --path game \
   --script res://tools/generate_reference_logs.gd
 ```
 
-With no simulation change, this command must leave `examples/reference-v5/`
+With no simulation change, this command must leave `examples/reference-v6/`
 byte-for-byte unchanged. See
-[Fixed-seed reference logs v5](docs/reference-logs-v5.md) for the cases and Rust
+[Fixed-seed reference logs v6](docs/reference-logs-v6.md) for the cases and Rust
 parity workflow.
 
 Validate JSONL events against their versioned JSON Schema and stream invariants with:
@@ -209,4 +216,4 @@ Pass one or more JSONL paths after `--` to validate other logs:
 npm run validate:logs -- ../path/to/anarogue.jsonl
 ```
 
-Growth-aware exploration compares XP / projected levels and estimated combat cost with descent, recovery and completion. See [simulation v5](docs/simulation-spec-v5.md). The web viewer shows the candidate scores and final level / XP for strategy comparisons.
+Growth-aware exploration compares XP / projected levels and estimated combat cost with descent, recovery and completion. See [simulation v6](docs/simulation-spec-v6.md). The web viewer shows the candidate scores and final level / XP for strategy comparisons.

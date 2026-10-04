@@ -46,6 +46,18 @@ func run_tests() -> void:
 		check(viewer.status_label.text.contains("XP %d/%d" % [player["xp"], player["level"] * 8]), "growth replay shows current XP threshold")
 		check(viewer.status_label.text.contains("Growth ") and viewer.status_label.text.contains("vs stairs"), "growth replay renders the comparison")
 
+	viewer.load_replay("res://../examples/reference-v6/cautious-seed-1.jsonl")
+	var shot_frame := -1
+	for index in range(viewer.replay.frames.size()):
+		if viewer.replay.frames[index]["kind"] == "player_ranged_hit":
+			shot_frame = index
+			break
+	check(shot_frame >= 0, "v6 reference contains a Player bow shot")
+	if shot_frame >= 0:
+		viewer.set_frame(shot_frame)
+		check(viewer.status_label.text.contains("Player bow shot"), "replay labels Player arrows")
+		check(viewer.status_label.text.contains("bow range 5"), "replay shows bow kind and range")
+
 	# Completion may have no new floor_start event at the deepest floor.
 	var replay := ReplayData.new()
 	viewer.replay.frames = replay.build_frames([

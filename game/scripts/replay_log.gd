@@ -105,6 +105,17 @@ func build_frames(events: Array) -> Array[Dictionary]:
 				else "Health potion restored %d HP." % int(details.get("healed", 0))
 			)
 			result.append(item_frame)
+		elif event_name == "battle_result" and details.get("ranged", false) and details.get("result", "") in ["enemy_hit", "enemy_defeated"]:
+			for index in range(last_enemies.size() - 1, -1, -1):
+				if last_enemies[index].get("id", "") == details.get("enemy_id", ""):
+					if details["result"] == "enemy_defeated":
+						last_enemies.remove_at(index)
+					else:
+						last_enemies[index]["hp"] = details["enemy_hp_after"]
+						last_enemies[index]["pos"] = details["enemy_pos"].duplicate()
+			var shot_frame := make_frame(event, floors, last_enemies, last_stairs, last_items, "player_ranged_hit")
+			shot_frame["arrow"] = {"from": details["attacker_pos"].duplicate(), "to": details["enemy_pos"].duplicate(), "player_shot": true}
+			result.append(shot_frame)
 		elif (
 			event_name == "battle_result"
 			and details.get("result", "") == "player_hit"
