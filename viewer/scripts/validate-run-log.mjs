@@ -9,7 +9,6 @@ const schemaPaths = [
   resolve(repositoryRoot, "schemas/run-log-v1.schema.json"),
   resolve(repositoryRoot, "schemas/run-log-v2.schema.json"),
   resolve(repositoryRoot, "schemas/run-log-v3.schema.json"),
-  resolve(repositoryRoot, "schemas/run-log-v4.schema.json"),
 ];
 const defaultLogPath = resolve(repositoryRoot, "examples/sample-run-v1.jsonl");
 
@@ -135,7 +134,7 @@ function validateSemanticInvariants(event, runStates, logPath, lineNumber) {
     assert(event.details.hp_after === event.hp, location, "floor_descend hp_after mismatch");
   }
 
-  if (event.schema_version >= 3) {
+  if (event.schema_version === 3) {
     assert(event.hp <= event.player_state.max_hp, location, "hp exceeds max_hp");
     if (event.event === "decision") {
       assert(JSON.stringify(event.details.observation.inventory) === JSON.stringify(event.player_state.inventory), location, "observation inventory mismatch");
@@ -146,23 +145,6 @@ function validateSemanticInvariants(event, runStates, logPath, lineNumber) {
         assert(event.details.hp_after - event.details.hp_before === event.details.healed, location, "healed amount mismatch");
         assert(event.details.hp_after === event.hp, location, "item hp_after mismatch");
       }
-    }
-  }
-
-  if (event.schema_version === 4) {
-    const player = event.player_state;
-    assert(player.attack === player.base_attack + player.attack_bonus, location, "effective attack mismatch");
-    assert(player.defense === player.base_defense + player.defense_bonus, location, "effective defense mismatch");
-    assert(player.attack_bonus === (player.equipment.weapon?.attack_bonus ?? 0), location, "weapon bonus mismatch");
-    assert(player.defense_bonus === (player.equipment.armor?.defense_bonus ?? 0), location, "armor bonus mismatch");
-    assert(!player.equipment.weapon || player.equipment.weapon.type === "weapon", location, "wrong weapon slot");
-    assert(!player.equipment.armor || player.equipment.armor.type === "armor", location, "wrong armor slot");
-    if (typeof event.details.damage === "number") {
-      assert(event.details.damage === Math.max(1, event.details.attack_power - event.details.defense_power), location, "damage formula mismatch");
-    }
-    if (event.details.result === "item_equipped") {
-      assert(JSON.stringify(event.details.equipment) === JSON.stringify(player.equipment), location, "equipped item mismatch");
-      assert(!event.details.items.some(item => item.id === event.details.item.id), location, "equipped item remains on floor");
     }
   }
 

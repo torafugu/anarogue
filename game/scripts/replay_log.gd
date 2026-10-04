@@ -91,8 +91,6 @@ func build_frames(events: Array) -> Array[Dictionary]:
 			last_stairs = observation.get("stairs_pos", last_stairs).duplicate(true)
 			result.append(make_frame(event, floors, last_enemies, last_stairs, last_items, "decision"))
 		elif event_name == "item_result":
-			if details.get("result", "") == "item_equipped":
-				last_items = details.get("items", last_items).duplicate(true)
 			if details.get("result", "") == "item_picked_up":
 				var picked_up: Dictionary = details.get("item", {})
 				for index in range(last_items.size() - 1, -1, -1):
@@ -100,8 +98,7 @@ func build_frames(events: Array) -> Array[Dictionary]:
 						last_items.remove_at(index)
 			var item_frame := make_frame(event, floors, last_enemies, last_stairs, last_items, "item_result")
 			item_frame["reason"] = (
-				("Equipped %s; previous equipment dropped." if details.get("previous_equipment") != null else "Equipped %s.") % details.get("item", {}).get("type", "gear") if details.get("result", "") == "item_equipped"
-				else "Picked up a health potion." if details.get("result", "") == "item_picked_up"
+				"Picked up a health potion." if details.get("result", "") == "item_picked_up"
 				else "Health potion restored %d HP." % int(details.get("healed", 0))
 			)
 			result.append(item_frame)

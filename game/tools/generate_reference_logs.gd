@@ -1,8 +1,8 @@
 extends SceneTree
 
 const MainGame := preload("res://scripts/main.gd")
-const OUTPUT_DIRECTORY := "res://../examples/reference-v4"
-const DISPLAY_DIRECTORY := "examples/reference-v4"
+const OUTPUT_DIRECTORY := "res://../examples/reference-v3"
+const DISPLAY_DIRECTORY := "examples/reference-v3"
 const FIXED_EVENT_TIME := "2000-01-01 00:00:00"
 const MAP_WIDTH := 24
 const MAP_HEIGHT := 18
@@ -11,7 +11,7 @@ const CASES := [
 		"name": "aggressive-seed-301-cycle",
 		"strategy": MainGame.StrategyType.AGGRESSIVE,
 		"seed": 301, "map_width": 64, "map_height": 40, "max_turns": 500,
-		"expected": {"outcome": "player_defeated", "turns": 186, "final_depth": 1, "final_hp": 0, "final_gold": 13, "final_score": 8, "final_potions": 0},
+		"expected": {"outcome": "player_defeated", "turns": 72, "final_depth": 1, "final_hp": 0, "final_gold": 5, "final_score": 4, "final_potions": 0},
 	},
 	{
 		"name": "cautious-seed-27-cycle",
@@ -20,32 +20,32 @@ const CASES := [
 		"map_width": 44,
 		"map_height": 28,
 		"max_turns": 500,
-		"expected": {"outcome": "dungeon_cleared", "turns": 277, "final_depth": 5, "final_hp": 18, "final_gold": 10, "final_score": 15, "final_potions": 1},
+		"expected": {"outcome": "player_defeated", "turns": 134, "final_depth": 1, "final_hp": 0, "final_gold": 7, "final_score": 2, "final_potions": 0},
 	},
 	{
 		"name": "cautious-seed-2",
-		"expected": {"outcome": "dungeon_cleared", "turns": 102, "final_depth": 5, "final_hp": 16, "final_gold": 4, "final_score": 13, "final_potions": 3},
+		"expected": {"outcome": "dungeon_cleared", "turns": 104, "final_depth": 5, "final_hp": 9, "final_gold": 4, "final_score": 13, "final_potions": 0},
 		"strategy": MainGame.StrategyType.CAUTIOUS,
 		"seed": 2,
 		"max_turns": 120,
 	},
 	{
 		"name": "aggressive-seed-1",
-		"expected": {"outcome": "dungeon_cleared", "turns": 103, "final_depth": 5, "final_hp": 17, "final_gold": 10, "final_score": 18, "final_potions": 3},
+		"expected": {"outcome": "turn_limit", "turns": 120, "final_depth": 4, "final_hp": 12, "final_gold": 10, "final_score": 15, "final_potions": 0},
 		"strategy": MainGame.StrategyType.AGGRESSIVE,
 		"seed": 1,
 		"max_turns": 120,
 	},
 	{
 		"name": "cautious-seed-1",
-		"expected": {"outcome": "dungeon_cleared", "turns": 107, "final_depth": 5, "final_hp": 17, "final_gold": 3, "final_score": 14, "final_potions": 3},
+		"expected": {"outcome": "player_defeated", "turns": 19, "final_depth": 1, "final_hp": 0, "final_gold": 0, "final_score": 0, "final_potions": 0},
 		"strategy": MainGame.StrategyType.CAUTIOUS,
 		"seed": 1,
 		"max_turns": 120,
 	},
 	{
 		"name": "aggressive-seed-424242",
-		"expected": {"outcome": "dungeon_cleared", "turns": 103, "final_depth": 5, "final_hp": 17, "final_gold": 6, "final_score": 15, "final_potions": 3},
+		"expected": {"outcome": "player_defeated", "turns": 93, "final_depth": 4, "final_hp": 0, "final_gold": 4, "final_score": 11, "final_potions": 0},
 		"strategy": MainGame.StrategyType.AGGRESSIVE,
 		"seed": 424242,
 		"max_turns": 120,
@@ -74,15 +74,15 @@ func generate() -> void:
 		manifest_cases.append(result)
 
 	var manifest := {
-		"format_version": 4,
-		"simulation_spec": "v4",
+		"format_version": 3,
+		"simulation_spec": "v3",
 		"randomness_spec": "v1",
-		"event_schema": "v4",
+		"event_schema": "v3",
 		"fixed_event_time": FIXED_EVENT_TIME,
 		"map_size": {"width": MAP_WIDTH, "height": MAP_HEIGHT},
 		"cases": manifest_cases,
 	}
-	var manifest_path := OUTPUT_DIRECTORY.path_join("manifest-v4.json")
+	var manifest_path := OUTPUT_DIRECTORY.path_join("manifest-v3.json")
 	var manifest_file := FileAccess.open(manifest_path, FileAccess.WRITE)
 	if manifest_file == null:
 		printerr("Could not write reference manifest: %s" % manifest_path)

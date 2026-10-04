@@ -75,10 +75,9 @@ retain their existing bounded BFS rules.
 This corrects a pursuit cycle reproduced with Cautious, seed 27, 44x28: the player
 alternated between (13,15) and (14,15) while a melee enemy mirrored the movement
 three tiles below. Recomputing a route against each new enemy position flipped
-the chosen direction. In the original movement-correction baseline, the maximum alternating run was
-6 decisions and the run advanced until defeat at turn 134, rather than oscillating
-to the 500-turn limit. With wall-aware Archer vision, the current baseline reaches
-depth 3 and ends at turn 209. This fixes navigation; it does not guarantee survival.
+the chosen direction. In the corrected baseline, the maximum alternating run is
+6 decisions and the run advances until defeat at turn 134, rather than oscillating
+to the 500-turn limit. This fixes navigation; it does not guarantee survival.
 
 ## Logs and compatibility
 
@@ -104,20 +103,3 @@ The 64x40, seed-301 regression previously alternated between stationary archers
 and produced a ten-decision two-tile cycle despite revisit costs. Remembering the
 target removes those reversals in this case. This is a navigation correction,
 not a guarantee that Aggressive survives combat.
-
-### Archer line of sight
-
-Archer attacks and pursuit require a clear straight ray between tile centers.
-The integer grid traversal checks every tile crossed by the ray; at an exact
-corner crossing, both adjoining side tiles must be floors. Walls and map bounds
-block vision. Floor items, stairs and other actors do not block vision.
-The rule is symmetric when the ray is reversed. Detection and bow ranges remain
-squared distances 80 and 49, and the existing close-combat/retreat rule remains
-squared distance 2; blocked corners also prevent close combat through a wall.
-An Archer without a clear ray takes no action, matching the existing unseen-enemy
-behavior. Melee enemies retain their existing distance-based detection.
-
-Archer danger costs and the next-turn incoming-damage estimate use the same ray
-check, so a concealed Archer does not trigger retreat or emergency potion use.
-Wall-aware danger changes routes and outcomes; regenerate logs to replay the new
-rules. Historical v1/v2 reference logs remain unchanged.
