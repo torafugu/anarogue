@@ -12,6 +12,7 @@ const schemaPaths = [
   resolve(repositoryRoot, "schemas/run-log-v4.schema.json"),
   resolve(repositoryRoot, "schemas/run-log-v5.schema.json"),
   resolve(repositoryRoot, "schemas/run-log-v6.schema.json"),
+  resolve(repositoryRoot, "schemas/run-log-v7.schema.json"),
 ];
 const defaultLogPath = resolve(repositoryRoot, "examples/sample-run-v1.jsonl");
 
@@ -185,7 +186,7 @@ function validateSemanticInvariants(event, runStates, logPath, lineNumber) {
         if (candidate.rejection === "out_of_reach") continue;
         const enemy = ob.enemies.find(enemy => enemy.id === candidate.enemy_id);
         assert(Boolean(enemy), location, "unknown growth enemy");
-        const xpGain = enemy.type === "archer" ? 5 : 3;
+        const xpGain = enemy.type === "archer" || (event.schema_version >= 7 && enemy.type === "brute") ? 5 : 3;
         assert(candidate.xp_gain === xpGain, location, "growth XP reward mismatch");
         let level = p.level, xp = p.xp + xpGain;
         while (xp >= level * 8) { xp -= level * 8; level += 1; }
@@ -224,7 +225,42 @@ function validateSemanticInvariants(event, runStates, logPath, lineNumber) {
     }
   }
 
+  const windups = new Map(previous?.windups ?? []);
+  if (event.schema_version >= 7) {
+    const enemies = event.event === "floor_start" ? event.details.enemies
+      : event.event === "decision" ? event.details.observation.enemies : [];
+    for (const enemy of enemies) {
+      if (enemy.windup_target) {
+        assert(enemy.type === "brute", location, "only Brute can wind up");
+        assert(Math.abs(enemy.pos.x - enemy.windup_target.x) + Math.abs(enemy.pos.y - enemy.windup_target.y) === 1, location, "windup target must be adjacent");
+      }
+    }
+    if (["floor_start", "floor_descend"].includes(event.event)) windups.clear();
+    if (event.event === "battle_result") {
+      const d = event.details;
+      if (d.result === "enemy_windup") {
+        assert(!windups.has(d.enemy_id), location, "Brute wound up twice without resolving its strike");
+        assert(d.target.x === event.player_state.pos.x && d.target.y === event.player_state.pos.y, location, "Brute must mark Player's current tile");
+        assert(d.target.x === d.windup_target.x && d.target.y === d.windup_target.y, location, "windup target mismatch");
+        assert(Math.abs(d.enemy_pos.x - d.target.x) + Math.abs(d.enemy_pos.y - d.target.y) === 1, location, "Brute cannot wind up at range");
+        windups.set(d.enemy_id, { target: d.target, turn: event.turn });
+      } else if (d.result === "enemy_strike_missed" || (d.result === "player_hit" && d.enemy_type === "brute")) {
+        const ready = windups.get(d.enemy_id);
+        assert(Boolean(ready) && event.turn === ready.turn + 1, location, "Brute strike requires the previous turn's windup");
+        const pos = event.player_state.pos;
+        const onTarget = pos.x === ready.target.x && pos.y === ready.target.y;
+        assert(d.result === "player_hit" ? onTarget : !onTarget, location, "Brute strike retargeted after its windup");
+        if (d.result === "enemy_strike_missed") {
+          assert(d.target.x === ready.target.x && d.target.y === ready.target.y, location, "missed strike target mismatch");
+        }
+        assert(d.windup_target === null, location, "resolved strike must clear the windup");
+        windups.delete(d.enemy_id);
+      } else if (d.result === "enemy_defeated") windups.delete(d.enemy_id);
+    }
+  }
+
   runStates.set(event.run_id, {
+    windups,
     sequence: event.sequence,
     turn: event.turn,
     depth: event.depth,

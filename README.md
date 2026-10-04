@@ -6,7 +6,7 @@ A tiny Godot 4 roguelike starter.
 
 Open `game/` in Godot 4 and run the project. The default scene is a replay client,
 not the simulator. It lists JSONL files in `user://`, selects the most recently
-modified log, and falls back to the committed Aggressive seed-424242 v6 reference run when
+modified log, and falls back to the committed Aggressive seed-424242 v7 reference run when
 no user log exists.
 
 Controls:
@@ -40,25 +40,26 @@ longer the project's default responsibility.
 - Damage = max(1, effective attack - effective defense)
 - Item pickup/use/equipment frames in Godot replay and resource totals in the web viewer
 - Turn-based player and enemy actions
-- Two enemy types:
+- Three enemy types:
   - **Melee** — charges and attacks up close
   - **Archer** — keeps distance and fires arrows; retreats when cornered
+  - **Brute** — slow movement; telegraphs a heavy strike on a fixed adjacent tile
 - Stairs to deeper floors; enemies scale with depth
 - HP, depth, gold, **score**, and message log HUD
-- Score system: 1 point per melee kill, 2 points per archer kill, and 3 points
+- Score system: 1 point per melee kill, 2 points per Archer or Brute kill, and 3 points
   per depth descended; no points per turn. Runs start at 0 points.
 - JSON Lines action and battle log at `user://anarogue.jsonl`
 - Versioned run-log schema with automatic-player observations, selected rules,
   actions, and human-readable decision reasons
 
-See [Simulation specification v6](docs/simulation-spec-v6.md) for the current
+See [Simulation specification v7](docs/simulation-spec-v7.md) for the current
 state and turn-processing rules, [Run log schema v1](docs/run-log-v1.md) and
 [Run log schema v2](docs/run-log-v2.md) and
 [Run log schema v3](docs/run-log-v3.md) and
-[Run log schema v6](docs/run-log-v6.md) for the event contracts,
+[Run log schema v7](docs/run-log-v7.md) for the event contracts,
 [Portable randomness specification v1](docs/randomness-v1.md)
 for cross-runtime seed derivation and PRNG behavior,
-[Fixed-seed reference logs v6](docs/reference-logs-v6.md) for the Godot-to-Rust
+[Fixed-seed reference logs v7](docs/reference-logs-v7.md) for the Godot-to-Rust
 compatibility baseline, [Rust Simulation Core](docs/rust-simulation-core.md) for
 the Godot-independent batch implementation, and
 [`examples/sample-run-v1.jsonl`](examples/sample-run-v1.jsonl) for sample data.
@@ -78,7 +79,7 @@ npm run dev
 ## Run headless simulation
 
 Run one automatic game without opening the UI. The runner advances turns as fast
-as possible, writes the same v6 event stream as the interactive game, and prints
+as possible, writes the same v7 event stream as the interactive game, and prints
 a final `HEADLESS_RUN_SUMMARY` line to standard output.
 
 ```bash
@@ -105,7 +106,7 @@ Defaults are equivalent to:
 The process exits successfully whether the player is defeated or the turn limit
 is reached. Read the summary's `outcome` field to distinguish
 `player_defeated` from `turn_limit`. A turn-limit stop does not add a synthetic
-event to the v6 stream.
+event to the v7 stream.
 
 ## Tests
 
@@ -162,9 +163,9 @@ godot --headless --path game \
   --script res://tests/fixed_seed_regression.gd -- --write-fixture
 ```
 
-Review the fixture diff before committing it. A fixture update changes the v6
+Review the fixture diff before committing it. A fixture update changes the v7
 simulation baseline described in
-[Simulation specification v6](docs/simulation-spec-v6.md).
+[Simulation specification v7](docs/simulation-spec-v7.md).
 
 Run the Rust simulation-core compatibility suite with:
 
@@ -176,7 +177,7 @@ cargo test --all-targets
 The Rust tests execute six fixed-seed full-run cases and compare every event
 and final state with the Godot reference baseline.
 
-The Rust CLI can also write a replayable Schema v6 log directly into Godot's
+The Rust CLI can also write a replayable Schema v7 log directly into Godot's
 macOS application-data folder:
 
 ```bash
@@ -197,9 +198,9 @@ godot --headless --path game \
   --script res://tools/generate_reference_logs.gd
 ```
 
-With no simulation change, this command must leave `examples/reference-v6/`
+With no simulation change, this command must leave `examples/reference-v7/`
 byte-for-byte unchanged. See
-[Fixed-seed reference logs v6](docs/reference-logs-v6.md) for the cases and Rust
+[Fixed-seed reference logs v7](docs/reference-logs-v7.md) for the cases and Rust
 parity workflow.
 
 Validate JSONL events against their versioned JSON Schema and stream invariants with:
@@ -216,4 +217,20 @@ Pass one or more JSONL paths after `--` to validate other logs:
 npm run validate:logs -- ../path/to/anarogue.jsonl
 ```
 
-Growth-aware exploration compares XP / projected levels and estimated combat cost with descent, recovery and completion. See [simulation v6](docs/simulation-spec-v6.md). The web viewer shows the candidate scores and final level / XP for strategy comparisons.
+Growth-aware exploration compares XP / projected levels and estimated combat cost with descent, recovery and completion. See [simulation v7](docs/simulation-spec-v7.md). The web viewer shows the candidate scores and final level / XP for strategy comparisons.
+
+Compare both policies across seeds with:
+
+```sh
+python3 tools/compare_strategies.py --seeds 1-50 --output-dir logs/strategy-comparison
+```
+
+See [the paired comparison](docs/strategy-comparison-v7.md) for the frozen
+100-run results, parameters, replay logs and interpretation limits.
+
+Verify Brute cadence, fixed targets, evasion and replay with:
+
+```sh
+godot --headless --path game --script res://tests/brute_test.gd
+python3 -m unittest discover -s tools -p 'test_*.py'
+```

@@ -58,6 +58,18 @@ func run_tests() -> void:
 		check(viewer.status_label.text.contains("Player bow shot"), "replay labels Player arrows")
 		check(viewer.status_label.text.contains("bow range 5"), "replay shows bow kind and range")
 
+	viewer.load_replay("res://../examples/reference-v7/cautious-seed-27-cycle.jsonl")
+	var windup_frame := -1
+	for index in range(viewer.replay.frames.size()):
+		if viewer.replay.frames[index]["kind"] == "brute_result" and viewer.replay.frames[index]["reason"].contains("winds up"):
+			windup_frame = index
+			break
+	check(windup_frame >= 0, "v7 reference contains Brute preparation")
+	if windup_frame >= 0:
+		viewer.set_frame(windup_frame)
+		check(viewer.status_label.text.contains("Brute winds up"), "replay labels Brute preparation")
+		check(viewer.replay.frames[windup_frame]["enemies"].any(func(e): return e.get("windup_target") != null), "replay exposes the marked tile")
+
 	# Completion may have no new floor_start event at the deepest floor.
 	var replay := ReplayData.new()
 	viewer.replay.frames = replay.build_frames([

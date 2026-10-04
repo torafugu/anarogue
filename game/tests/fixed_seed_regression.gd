@@ -2,7 +2,7 @@ extends SceneTree
 
 const MainGame := preload("res://scripts/main.gd")
 const PortableRandom := preload("res://scripts/portable_rng.gd")
-const FIXTURE_PATH := "res://tests/fixtures/fixed-seed-v6.json"
+const FIXTURE_PATH := "res://tests/fixtures/fixed-seed-v7.json"
 const CASES := [
 	{
 		"name": "comparison_seed_depth_1",
@@ -61,7 +61,7 @@ func _init() -> void:
 
 	var expected_json := fixture_file.get_as_text().strip_edges()
 	var actual_json := JSON.stringify(actual)
-	assert_equal(actual_json, expected_json, "Generated state must match the v6 fixture")
+	assert_equal(actual_json, expected_json, "Generated state must match the v7 fixture")
 
 	finish()
 
@@ -71,7 +71,7 @@ func build_suite_snapshot() -> Dictionary:
 	for test_case in CASES:
 		snapshots.append(build_case_snapshot(test_case))
 	return {
-		"fixture_version": 6,
+		"fixture_version": 7,
 		"cases": snapshots,
 	}
 
@@ -168,6 +168,7 @@ func enemy_snapshots(game) -> Array[Dictionary]:
 			"hp": enemy["hp"],
 			"attack": enemy["attack"],
 			"gold_reward": game.gold_reward_for_enemy(enemy),
+			"windup_target": vector_snapshot(enemy["windup_target"]) if enemy.get("windup_target") != null else null,
 		})
 	return snapshots
 

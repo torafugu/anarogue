@@ -18,7 +18,7 @@ const ARROW_IMPACT_DURATION := 0.12
 const TILE_WALL := 0
 const TILE_FLOOR := 1
 const DEFAULT_LOG_FILE_PATH := "user://anarogue.jsonl"
-const LOG_SCHEMA_VERSION := 6
+const LOG_SCHEMA_VERSION := 7
 const BOW_RANGE := 5
 const POTION_HEAL := 8
 const INVENTORY_CAPACITY := 3
@@ -728,7 +728,14 @@ func spawn_enemy_in_room(room: Rect2i, spawn_rng: PortableRandom) -> void:
 	var enemy_type := "melee" if spawn_rng.chance(1, 2) else "archer"
 	var enemy_id := "enemy-%d" % next_enemy_id
 	next_enemy_id += 1
-	if enemy_type == "archer":
+	var kind_rng := PortableRandom.new(PortableRandom.derive_seed(scenario_seed, "enemy-kind", player["depth"], enemy_id))
+	if kind_rng.chance(1, 3):
+		enemy_type = "brute"
+	if enemy_type == "brute":
+		enemies.append({"id": enemy_id, "type": "brute", "pos": pos,
+			"hp": 14 + player["depth"] * 3, "attack": 4 + player["depth"], "defense": 0,
+			"windup_target": null})
+	elif enemy_type == "archer":
 		enemies.append({
 			"id": enemy_id,
 			"type": "archer",
@@ -801,6 +808,9 @@ func choose_auto_player_decision(decision_id: String) -> Dictionary:
 	var item_decision := choose_item_decision(decision_id)
 	if not item_decision.is_empty() and item_decision["action_type"] == "use_item":
 		return item_decision
+	var windup_escape := choose_windup_response(decision_id)
+	if not windup_escape.is_empty():
+		return windup_escape
 	var bow_decision := choose_bow_decision(decision_id)
 	if not bow_decision.is_empty():
 		return bow_decision
@@ -809,6 +819,37 @@ func choose_auto_player_decision(decision_id: String) -> Dictionary:
 	if active_strategy == StrategyType.CAUTIOUS:
 		return choose_cautious_decision(decision_id)
 	return choose_aggressive_decision(decision_id)
+
+func choose_windup_response(decision_id: String) -> Dictionary:
+	if active_strategy != StrategyType.CAUTIOUS:
+		return {}
+	var threat: Dictionary = {}
+	for enemy in enemies:
+		if enemy["type"] == "brute" and enemy.get("windup_target") == player["pos"]:
+			threat = enemy
+			break
+	if threat.is_empty():
+		return {}
+	var gap: Vector2i = threat["pos"] - player["pos"]
+	var can_kill: bool = int(threat["hp"]) <= calculate_damage(effective_attack(), int(threat.get("defense", 0))) and (absi(gap.x) + absi(gap.y) == 1 or can_player_shoot_from(player["pos"], threat["pos"]))
+	if can_kill and incoming_damage_at(player["pos"], threat["id"]) < player["hp"]:
+		return {"decision_id": decision_id, "rule_id": "interrupt_windup", "reason": "The marked Brute can be killed now; interrupt its strike before the enemy phase.",
+			"action_type": "attack", "direction": threat["pos"] - player["pos"], "target": enemy_to_log(threat), "selected_step_danger": danger_cost(player["pos"])}
+	var best := Vector2i.ZERO
+	var best_score := 2147483647
+	for direction in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
+		var next: Vector2i = player["pos"] + direction
+		if not is_walkable(next) or enemy_at(next) != -1:
+			continue
+		var delta := next - stairs_pos
+		var score := -1 if next == stairs_pos else incoming_damage_at(next) * 100 + danger_cost(next) + revisit_cost(next) + absi(delta.x) + absi(delta.y)
+		if score < best_score:
+			best = direction
+			best_score = score
+	if best == Vector2i.ZERO:
+		return {}
+	return {"decision_id": decision_id, "rule_id": "evade_windup", "reason": "A Brute marked this tile for its next heavy strike; leave the marked tile before it lands.",
+		"action_type": "move", "direction": best, "target": enemy_to_log(threat), "selected_step_danger": danger_cost(player["pos"] + best)}
 
 func can_player_shoot_from(origin: Vector2i, target: Vector2i) -> bool:
 	return weapon_kind() == "bow" and origin != target and origin.distance_squared_to(target) <= BOW_RANGE * BOW_RANGE and has_line_of_sight(origin, target)
@@ -922,13 +963,13 @@ func choose_cautious_decision(decision_id: String) -> Dictionary:
 			stairs_direction != Vector2i.ZERO
 			and player_pos + stairs_direction == stairs_pos
 		)
-		if adjacent_enemy["type"] == "melee" and not can_escape_via_stairs:
+		if adjacent_enemy["type"] != "archer" and not can_escape_via_stairs:
 			return {
 				"decision_id": decision_id,
-				"rule_id": "attack_pursuing_melee",
+				"rule_id": "attack_adjacent_brute" if adjacent_enemy["type"] == "brute" else "attack_pursuing_melee",
 				"reason": (
-					"An adjacent melee enemy can match the player's speed, "
-					+ "so retreat would not create distance."
+					"A slow Brute is adjacent; attack during its windup unless the marked strike must be evaded." if adjacent_enemy["type"] == "brute" else "An adjacent melee enemy can match the player's speed, "
+					+ ("" if adjacent_enemy["type"] == "brute" else "so retreat would not create distance.")
 				),
 				"action_type": "attack",
 				"direction": adjacent_enemy_direction,
@@ -1019,7 +1060,9 @@ func incoming_damage_at(pos: Vector2i, excluded_id: String = "") -> int:
 			continue
 		var enemy_pos: Vector2i = enemy["pos"]
 		var delta := pos - enemy_pos
-		if enemy["type"] == "melee" and absi(delta.x) + absi(delta.y) == 1:
+		if enemy["type"] == "brute" and enemy.get("windup_target") == pos and absi(delta.x) + absi(delta.y) == 1:
+			total += calculate_damage(int(enemy["attack"]), effective_defense())
+		elif enemy["type"] == "melee" and absi(delta.x) + absi(delta.y) == 1:
 			total += calculate_damage(int(enemy["attack"]), effective_defense())
 		elif enemy["type"] == "archer" and has_line_of_sight(enemy_pos, pos):
 			var distance := pos.distance_squared_to(enemy_pos)
@@ -1051,7 +1094,7 @@ func choose_progression_decision(decision_id: String) -> Dictionary:
 			continue
 		var hit_damage := calculate_damage(effective_attack(), int(enemy.get("defense", 0)))
 		var attack_turns := int((int(enemy["hp"]) + hit_damage - 1) / hit_damage)
-		var xp_gain := 5 if enemy["type"] == "archer" else 3
+		var xp_gain := 5 if enemy["type"] != "melee" else 3
 		var projected_xp: int = player["xp"] + xp_gain
 		var projected_level: int = player["level"]
 		while projected_xp >= projected_level * 8:
@@ -1067,7 +1110,10 @@ func choose_progression_decision(decision_id: String) -> Dictionary:
 		var attack_pos: Vector2i = player["pos"] if approach.is_empty() else approach.back()
 		var gap: Vector2i = enemy["pos"] - attack_pos
 		var retaliation_turns := maxi(0, attack_turns - (absi(gap.x) + absi(gap.y))) if enemy["type"] == "melee" else attack_turns - 1
-		var target_attack: int = int(enemy["attack"]) if enemy["type"] == "melee" or attack_pos.distance_squared_to(enemy["pos"]) > 2 else 1
+		if enemy["type"] == "brute":
+			var contact_turns := maxi(0, attack_turns - 1 - 2 * maxi(0, absi(gap.x) + absi(gap.y) - 1))
+			retaliation_turns = int((contact_turns + int(enemy.get("windup_target") == attack_pos)) / 2)
+		var target_attack: int = int(enemy["attack"]) if enemy["type"] != "archer" or attack_pos.distance_squared_to(enemy["pos"]) > 2 else 1
 		var damage := retaliation_turns * calculate_damage(target_attack, effective_defense())
 		damage += attack_turns * incoming_damage_at(attack_pos, enemy["id"])
 		var repeated_cost := 0
@@ -1164,7 +1210,9 @@ func danger_cost(pos: Vector2i) -> int:
 		var delta: Vector2i = pos - enemy_pos
 		var manhattan := absi(delta.x) + absi(delta.y)
 		var distance_squared := pos.distance_squared_to(enemy_pos)
-		if enemy["type"] == "archer":
+		if enemy["type"] == "brute":
+			total += 45 if enemy.get("windup_target") == pos else (12 if manhattan == 1 else (4 if manhattan == 2 else 0))
+		elif enemy["type"] == "archer":
 			if not has_line_of_sight(enemy_pos, pos):
 				continue
 			if distance_squared <= 2:
@@ -1343,8 +1391,8 @@ func attack_enemy(index: int, ranged: bool = false) -> void:
 		enemies.remove_at(index)
 		var gold := gold_reward_for_enemy(enemy)
 		player["gold"] = player["gold"] + gold
-		player["score"] += 2 if enemy["type"] == "archer" else 1
-		var xp_gain := 5 if enemy["type"] == "archer" else 3
+		player["score"] += 2 if enemy["type"] != "melee" else 1
+		var xp_gain := 5 if enemy["type"] != "melee" else 3
 		player["xp"] += xp_gain
 		check_level_up()
 		log_battle_result("enemy_defeated", {
@@ -1397,7 +1445,9 @@ func run_enemy_turn() -> void:
 		var enemy_pos: Vector2i = enemy["pos"]
 		var delta: Vector2i = player["pos"] - enemy_pos
 
-		if enemy["type"] == "archer":
+		if enemy["type"] == "brute":
+			run_brute_turn(i, enemy, enemy_pos, delta)
+		elif enemy["type"] == "archer":
 			run_archer_turn(i, enemy, enemy_pos)
 		else:
 			run_melee_turn(i, enemy, enemy_pos, delta)
@@ -1427,6 +1477,37 @@ func run_melee_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i, delta: V
 		var target: Vector2i = enemy_pos + step
 		if is_walkable(target) and target != player["pos"] and enemy_at(target) == -1:
 			enemy["pos"] = target
+			enemies[index] = enemy
+
+func run_brute_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i, delta: Vector2i) -> void:
+	var target = enemy.get("windup_target")
+	if target != null:
+		enemy["windup_target"] = null
+		enemies[index] = enemy
+		var gap: Vector2i = target - enemy_pos
+		if player["pos"] == target and absi(gap.x) + absi(gap.y) == 1:
+			var hp_before: int = player["hp"]
+			var dmg := calculate_damage(int(enemy["attack"]), effective_defense())
+			player["hp"] = maxi(0, player["hp"] - dmg)
+			log_battle_result("player_hit", {"enemy_id": enemy["id"], "enemy_type": "brute", "enemy_pos": vector_to_log(enemy_pos),
+				"damage": dmg, "attack_power": enemy["attack"], "defense_power": effective_defense(),
+				"player_hp_before": hp_before, "player_hp_after": player["hp"], "windup_target": null})
+			add_message("Brute strikes for %d." % dmg)
+			if player["hp"] <= 0:
+				handle_player_defeat()
+		else:
+			log_battle_result("enemy_strike_missed", {"enemy_id": enemy["id"], "enemy_type": "brute", "enemy_pos": vector_to_log(enemy_pos), "target": vector_to_log(target), "windup_target": null})
+		return
+	if absi(delta.x) + absi(delta.y) == 1:
+		enemy["windup_target"] = player["pos"]
+		enemies[index] = enemy
+		log_battle_result("enemy_windup", {"enemy_id": enemy["id"], "enemy_type": "brute", "enemy_pos": vector_to_log(enemy_pos), "target": vector_to_log(player["pos"]), "windup_target": vector_to_log(player["pos"])})
+		add_message("Brute winds up. Leave the marked tile!")
+		return
+	if turn_count % 2 == 0 and can_enemy_see_player(enemy_pos):
+		var next := enemy_pos + choose_enemy_step(enemy_pos, delta)
+		if is_walkable(next) and next != player["pos"] and enemy_at(next) == -1:
+			enemy["pos"] = next
 			enemies[index] = enemy
 
 func run_archer_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i) -> void:
@@ -1654,7 +1735,7 @@ func start_run_log() -> void:
 		"scenario_id": current_scenario_id(),
 		"scenario_seed": scenario_seed,
 		"strategy_id": strategy_id(active_strategy),
-		"simulation_version": 6,
+		"simulation_version": 7,
 		"comparison": comparison_active,
 		"comparison_phase": comparison_phase,
 	})
@@ -1774,6 +1855,7 @@ func enemy_to_log(enemy: Dictionary) -> Dictionary:
 		"hp": enemy["hp"],
 		"attack": enemy["attack"], "defense": int(enemy.get("defense", 0)),
 		"distance_squared": player["pos"].distance_squared_to(enemy["pos"]),
+		"windup_target": vector_to_log(enemy["windup_target"]) if enemy.get("windup_target") != null else null,
 	}
 
 func enemies_to_log() -> Array[Dictionary]:
@@ -1846,9 +1928,11 @@ func draw_entities() -> void:
 	for item in items:
 		draw_tile_symbol(item["pos"], ("B" if item.get("weapon_kind", "melee") == "bow" else "W") if item["type"] == "weapon" else ("D" if item["type"] == "armor" else "+"), Color("#de8fe8"))
 	for enemy in enemies:
-		var symbol := "A" if enemy["type"] == "archer" else "E"
+		var symbol := "O" if enemy["type"] == "brute" else ("A" if enemy["type"] == "archer" else "E")
 		var color := COLORS["archer"] if enemy["type"] == "archer" else COLORS["enemy"]
-		draw_tile_symbol(enemy["pos"], symbol, color)
+		if enemy.get("windup_target") != null:
+			draw_rect(Rect2(Vector2(enemy["windup_target"]) * TILE_SIZE, Vector2.ONE * TILE_SIZE).grow(-2), COLORS["danger"], false, 3.0)
+		draw_tile_symbol(enemy["pos"], symbol, Color("#ce8e4c") if enemy["type"] == "brute" else color)
 	draw_tile_symbol(player["pos"], "@", COLORS["player"])
 
 func draw_tile_symbol(tile: Vector2i, symbol: String, color: Color) -> void:

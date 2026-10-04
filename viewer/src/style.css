@@ -1038,3 +1038,6 @@ blockquote {
 .growth-table-scroll { overflow-x: auto; }
 .growth-comparison table { width: 100%; border-collapse: collapse; font-size: .85rem; }
 .growth-comparison th, .growth-comparison td { padding: 8px; text-align: left; border-bottom: 1px solid #32372f; white-space: nowrap; }
+
+.map-enemy.brute circle, .map-legend .legend-brute { fill: #ce8e4c; background: #ce8e4c; }
+.windup-mark { fill: #e7676766; stroke: #e76767; stroke-width: .09; }
