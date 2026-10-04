@@ -18,7 +18,7 @@ const ARROW_IMPACT_DURATION := 0.12
 const TILE_WALL := 0
 const TILE_FLOOR := 1
 const DEFAULT_LOG_FILE_PATH := "user://anarogue.jsonl"
-const LOG_SCHEMA_VERSION := 4
+const LOG_SCHEMA_VERSION := 5
 const POTION_HEAL := 8
 const INVENTORY_CAPACITY := 3
 const BASE_MAX_HP := 18
@@ -54,6 +54,7 @@ var enemies: Array[Dictionary] = []
 var items: Array[Dictionary] = []
 var navigation_visits: Dictionary = {}
 var aggressive_target_id := ""
+var growth_target_id := ""
 var player := {
 	"pos": Vector2i.ZERO,
 	"hp": 18,
@@ -380,6 +381,7 @@ func new_floor() -> void:
 	player["pos"] = rooms[0].get_center()
 	navigation_visits.clear()
 	aggressive_target_id = ""
+	growth_target_id = ""
 	navigation_visits[player["pos"]] = 1
 	stairs_pos = rooms[rooms.size() - 1].get_center()
 	if stairs_pos == player["pos"]:
@@ -522,19 +524,8 @@ func use_health_potion(decision_id: String = "") -> void:
 func choose_item_decision(decision_id: String) -> Dictionary:
 	var cautious := active_strategy == StrategyType.CAUTIOUS
 	var threshold := 2 if cautious else 3
-	var incoming := 0
 	var player_pos: Vector2i = player["pos"]
-	for enemy in enemies:
-		var enemy_pos: Vector2i = enemy["pos"]
-		var delta := enemy_pos - player_pos
-		if enemy["type"] == "melee" and absi(delta.x) + absi(delta.y) == 1:
-			incoming += calculate_damage(int(enemy["attack"]), effective_defense())
-		elif enemy["type"] == "archer" and has_line_of_sight(enemy_pos, player_pos):
-			var distance := enemy_pos.distance_squared_to(player_pos)
-			if distance <= 2:
-				incoming += calculate_damage(1, effective_defense())
-			elif distance <= 49:
-				incoming += calculate_damage(int(enemy["attack"]), effective_defense())
+	var incoming := incoming_damage_at(player_pos)
 	if player["inventory"]["health_potion"] > 0 and player["hp"] < player["max_hp"] and (
 		player["max_hp"] - player["hp"] >= POTION_HEAL
 		or player["hp"] * threshold <= player["max_hp"] or player["hp"] <= incoming
@@ -721,6 +712,10 @@ func run_auto_player_turn() -> void:
 	var decision := choose_auto_player_decision(decision_id)
 	if decision["rule_id"] == "hunt_nearest_enemy":
 		aggressive_target_id = decision["target"]["id"]
+	if decision["rule_id"] == "hunt_for_growth":
+		growth_target_id = decision["target"]["id"]
+	elif decision["rule_id"] == "descend_for_progress":
+		growth_target_id = ""
 	log_auto_decision(decision)
 	if decision["action_type"] == "use_item":
 		use_health_potion(decision_id)
@@ -758,6 +753,10 @@ func choose_aggressive_decision(decision_id: String) -> Dictionary:
 			"direction": adjacent_enemy_direction,
 			"target": enemy_to_log(adjacent_enemy),
 		}
+
+	var progression := choose_progression_decision(decision_id)
+	if not progression.is_empty():
+		return progression
 
 	if not enemies.is_empty():
 		var pursuit := aggressive_pursuit()
@@ -821,6 +820,11 @@ func choose_cautious_decision(decision_id: String) -> Dictionary:
 				"target": enemy_to_log(adjacent_enemy),
 			}
 
+	if adjacent_enemy_direction == Vector2i.ZERO:
+		var progression := choose_progression_decision(decision_id)
+		if not progression.is_empty():
+			return progression
+
 	if stairs_direction != Vector2i.ZERO:
 		var retreating := adjacent_enemy_direction != Vector2i.ZERO
 		return {
@@ -864,6 +868,119 @@ func choose_cautious_decision(decision_id: String) -> Dictionary:
 			"pos": vector_to_log(stairs_pos),
 		},
 	}
+
+# Static, bounded estimates: enemy movement and future item pickups are not simulated.
+func progression_route(destination: Vector2i, limit: int) -> Array[Vector2i]:
+	var start: Vector2i = player["pos"]
+	var frontier: Array[Vector2i] = [start]
+	var came_from := {start: start}
+	var steps := {start: 0}
+	while not frontier.is_empty():
+		var current: Vector2i = frontier.pop_front()
+		if current == destination:
+			var route: Array[Vector2i] = []
+			while current != start:
+				route.push_front(current)
+				current = came_from[current]
+			return route
+		if steps[current] >= limit:
+			continue
+		for direction in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
+			var next: Vector2i = current + direction
+			if came_from.has(next) or not is_walkable(next):
+				continue
+			if next != destination and (next == stairs_pos or enemy_at(next) != -1):
+				continue
+			came_from[next] = current
+			steps[next] = steps[current] + 1
+			frontier.append(next)
+	return []
+
+func incoming_damage_at(pos: Vector2i, excluded_id: String = "") -> int:
+	var total := 0
+	for enemy in enemies:
+		if enemy["id"] == excluded_id:
+			continue
+		var enemy_pos: Vector2i = enemy["pos"]
+		var delta := pos - enemy_pos
+		if enemy["type"] == "melee" and absi(delta.x) + absi(delta.y) == 1:
+			total += calculate_damage(int(enemy["attack"]), effective_defense())
+		elif enemy["type"] == "archer" and has_line_of_sight(enemy_pos, pos):
+			var distance := pos.distance_squared_to(enemy_pos)
+			if distance <= 2:
+				total += calculate_damage(1, effective_defense())
+			elif distance <= 49:
+				total += calculate_damage(int(enemy["attack"]), effective_defense())
+	return total
+
+func choose_progression_decision(decision_id: String) -> Dictionary:
+	var cautious := active_strategy == StrategyType.CAUTIOUS
+	var stairs_route := progression_route(stairs_pos, map_width * map_height)
+	if stairs_route.is_empty():
+		return {} # Preserve existing blocked-route combat / pursuit behavior.
+	var stairs_direction := find_low_risk_step_toward(stairs_pos)
+	if stairs_direction == Vector2i.ZERO:
+		return {}
+	var stairs_healing: int = mini(4, player["max_hp"] - player["hp"])
+	var stairs_score: int = (16 if cautious else 8) + stairs_healing * 2 - mini(stairs_route.size(), 8)
+	if player["depth"] == MAX_DEPTH - 1:
+		stairs_score += 20
+	var candidates: Array[Dictionary] = []
+	var best: Dictionary = {}
+	var locked: Dictionary = {}
+	for enemy in enemies:
+		var route := progression_route(enemy["pos"], 6 if cautious else 12)
+		if route.is_empty():
+			candidates.append({"enemy_id": enemy["id"], "eligible": false, "rejection": "out_of_reach"})
+			continue
+		var hit_damage := calculate_damage(effective_attack(), int(enemy.get("defense", 0)))
+		var attack_turns := int((int(enemy["hp"]) + hit_damage - 1) / hit_damage)
+		var xp_gain := 5 if enemy["type"] == "archer" else 3
+		var projected_xp: int = player["xp"] + xp_gain
+		var projected_level: int = player["level"]
+		while projected_xp >= projected_level * 8:
+			projected_xp -= projected_level * 8
+			projected_level += 1
+		var levels_gained: int = projected_level - player["level"]
+		var attack_pos: Vector2i = player["pos"] if route.size() == 1 else route[route.size() - 2]
+		var damage := (attack_turns - 1) * calculate_damage(1 if enemy["type"] == "archer" else int(enemy["attack"]), effective_defense())
+		damage += attack_turns * incoming_damage_at(attack_pos, enemy["id"])
+		var repeated_cost := 0
+		for index in range(route.size() - 1):
+			damage += incoming_damage_at(route[index])
+			repeated_cost += revisit_cost(route[index])
+		var score: int = xp_gain * (2 if cautious else 4) + levels_gained * (8 + (MAX_DEPTH - 1 - player["depth"]) * 6)
+		score -= (route.size() - 1) * (2 if cautious else 1) + attack_turns + damage * (3 if cautious else 2) + repeated_cost
+		var rejection := ""
+		if player["hp"] - damage <= (4 if cautious else 2):
+			rejection = "hp_reserve"
+		elif cautious and enemy["type"] == "archer":
+			rejection = "mobile_target"
+		elif cautious and levels_gained == 0:
+			rejection = "no_level_up"
+		var candidate := {"enemy_id": enemy["id"], "steps": route.size() - 1, "attack_turns": attack_turns,
+			"xp_gain": xp_gain, "levels_gained": levels_gained, "estimated_damage": damage, "score": score,
+			"eligible": rejection.is_empty(), "rejection": rejection, "revisit_penalty": repeated_cost}
+		candidates.append(candidate)
+		if not rejection.is_empty():
+			continue
+		var choice := {"enemy": enemy, "direction": route[0] - player["pos"], "score": score}
+		if best.is_empty() or score > best["score"]:
+			best = choice
+		if enemy["id"] == growth_target_id and score > stairs_score:
+			locked = choice
+	if not locked.is_empty():
+		best = locked
+	var fight: bool = not best.is_empty() and best["score"] > stairs_score
+	var comparison := {"stairs_steps": stairs_route.size(), "stairs_healing": stairs_healing,
+		"stairs_score": stairs_score, "candidates": candidates, "selected": "combat" if fight else "stairs",
+		"selected_enemy_id": best["enemy"]["id"] if fight else null, "target_retained": fight and not locked.is_empty()}
+	var direction: Vector2i = best["direction"] if fight else stairs_direction
+	return {"decision_id": decision_id, "rule_id": "hunt_for_growth" if fight else "descend_for_progress",
+		"reason": "A survivable fight offers more XP and level-up value than descending; keep the selected target while that remains true." if fight else "Descending offers more progress, recovery or completion value than the available growth fights.",
+		"action_type": "move", "direction": direction, "selected_step_danger": danger_cost(player["pos"] + direction),
+		"target": enemy_to_log(best["enemy"]) if fight else {"kind": "stairs", "pos": vector_to_log(stairs_pos)},
+		"progression": comparison}
 
 func choose_auto_player_direction() -> Vector2i:
 	return choose_auto_player_decision("preview")["direction"]
@@ -1410,7 +1527,7 @@ func start_run_log() -> void:
 		"scenario_id": current_scenario_id(),
 		"scenario_seed": scenario_seed,
 		"strategy_id": strategy_id(active_strategy),
-		"simulation_version": 4,
+		"simulation_version": 5,
 		"comparison": comparison_active,
 		"comparison_phase": comparison_phase,
 	})
@@ -1422,6 +1539,8 @@ func log_auto_decision(decision: Dictionary) -> void:
 		"target": decision["target"],
 	}
 	var observation := build_decision_observation()
+	if decision.has("progression"):
+		observation["progression"] = decision["progression"].duplicate(true)
 	if decision["action_type"] == "move":
 		observation["selected_step_revisit_cost"] = revisit_cost(player["pos"] + decision["direction"])
 	if decision.has("selected_step_danger"):
@@ -1441,6 +1560,9 @@ func build_decision_observation() -> Dictionary:
 		"player_pos": vector_to_log(player["pos"]),
 		"hp": player["hp"],
 		"max_hp": player["max_hp"],
+		"level": player["level"],
+		"xp": player["xp"],
+		"xp_to_next_level": player["level"] * 8 - player["xp"],
 		"enemy_count": enemies.size(),
 		"enemies": enemies_to_log(),
 		"stairs_pos": vector_to_log(stairs_pos),

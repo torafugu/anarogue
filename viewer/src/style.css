@@ -1033,3 +1033,8 @@ blockquote {
     transition: none !important;
   }
 }
+
+.growth-comparison { margin-block: 20px; }
+.growth-table-scroll { overflow-x: auto; }
+.growth-comparison table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.growth-comparison th, .growth-comparison td { padding: 8px; text-align: left; border-bottom: 1px solid #32372f; white-space: nowrap; }

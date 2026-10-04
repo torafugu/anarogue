@@ -138,6 +138,8 @@ pub struct RunSummary {
     pub final_gold: u32,
     pub final_score: u32,
     pub final_potions: u32,
+    pub final_level: u32,
+    pub final_xp: u32,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -281,6 +283,7 @@ struct Decision {
     action_type: &'static str,
     target: Value,
     selected_step_danger: Option<i32>,
+    progression: Option<Value>,
 }
 
 struct EventLogger {
@@ -387,6 +390,7 @@ pub struct Simulation {
     items: Vec<FloorItem>,
     navigation_visits: HashMap<Point, u32>,
     aggressive_target_id: Option<String>,
+    growth_target_id: Option<String>,
     player: Player,
     stairs: Point,
     turn: u32,
@@ -436,6 +440,7 @@ impl Simulation {
             items: Vec::new(),
             navigation_visits: HashMap::new(),
             aggressive_target_id: None,
+            growth_target_id: None,
             player: Player::default(),
             stairs: Point::ZERO,
             turn: 0,
@@ -486,6 +491,8 @@ impl Simulation {
             final_gold: self.player.gold,
             final_score: self.player.score,
             final_potions: self.player.inventory.health_potion,
+            final_level: self.player.level,
+            final_xp: self.player.xp,
         }
     }
 
@@ -498,7 +505,7 @@ impl Simulation {
             "scenario_id": logger.scenario_id,
             "scenario_seed": self.config.scenario_seed,
             "strategy_id": self.config.strategy.id(),
-            "simulation_version": 4,
+            "simulation_version": 5,
             "comparison": false,
             "comparison_phase": 0,
         });
@@ -519,7 +526,7 @@ impl Simulation {
         };
         logger.sequence += 1;
         logger.events.push(RunLogEvent {
-            schema_version: 4,
+            schema_version: 5,
             time: logger.timestamp.clone(),
             event: event.to_owned(),
             run_id: logger.run_id.clone(),
@@ -601,6 +608,7 @@ impl Simulation {
         self.player.pos = self.rooms[0].center();
         self.navigation_visits.clear();
         self.aggressive_target_id = None;
+        self.growth_target_id = None;
         self.navigation_visits.insert(self.player.pos, 1);
         self.stairs = self.rooms[self.rooms.len() - 1].center();
         if self.stairs == self.player.pos {
@@ -818,28 +826,7 @@ impl Simulation {
     fn choose_item_decision(&self) -> Option<Decision> {
         let cautious = self.config.strategy == Strategy::CautiousV1;
         let threshold = if cautious { 2 } else { 3 };
-        let incoming: i32 = self
-            .enemies
-            .iter()
-            .map(|enemy| match enemy.kind {
-                EnemyKind::Melee if enemy.pos.manhattan_distance(self.player.pos) == 1 => {
-                    Self::damage(enemy.attack, self.effective_defense())
-                }
-                EnemyKind::Archer
-                    if self.has_line_of_sight(enemy.pos, self.player.pos)
-                        && enemy.pos.distance_squared(self.player.pos) <= 2 =>
-                {
-                    1
-                }
-                EnemyKind::Archer
-                    if self.has_line_of_sight(enemy.pos, self.player.pos)
-                        && enemy.pos.distance_squared(self.player.pos) <= 49 =>
-                {
-                    Self::damage(enemy.attack, self.effective_defense())
-                }
-                _ => 0,
-            })
-            .sum();
+        let incoming = self.incoming_damage_at(self.player.pos, None);
         if self.player.inventory.health_potion > 0
             && self.player.hp < self.player.max_hp
             && (self.player.max_hp - self.player.hp >= POTION_HEAL
@@ -853,6 +840,7 @@ impl Simulation {
                 action_type: "use_item",
                 target: json!({"kind": "inventory_item", "type": "health_potion"}),
                 selected_step_danger: Some(self.danger_cost(self.player.pos)),
+                progression: None,
             });
         }
         if self.direction_to_adjacent_enemy().is_some() {
@@ -888,6 +876,7 @@ impl Simulation {
                 else { "A potion is within eight unobstructed steps, so the aggressive strategy gathers supplies." },
             action_type: "move", target: json!(item),
             selected_step_danger: Some(self.danger_cost(self.player.pos + direction)),
+                progression: None,
         })
     }
 
@@ -1089,6 +1078,11 @@ impl Simulation {
         if decision.rule_id == "hunt_nearest_enemy" {
             self.aggressive_target_id = decision.target["id"].as_str().map(str::to_owned);
         }
+        if decision.rule_id == "hunt_for_growth" {
+            self.growth_target_id = decision.target["id"].as_str().map(str::to_owned);
+        } else if decision.rule_id == "descend_for_progress" {
+            self.growth_target_id = None;
+        }
         let decision_id = self.emit_decision(&decision);
         if decision.action_type == "use_item" {
             self.use_health_potion(&decision_id);
@@ -1120,7 +1114,11 @@ impl Simulation {
                 action_type: "attack",
                 target: self.enemy_snapshot(enemy),
                 selected_step_danger: None,
+                progression: None,
             };
+        }
+        if let Some(decision) = self.choose_progression_decision() {
+            return decision;
         }
         if !self.enemies.is_empty() {
             let (enemy, direction) = self.aggressive_pursuit();
@@ -1140,6 +1138,7 @@ impl Simulation {
                 action_type: if has_path { "move" } else { "wait" },
                 target: self.enemy_snapshot(enemy),
                 selected_step_danger: None,
+                progression: None,
             };
         }
         let direction = self
@@ -1161,6 +1160,7 @@ impl Simulation {
             action_type: if has_path { "move" } else { "wait" },
             target: json!({"kind": "stairs", "pos": self.stairs}),
             selected_step_danger: None,
+            progression: None,
         }
     }
 
@@ -1181,7 +1181,13 @@ impl Simulation {
                     action_type: "attack",
                     target: self.enemy_snapshot(&self.enemies[enemy_index]),
                     selected_step_danger: Some(self.danger_cost(self.player.pos)),
+                progression: None,
                 };
+            }
+        }
+        if adjacent_direction.is_none() {
+            if let Some(decision) = self.choose_progression_decision() {
+                return decision;
             }
         }
         if let Some(direction) = stairs_direction {
@@ -1201,6 +1207,7 @@ impl Simulation {
                 action_type: "move",
                 target: json!({"kind": "stairs", "pos": self.stairs}),
                 selected_step_danger: Some(self.danger_cost(self.player.pos + direction)),
+                progression: None,
             };
         }
         if let Some(direction) = adjacent_direction {
@@ -1214,6 +1221,7 @@ impl Simulation {
                 action_type: "attack",
                 target: self.enemy_snapshot(&self.enemies[enemy_index]),
                 selected_step_danger: Some(self.danger_cost(self.player.pos)),
+                progression: None,
             };
         }
         Decision {
@@ -1223,7 +1231,186 @@ impl Simulation {
             action_type: "wait",
             target: json!({"kind": "stairs", "pos": self.stairs}),
             selected_step_danger: Some(self.danger_cost(self.player.pos)),
+            progression: None,
         }
+    }
+
+    // Static, bounded estimates; enemy movement and future pickups are not simulated.
+    fn progression_route(&self, destination: Point, limit: usize) -> Option<Vec<Point>> {
+        let start = self.player.pos;
+        let mut frontier = VecDeque::from([(start, 0)]);
+        let mut came_from = HashMap::from([(start, start)]);
+        while let Some((mut current, steps)) = frontier.pop_front() {
+            if current == destination {
+                let mut route = Vec::new();
+                while current != start {
+                    route.push(current);
+                    current = came_from[&current];
+                }
+                route.reverse();
+                return (!route.is_empty()).then_some(route);
+            }
+            if steps >= limit {
+                continue;
+            }
+            for direction in DIRECTIONS {
+                let next = current + direction;
+                if came_from.contains_key(&next) || !self.is_walkable(next) {
+                    continue;
+                }
+                if next != destination && (next == self.stairs || self.enemy_at(next).is_some()) {
+                    continue;
+                }
+                came_from.insert(next, current);
+                frontier.push_back((next, steps + 1));
+            }
+        }
+        None
+    }
+
+    fn incoming_damage_at(&self, pos: Point, excluded_id: Option<&str>) -> i32 {
+        self.enemies
+            .iter()
+            .filter(|enemy| Some(enemy.id.as_str()) != excluded_id)
+            .map(|enemy| match enemy.kind {
+                EnemyKind::Melee if enemy.pos.manhattan_distance(pos) == 1 => {
+                    Self::damage(enemy.attack, self.effective_defense())
+                }
+                EnemyKind::Archer
+                    if self.has_line_of_sight(enemy.pos, pos)
+                        && enemy.pos.distance_squared(pos) <= 2 =>
+                {
+                    Self::damage(1, self.effective_defense())
+                }
+                EnemyKind::Archer
+                    if self.has_line_of_sight(enemy.pos, pos)
+                        && enemy.pos.distance_squared(pos) <= 49 =>
+                {
+                    Self::damage(enemy.attack, self.effective_defense())
+                }
+                _ => 0,
+            })
+            .sum()
+    }
+
+    fn choose_progression_decision(&self) -> Option<Decision> {
+        let cautious = self.config.strategy == Strategy::CautiousV1;
+        let stairs_route = self.progression_route(
+            self.stairs,
+            (self.config.map_width * self.config.map_height) as usize,
+        )?;
+        let stairs_direction = self.find_low_risk_step_toward(self.stairs)?;
+        let stairs_healing = 4.min(self.player.max_hp - self.player.hp);
+        let mut stairs_score =
+            if cautious { 16 } else { 8 } + stairs_healing * 2 - (stairs_route.len().min(8) as i32);
+        if self.player.depth == MAX_DEPTH - 1 {
+            stairs_score += 20;
+        }
+        let mut candidates = Vec::new();
+        let mut best: Option<(&Enemy, Point, i32)> = None;
+        let mut locked = None;
+        for enemy in &self.enemies {
+            let Some(route) = self.progression_route(enemy.pos, if cautious { 6 } else { 12 })
+            else {
+                candidates.push(
+                    json!({"enemy_id": enemy.id, "eligible": false, "rejection": "out_of_reach"}),
+                );
+                continue;
+            };
+            let hit_damage = Self::damage(self.effective_attack(), enemy.defense);
+            let attack_turns = (enemy.hp + hit_damage - 1) / hit_damage;
+            let xp_gain = if enemy.kind == EnemyKind::Archer {
+                5
+            } else {
+                3
+            };
+            let mut projected_xp = self.player.xp + xp_gain;
+            let mut projected_level = self.player.level;
+            while projected_xp >= projected_level * 8 {
+                projected_xp -= projected_level * 8;
+                projected_level += 1;
+            }
+            let levels_gained = projected_level - self.player.level;
+            let attack_pos = if route.len() == 1 {
+                self.player.pos
+            } else {
+                route[route.len() - 2]
+            };
+            let target_attack = if enemy.kind == EnemyKind::Archer {
+                1
+            } else {
+                enemy.attack
+            };
+            let mut damage =
+                (attack_turns - 1) * Self::damage(target_attack, self.effective_defense());
+            damage += attack_turns * self.incoming_damage_at(attack_pos, Some(&enemy.id));
+            let mut repeated_cost = 0;
+            for pos in &route[..route.len() - 1] {
+                damage += self.incoming_damage_at(*pos, None);
+                repeated_cost += self.revisit_cost(*pos);
+            }
+            let mut score = xp_gain as i32 * if cautious { 2 } else { 4 }
+                + levels_gained as i32 * (8 + (MAX_DEPTH - 1 - self.player.depth) as i32 * 6);
+            score -= (route.len() - 1) as i32 * if cautious { 2 } else { 1 }
+                + attack_turns
+                + damage * if cautious { 3 } else { 2 }
+                + repeated_cost;
+            let rejection = if self.player.hp - damage <= if cautious { 4 } else { 2 } {
+                "hp_reserve"
+            } else if cautious && enemy.kind == EnemyKind::Archer {
+                "mobile_target"
+            } else if cautious && levels_gained == 0 {
+                "no_level_up"
+            } else {
+                ""
+            };
+            candidates.push(json!({"enemy_id": enemy.id, "steps": route.len() - 1, "attack_turns": attack_turns,
+                "xp_gain": xp_gain, "levels_gained": levels_gained, "estimated_damage": damage, "score": score,
+                "eligible": rejection.is_empty(), "rejection": rejection, "revisit_penalty": repeated_cost}));
+            if !rejection.is_empty() {
+                continue;
+            }
+            let choice = (enemy, route[0] - self.player.pos, score);
+            if best.is_none_or(|(_, _, best_score)| score > best_score) {
+                best = Some(choice);
+            }
+            if self.growth_target_id.as_deref() == Some(enemy.id.as_str()) && score > stairs_score {
+                locked = Some(choice);
+            }
+        }
+        if locked.is_some() {
+            best = locked;
+        }
+        let fight = best.is_some_and(|(_, _, score)| score > stairs_score);
+        let comparison = json!({"stairs_steps": stairs_route.len(), "stairs_healing": stairs_healing,
+            "stairs_score": stairs_score, "candidates": candidates, "selected": if fight {"combat"} else {"stairs"},
+            "selected_enemy_id": if fight {Some(best.unwrap().0.id.as_str())} else {None}, "target_retained": fight && locked.is_some()});
+        let direction = if fight {
+            best.unwrap().1
+        } else {
+            stairs_direction
+        };
+        Some(Decision {
+            rule_id: if fight {
+                "hunt_for_growth"
+            } else {
+                "descend_for_progress"
+            },
+            reason: if fight {
+                "A survivable fight offers more XP and level-up value than descending; keep the selected target while that remains true."
+            } else {
+                "Descending offers more progress, recovery or completion value than the available growth fights."
+            },
+            action_type: "move",
+            direction,
+            selected_step_danger: Some(self.danger_cost(self.player.pos + direction)),
+            target: if fight {
+                self.enemy_snapshot(best.unwrap().0)
+            } else {
+                json!({"kind": "stairs", "pos": self.stairs})
+            },
+            progression: Some(comparison),
+        })
     }
 
     fn emit_decision(&mut self, decision: &Decision) -> String {
@@ -1238,6 +1425,9 @@ impl Simulation {
             "player_pos": self.player.pos,
             "hp": self.player.hp,
             "max_hp": self.player.max_hp,
+            "level": self.player.level,
+            "xp": self.player.xp,
+            "xp_to_next_level": self.player.level * 8 - self.player.xp,
             "enemy_count": self.enemies.len(),
             "enemies": self.enemy_snapshots(),
             "stairs_pos": self.stairs,
@@ -1247,6 +1437,9 @@ impl Simulation {
             "items": self.items,
             "inventory": self.player.inventory,
         });
+        if let Some(progression) = &decision.progression {
+            observation["progression"] = progression.clone();
+        }
         if decision.action_type == "move" {
             observation["selected_step_revisit_cost"] =
                 json!(self.revisit_cost(self.player.pos + decision.direction));
@@ -1852,7 +2045,7 @@ mod tests {
         assert_eq!(logged_run.events[2].event, "user_action");
         assert_eq!(logged_run.events[3].event, "decision");
         assert_eq!(logged_run.events[0].sequence, 1);
-        assert_eq!(logged_run.events[0].schema_version, 4);
+        assert_eq!(logged_run.events[0].schema_version, 5);
     }
 
     fn item_test_simulation(strategy: Strategy) -> Simulation {
@@ -2169,6 +2362,137 @@ mod tests {
     }
 
     #[test]
+    fn cautious_growth_compares_level_threshold_equipment_and_completion() {
+        let mut sim = item_test_simulation(Strategy::CautiousV1);
+        sim.enemies = vec![Enemy {
+            id: "growth".to_owned(),
+            kind: EnemyKind::Melee,
+            pos: Point { x: 4, y: 2 },
+            hp: 5,
+            attack: 1,
+            defense: 0,
+        }];
+        assert_eq!(
+            sim.choose_cautious_decision().rule_id,
+            "descend_for_progress"
+        );
+        sim.player.xp = 5;
+        let d = sim.choose_cautious_decision();
+        assert_eq!(d.rule_id, "hunt_for_growth");
+        assert_eq!(d.progression.unwrap()["candidates"][0]["levels_gained"], 1);
+        sim.player.level = 2;
+        assert_eq!(
+            sim.choose_cautious_decision().rule_id,
+            "descend_for_progress"
+        );
+        sim.player.level = 1;
+        sim.player.depth = 4;
+        assert_eq!(
+            sim.choose_cautious_decision().rule_id,
+            "descend_for_progress"
+        );
+        sim.player.depth = 1;
+        sim.player.hp = 5;
+        assert_eq!(
+            sim.choose_cautious_decision().progression.unwrap()["candidates"][0]["rejection"],
+            "hp_reserve"
+        );
+        sim.player.hp = 18;
+        sim.enemies[0].hp = 10;
+        sim.enemies[0].attack = 5;
+        assert_eq!(
+            sim.choose_cautious_decision().rule_id,
+            "descend_for_progress"
+        );
+        sim.player.equipment.armor = Some(Gear {
+            id: "armor".to_owned(),
+            kind: "armor",
+            attack_bonus: 0,
+            defense_bonus: 4,
+        });
+        let d = sim.choose_cautious_decision();
+        assert_eq!(d.rule_id, "hunt_for_growth");
+        assert_eq!(
+            d.progression.unwrap()["candidates"][0]["estimated_damage"],
+            2
+        );
+        sim.enemies[0].defense = 4;
+        assert_eq!(
+            sim.choose_cautious_decision().rule_id,
+            "descend_for_progress"
+        );
+        sim.enemies[0].defense = 0;
+        sim.enemies[0].kind = EnemyKind::Archer;
+        assert_eq!(
+            sim.choose_cautious_decision().progression.unwrap()["candidates"][0]["rejection"],
+            "mobile_target"
+        );
+    }
+
+    #[test]
+    fn aggressive_growth_remembers_target_and_abandons_unsafe_or_repeated_fights() {
+        let mut sim = item_test_simulation(Strategy::AggressiveV1);
+        sim.enemies = vec![Enemy {
+            id: "first".to_owned(),
+            kind: EnemyKind::Melee,
+            pos: Point { x: 5, y: 2 },
+            hp: 5,
+            attack: 1,
+            defense: 0,
+        }];
+        sim.run_auto_player_turn();
+        assert_eq!(sim.growth_target_id.as_deref(), Some("first"));
+        // Choose a closer, equally rewarding enemy, but retain the viable target.
+        sim.enemies[0].pos = Point { x: 7, y: 2 };
+        sim.enemies.push(Enemy {
+            id: "closer".to_owned(),
+            kind: EnemyKind::Melee,
+            pos: Point { x: 3, y: 4 },
+            hp: 5,
+            attack: 1,
+            defense: 0,
+        });
+        assert_eq!(sim.choose_aggressive_decision().target["id"], "first");
+        sim.enemies[0].hp = 100;
+        sim.enemies[0].attack = 20;
+        assert_ne!(sim.choose_aggressive_decision().target["id"], "first");
+        sim.enemies.truncate(1);
+        sim.enemies[0].hp = 5;
+        sim.enemies[0].attack = 1;
+        sim.navigation_visits.insert(Point { x: 4, y: 2 }, 10);
+        assert_eq!(
+            sim.choose_aggressive_decision().rule_id,
+            "descend_for_progress"
+        );
+        sim.new_floor();
+        assert!(sim.growth_target_id.is_none());
+    }
+
+    #[test]
+    fn growth_routes_respect_walls_other_enemies_and_stairs() {
+        let mut sim = item_test_simulation(Strategy::AggressiveV1);
+        sim.map.iter_mut().for_each(|row| row.fill(false));
+        for x in 2..6 {
+            sim.map[2][x] = true;
+        }
+        sim.stairs = Point { x: 3, y: 2 };
+        assert!(sim.progression_route(Point { x: 4, y: 2 }, 12).is_none());
+        sim.map[2][3] = false;
+        assert!(sim.choose_progression_decision().is_none());
+        sim.map[2][3] = true;
+        sim.stairs = Point { x: 5, y: 2 };
+        sim.enemies.push(Enemy {
+            id: "blocker".to_owned(),
+            kind: EnemyKind::Melee,
+            pos: Point { x: 3, y: 2 },
+            hp: 5,
+            attack: 1,
+            defense: 0,
+        });
+        assert!(sim.progression_route(Point { x: 4, y: 2 }, 12).is_none());
+    }
+
+    #[test]
     fn aggressive_keeps_target_and_reselects_when_dead_or_unreachable() {
         let mut sim = item_test_simulation(Strategy::AggressiveV1);
         let enemy = |id: &str, x, y| Enemy {
@@ -2179,6 +2503,10 @@ mod tests {
             attack: 1,
             defense: 0,
         };
+        for direction in DIRECTIONS {
+            let wall = sim.stairs + direction;
+            sim.map[wall.y as usize][wall.x as usize] = false;
+        }
         sim.enemies = vec![enemy("first", 8, 2), enemy("second", 2, 9)];
         sim.run_auto_player_turn();
         assert_eq!(sim.aggressive_target_id.as_deref(), Some("first"));
@@ -2223,10 +2551,12 @@ mod tests {
             .filter(|event| event.event == "decision")
             .collect();
         for window in decisions.windows(3) {
-            let cycling = window
-                .iter()
-                .all(|event| event.details["rule_id"] == "hunt_nearest_enemy")
-                && window[0].player_state["pos"] == window[2].player_state["pos"]
+            let cycling = window.iter().all(|event| {
+                matches!(
+                    event.details["rule_id"].as_str(),
+                    Some("hunt_nearest_enemy" | "hunt_for_growth")
+                )
+            }) && window[0].player_state["pos"] == window[2].player_state["pos"]
                 && window[0].player_state["pos"] != window[1].player_state["pos"];
             assert!(
                 !cycling,

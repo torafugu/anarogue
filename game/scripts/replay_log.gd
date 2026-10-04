@@ -159,5 +159,6 @@ func make_frame(
 		"map_rows": map_rows.duplicate(),
 		"rule_id": str(details.get("rule_id", "")),
 		"reason": str(details.get("reason", "")),
+		"progression": details.get("observation", {}).get("progression", {}).duplicate(true),
 		"arrow": {},
 	}

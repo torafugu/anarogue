@@ -1,6 +1,6 @@
 # Rust Simulation Core
 
-`simulation-core/` is the Godot-independent implementation of AnaRogue's v4
+`simulation-core/` is the Godot-independent implementation of AnaRogue's v5
 simulation rules. Godot remains the presentation and replay client; this crate is
 the starting point for batch execution, a server API, and future machine-learning
 interfaces.
@@ -17,7 +17,7 @@ The Rust core owns deterministic state transitions:
 - floor transitions and run termination at a turn budget.
 
 It deliberately does not own rendering or UI input. The CLI supplies run metadata
-and an optional log path; the core emits the same Schema v4 event categories used
+and an optional log path; the core emits the same Schema v5 event categories used
 by the Godot replay client.
 
 ## Run
@@ -36,7 +36,7 @@ cargo run -- \
 The command prints one JSON summary. The map dimensions are independent inputs;
 they are not encoded into or substituted for the scenario seed.
 
-Add `--output PATH` to write a replayable Schema v4 JSONL log while retaining the
+Add `--output PATH` to write a replayable Schema v5 JSONL log while retaining the
 summary on standard output. On macOS, write directly to the Godot project data
 directory so the replay selector can discover it:
 
@@ -60,9 +60,9 @@ cargo test --all-targets
 ```
 
 The test suite checks the published FNV-1a/xorshift32 vectors and runs all six
-cases from `examples/reference-v4/manifest-v4.json` against the Godot event-stream and final-state
+cases from `examples/reference-v5/manifest-v5.json` against the Godot event-stream and final-state
 baseline. GitHub Actions runs these tests independently of the Godot job.
 
 The parity tests use the committed Godot reference logs and summaries.
 CI additionally generates a Rust log and validates every event against the shared
-Schema v4 contract and stream invariants.
+Schema v5 contract and stream invariants.

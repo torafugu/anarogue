@@ -2,7 +2,7 @@ extends SceneTree
 
 const MainGame := preload("res://scripts/main.gd")
 const PortableRandom := preload("res://scripts/portable_rng.gd")
-const FIXTURE_PATH := "res://tests/fixtures/fixed-seed-v4.json"
+const FIXTURE_PATH := "res://tests/fixtures/fixed-seed-v5.json"
 const CASES := [
 	{
 		"name": "comparison_seed_depth_1",
@@ -61,7 +61,7 @@ func _init() -> void:
 
 	var expected_json := fixture_file.get_as_text().strip_edges()
 	var actual_json := JSON.stringify(actual)
-	assert_equal(actual_json, expected_json, "Generated state must match the v4 fixture")
+	assert_equal(actual_json, expected_json, "Generated state must match the v5 fixture")
 
 	finish()
 
@@ -71,7 +71,7 @@ func build_suite_snapshot() -> Dictionary:
 	for test_case in CASES:
 		snapshots.append(build_case_snapshot(test_case))
 	return {
-		"fixture_version": 4,
+		"fixture_version": 5,
 		"cases": snapshots,
 	}
 
