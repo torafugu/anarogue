@@ -14,8 +14,17 @@ export interface Vector2i {
 
 export interface ItemSnapshot {
   id: string;
-  type: "health_potion";
+  type: "health_potion" | "weapon" | "armor";
+  attack_bonus?: number;
+  defense_bonus?: number;
   pos: Vector2i;
+}
+
+export interface GearSnapshot {
+  id: string;
+  type: "weapon" | "armor";
+  attack_bonus: number;
+  defense_bonus: number;
 }
 
 export interface PlayerState {
@@ -23,6 +32,12 @@ export interface PlayerState {
   hp: number;
   max_hp: number;
   attack: number;
+  defense?: number;
+  base_attack?: number;
+  base_defense?: number;
+  attack_bonus?: number;
+  defense_bonus?: number;
+  equipment?: { weapon: GearSnapshot | null; armor: GearSnapshot | null };
   gold: number;
   score: number;
   level: number;
@@ -36,6 +51,7 @@ export interface EnemySnapshot {
   pos: Vector2i;
   hp: number;
   attack: number;
+  defense?: number;
   distance_squared?: number;
 }
 
@@ -175,7 +191,7 @@ export function parseJsonLines(source: string): ParsedLog {
     }
 
     const event = normalizeEvent(raw, index + 1);
-    if (event.schema_version !== 1 && event.schema_version !== 2 && event.schema_version !== 3) {
+    if (event.schema_version !== 1 && event.schema_version !== 2 && event.schema_version !== 3 && event.schema_version !== 4) {
       warnings.push(
         `Run ${event.run_id} contains legacy or unsupported schema data.`,
       );
@@ -258,6 +274,10 @@ export function eventCategory(event: RunEvent): string {
 export function describeEvent(event: RunEvent): { title: string; body: string } {
   const details = event.details;
   if (event.event === "item_result") {
+    if (details.result === "item_equipped") {
+      const item = details.item as GearSnapshot;
+      return { title: `${item.type === "weapon" ? "Weapon" : "Armor"} equipped`, body: `${item.id} · ATK +${item.attack_bonus} · DEF +${item.defense_bonus}. ${details.previous_equipment ? "Previous equipment dropped on the floor." : "Previously empty slot."}` };
+    }
     return details.result === "item_picked_up"
       ? { title: "Health potion picked up", body: `Inventory: ${asNumber((details.inventory as Record<string, unknown>)?.health_potion)}/3.` }
       : { title: `Health potion restored ${asNumber(details.healed)} HP`, body: `HP ${asNumber(details.hp_before)} → ${asNumber(details.hp_after)}.` };

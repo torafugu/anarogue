@@ -4,7 +4,8 @@
 Godot baseline for [simulation v3](simulation-spec-v3.md) and Schema v3.
 Four 24x18 cases, a 44x28 Cautious pursuit-cycle regression and a 64x40 Aggressive target-switching regression cover gathering and healing under both strategies, player defeat,
 dungeon completion, the turn limit and recovery from repeated movement. `manifest-v3.json` includes expected final
-inventory. V1 and v2 files remain unchanged historical references.
+inventory. Archer wall/corner visibility is included in the current decisions
+and outcomes. V1 and v2 files remain unchanged historical references.
 
 The Rust test compares the complete event stream as well as final outcomes,
 turns, depth, HP, gold, score and potion count. Only runtime-specific timestamps,

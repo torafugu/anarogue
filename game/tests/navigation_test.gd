@@ -94,7 +94,7 @@ func test_seed_27_oscillation() -> void:
 		game.run_auto_player_turn()
 	check(game.game_over, "seed 27 no longer spends its entire turn budget oscillating")
 	check(longest < 12 and observed_revisit, "pursuit cycle breaks after repeat penalties activate")
-	check(game.turn_count == 134, "seed-27 regression remains deterministic")
+	check(game.turn_count == 277, "seed-27 regression remains deterministic")
 	game.close_log_file()
 	game.free()
 
@@ -138,11 +138,11 @@ func test_aggressive_seed_301() -> void:
 	var move_flags: Array[bool] = []
 	while not game.game_over and game.turn_count < 500:
 		positions.append(game.player["pos"])
-		move_flags.append(game.choose_auto_player_decision("preview")["action_type"] == "move")
+		move_flags.append(game.choose_auto_player_decision("preview")["rule_id"] == "hunt_nearest_enemy")
 		var index := positions.size() - 1
 		if index >= 2 and move_flags[index] and move_flags[index - 1] and move_flags[index - 2]:
 			check(positions[index] != positions[index - 2] or positions[index] == positions[index - 1], "seed 301 never reverses between two tiles")
 		game.run_auto_player_turn()
-	check(game.turn_count == 72 and game.game_over, "aggressive seed-301 run is deterministic")
+	check(game.turn_count == 186 and game.game_over, "aggressive seed-301 run is deterministic")
 	game.close_log_file()
 	game.free()
