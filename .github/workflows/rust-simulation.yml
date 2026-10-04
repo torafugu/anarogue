@@ -25,6 +25,15 @@ jobs:
       - name: Run tests
         run: cargo test --all-targets
 
+      - name: Test comparison metrics and pairing
+        run: python3 -m unittest discover -s ../tools -p 'test_*.py'
+
+      - name: Reproduce 50-seed strategy comparison
+        run: |
+          cargo build --release
+          python3 ../tools/compare_strategies.py --binary target/release/anarogue-sim --output-dir /tmp/anarogue-comparison
+          diff -r ../examples/comparison-v7 /tmp/anarogue-comparison
+
       - name: Generate Rust JSONL run log
         run: >-
           cargo run --

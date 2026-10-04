@@ -20,3 +20,5 @@ logs/
 .DS_Store
 game/.DS_Store
 Cargo.lock
+
+__pycache__/

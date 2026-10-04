@@ -9,7 +9,7 @@ Each action you take advances the game by one turn. Move carefully, watch your H
 ## Starting the Game
 
 1. Open `game/` in Godot 4 and run the project to open the replay client.
-2. Select a JSONL log, or use the bundled v6 reference. Pickup and healing have their own frames.
+2. Select a JSONL log, or use the bundled v7 reference. Pickup and healing have their own frames.
 3. For a live run, select `Live check` (`res://scenes/main.tscn`); it starts on Depth 1.
 4. Choose an automatic strategy on the right side of the screen.
 5. Click `Start selected strategy`, or run both strategies with
@@ -46,6 +46,8 @@ Find the green stairs on each floor and step onto them to descend. When you ente
 | `@` | Player |
 | `E` | Melee enemy |
 | `A` | Archer enemy |
+| `O` | Brute: slow enemy with a heavy telegraphed strike |
+| Red tile outline | Brute will strike this tile next enemy phase |
 | Purple `+` | Health potion |
 | `W` | Melee weapon |
 | `B` | Bow |
@@ -89,7 +91,7 @@ fight. When descending offers more value, it may leave enemies behind.
 when the next kill would yield a level-up and its estimated cost beats descent.
 Without a bow, it avoids chasing retreating Archers for growth. Its pathfinder assigns extra cost
 to tiles threatened by melee enemies and archers, so it prefers safer detours.
-It avoids combat before contact, but attacks a melee enemy once caught because
+At range, an equipped bow can engage visible enemies. It attacks a melee enemy once caught because
 both move at the same speed and retreating cannot open a gap. If the stairs are
 one step away, it escapes instead. It also attacks when no route to the stairs
 is open and an enemy blocks it.
@@ -166,7 +168,7 @@ If HP reaches 0, the run ends and the game displays a Game Over message. Press `
 
 Gold is collected by defeating enemies. It is shown as a score-like progress value for the current run.
 
-Score starts at 0. Defeating a melee enemy earns 1 point, defeating an archer earns 2 points, and descending to the next depth earns 3 points. Taking turns does not award points.
+Score starts at 0. Defeating a melee enemy earns 1 point, defeating an archer or Brute earns 2 points, and descending to the next depth earns 3 points. Taking turns does not award points.
 
 ## Tips
 
@@ -210,7 +212,7 @@ bonus unchanged. The replay and web viewer show these components separately.
 Each playable floor places one melee weapon, one bow and one armor when a free tile is available.
 Weapon bonus is depth + 1; armor bonus is floor((depth + 1) / 2). Aggressive looks
 for upgrades within eight steps; Cautious within four fully safe steps. Emergency
-healing estimates damage after armor. New runs use Schema v6; earlier logs remain readable and retain their recorded outcomes.
+healing estimates damage after armor. New runs use Schema v7; earlier logs remain readable and retain their recorded outcomes.
 
 ## Growth and descent decisions
 
@@ -227,7 +229,7 @@ XP reward, projected levels, attack count, estimated damage, revisit penalties,
 scores and reasons a fight was skipped. Comparison cards show final level and XP.
 The scores are policy preferences, not actual score rewards. Damage is a static
 estimate using current enemy positions; it does not guarantee survival. Generate
-a new v6 log to see this behavior; earlier logs retain their original decisions.
+a new v7 log to see this behavior; earlier logs retain their original decisions.
 
 ## Player bows
 
@@ -247,5 +249,23 @@ account for low bow damage and melee enemies closing the gap. Archer movement
 can still change actual costs.
 
 Godot replay draws Player arrows in yellow and updates enemy HP / removal in the
-impact frame. Both viewers show weapon kind and range. Generate a new v6 log to
+impact frame. Both viewers show weapon kind and range. Generate a new v7 log to
 see bows; historical logs keep their recorded behavior.
+
+## Brute and strategy comparisons
+
+Brute moves one tile every two turns. Once adjacent, it spends an enemy phase
+winding up and marks your tile in red. On its next phase it strikes that same
+tile for high damage; moving off it makes the strike miss, even if you stay
+adjacent. Killing it first interrupts the strike. Its high HP means the first hit
+will often not be enough. A kill gives 5 XP and 2 score.
+
+Aggressive keeps attacking; Cautious avoids the marked tile unless it can safely
+finish the kill. Emergency healing still comes first. Brute attacks are included
+in path danger and growth estimates. In live play you can dodge with arrow keys.
+Replay shows preparation, hits and misses so the decision can be inspected.
+
+For multiple seeds, use `tools/compare_strategies.py`; it writes a report, JSON
+and a per-run CSV. The [50-seed comparison](docs/strategy-comparison-v7.md) records
+44/50 clears for Aggressive and 47/50 for Cautious on a 44×28 map. These results
+describe the listed scenarios rather than guaranteeing either policy is stronger.

@@ -1,7 +1,7 @@
 extends Node2D
 
 const ReplayData := preload("res://scripts/replay_log.gd")
-const DEFAULT_REPLAY := "res://../examples/reference-v6/aggressive-seed-424242.jsonl"
+const DEFAULT_REPLAY := "res://../examples/reference-v7/aggressive-seed-424242.jsonl"
 const AUTO_STEP_SECONDS := 0.28
 const ARROW_FLIGHT_DURATION := 0.28
 const ARROW_IMPACT_DURATION := 0.12
@@ -346,6 +346,8 @@ func update_status() -> void:
 		status_label.text += "\n%s" % frame["reason"]
 	elif not rule.is_empty():
 		status_label.text += "\n%s" % rule if not progression.is_empty() else "\n%s — %s" % [rule, frame["reason"]]
+	elif frame["kind"] == "brute_result":
+		status_label.text += "\n%s" % frame["reason"]
 	elif frame["kind"] == "player_ranged_hit":
 		status_label.text += "\nPlayer bow shot"
 	elif frame["kind"] == "ranged_hit":
@@ -388,8 +390,11 @@ func _draw() -> void:
 	for enemy_value in frame["enemies"]:
 		var enemy: Dictionary = enemy_value
 		var color := COLOR_ARCHER if enemy.get("type", "") == "archer" else COLOR_MELEE
-		var symbol := "A" if enemy.get("type", "") == "archer" else "E"
-		draw_actor(enemy.get("pos", {}), origin, tile_size, color, symbol)
+		var symbol := "O" if enemy.get("type", "") == "brute" else ("A" if enemy.get("type", "") == "archer" else "E")
+		if enemy.get("windup_target") != null:
+			var mark: Dictionary = enemy["windup_target"]
+			draw_rect(Rect2(origin + Vector2(mark["x"], mark["y"]) * tile_size, Vector2.ONE * tile_size).grow(-1), Color("#e76767"), false, 2.0)
+		draw_actor(enemy.get("pos", {}), origin, tile_size, Color("#ce8e4c") if enemy.get("type", "") == "brute" else color, symbol)
 	var player: Dictionary = frame["player_state"]
 	draw_actor(player.get("pos", {}), origin, tile_size, COLOR_PLAYER, "@")
 	draw_arrow(frame["arrow"], origin, tile_size)

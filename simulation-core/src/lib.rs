@@ -209,6 +209,7 @@ impl Rect {
 enum EnemyKind {
     Melee,
     Archer,
+    Brute,
 }
 
 impl EnemyKind {
@@ -216,12 +217,14 @@ impl EnemyKind {
         match self {
             Self::Melee => "melee",
             Self::Archer => "archer",
+            Self::Brute => "brute",
         }
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Enemy {
+    windup_target: Option<Point>,
     id: String,
     kind: EnemyKind,
     pos: Point,
@@ -508,7 +511,7 @@ impl Simulation {
             "scenario_id": logger.scenario_id,
             "scenario_seed": self.config.scenario_seed,
             "strategy_id": self.config.strategy.id(),
-            "simulation_version": 6,
+            "simulation_version": 7,
             "comparison": false,
             "comparison_phase": 0,
         });
@@ -529,7 +532,7 @@ impl Simulation {
         };
         logger.sequence += 1;
         logger.events.push(RunLogEvent {
-            schema_version: 6,
+            schema_version: 7,
             time: logger.timestamp.clone(),
             event: event.to_owned(),
             run_id: logger.run_id.clone(),
@@ -576,6 +579,7 @@ impl Simulation {
             "attack": enemy.attack,
             "defense": enemy.defense,
             "distance_squared": enemy.pos.distance_squared(self.player.pos),
+            "windup_target": enemy.windup_target,
         })
     }
 
@@ -1106,14 +1110,27 @@ impl Simulation {
         };
         let id = format!("enemy-{}", self.next_enemy_id);
         self.next_enemy_id += 1;
+        let mut kind_rng = PortableRng::new(PortableRng::derive_seed(
+            self.config.scenario_seed,
+            "enemy-kind",
+            self.player.depth,
+            Some(&id),
+        ));
+        let kind = if kind_rng.chance(1, 3) {
+            EnemyKind::Brute
+        } else {
+            kind
+        };
         let depth = self.player.depth as i32;
         let (hp, attack) = match kind {
             EnemyKind::Melee => (8 + depth * 2, 2 + depth),
             EnemyKind::Archer => (5 + depth, 1 + depth / 2),
+            EnemyKind::Brute => (14 + depth * 3, 4 + depth),
         };
         self.enemies.push(Enemy {
             id,
             kind,
+            windup_target: None,
             pos,
             hp,
             attack,
@@ -1163,7 +1180,8 @@ impl Simulation {
         {
             item_decision.unwrap()
         } else {
-            self.choose_bow_decision()
+            self.choose_windup_response()
+                .or_else(|| self.choose_bow_decision())
                 .or(item_decision)
                 .unwrap_or_else(|| match self.config.strategy {
                     Strategy::AggressiveV1 => self.choose_aggressive_decision(),
@@ -1197,6 +1215,49 @@ impl Simulation {
         } else {
             self.player_act(decision.direction, &decision_id);
         }
+    }
+
+    fn choose_windup_response(&self) -> Option<Decision> {
+        if self.config.strategy != Strategy::CautiousV1 {
+            return None;
+        }
+        let enemy = self.enemies.iter().find(|enemy| {
+            enemy.kind == EnemyKind::Brute && enemy.windup_target == Some(self.player.pos)
+        })?;
+        let can_kill = enemy.hp <= Self::damage(self.effective_attack(), enemy.defense)
+            && (enemy.pos.manhattan_distance(self.player.pos) == 1
+                || self.can_player_shoot_from(self.player.pos, enemy.pos));
+        if can_kill && self.incoming_damage_at(self.player.pos, Some(&enemy.id)) < self.player.hp {
+            return Some(Decision {
+                rule_id: "interrupt_windup", reason: "The marked Brute can be killed now; interrupt its strike before the enemy phase.",
+                action_type: "attack", direction: enemy.pos - self.player.pos,
+                target: self.enemy_snapshot(enemy), selected_step_danger: Some(self.danger_cost(self.player.pos)), progression: None,
+            });
+        }
+        let mut best = None;
+        for direction in DIRECTIONS {
+            let next = self.player.pos + direction;
+            if !self.is_walkable(next) || self.enemy_at(next).is_some() {
+                continue;
+            }
+            let score = if next == self.stairs {
+                -1
+            } else {
+                self.incoming_damage_at(next, None) * 100
+                    + self.danger_cost(next)
+                    + self.revisit_cost(next)
+                    + next.manhattan_distance(self.stairs)
+            };
+            if best.is_none_or(|(_, old_score)| score < old_score) {
+                best = Some((direction, score));
+            }
+        }
+        let (direction, _) = best?;
+        Some(Decision {
+            rule_id: "evade_windup", reason: "A Brute marked this tile for its next heavy strike; leave the marked tile before it lands.",
+            action_type: "move", direction, target: self.enemy_snapshot(enemy),
+            selected_step_danger: Some(self.danger_cost(self.player.pos + direction)), progression: None,
+        })
     }
 
     fn can_player_shoot_from(&self, origin: Point, target: Point) -> bool {
@@ -1339,15 +1400,23 @@ impl Simulation {
                 .expect("adjacent enemy remains present");
             let can_escape_via_stairs = stairs_direction
                 .is_some_and(|stairs_step| self.player.pos + stairs_step == self.stairs);
-            if self.enemies[enemy_index].kind == EnemyKind::Melee && !can_escape_via_stairs {
+            if self.enemies[enemy_index].kind != EnemyKind::Archer && !can_escape_via_stairs {
                 return Decision {
                     direction,
-                    rule_id: "attack_pursuing_melee",
-                    reason: "An adjacent melee enemy can match the player's speed, so retreat would not create distance.",
+                    rule_id: if self.enemies[enemy_index].kind == EnemyKind::Brute {
+                        "attack_adjacent_brute"
+                    } else {
+                        "attack_pursuing_melee"
+                    },
+                    reason: if self.enemies[enemy_index].kind == EnemyKind::Brute {
+                        "A slow Brute is adjacent; attack during its windup unless the marked strike must be evaded."
+                    } else {
+                        "An adjacent melee enemy can match the player's speed, so retreat would not create distance."
+                    },
                     action_type: "attack",
                     target: self.enemy_snapshot(&self.enemies[enemy_index]),
                     selected_step_danger: Some(self.danger_cost(self.player.pos)),
-                progression: None,
+                    progression: None,
                 };
             }
         }
@@ -1439,6 +1508,12 @@ impl Simulation {
             .iter()
             .filter(|enemy| Some(enemy.id.as_str()) != excluded_id)
             .map(|enemy| match enemy.kind {
+                EnemyKind::Brute
+                    if enemy.windup_target == Some(pos)
+                        && enemy.pos.manhattan_distance(pos) == 1 =>
+                {
+                    Self::damage(enemy.attack, self.effective_defense())
+                }
                 EnemyKind::Melee if enemy.pos.manhattan_distance(pos) == 1 => {
                     Self::damage(enemy.attack, self.effective_defense())
                 }
@@ -1485,11 +1560,7 @@ impl Simulation {
             };
             let hit_damage = Self::damage(self.effective_attack(), enemy.defense);
             let attack_turns = (enemy.hp + hit_damage - 1) / hit_damage;
-            let xp_gain = if enemy.kind == EnemyKind::Archer {
-                5
-            } else {
-                3
-            };
+            let xp_gain = if enemy.kind != EnemyKind::Melee { 5 } else { 3 };
             let mut projected_xp = self.player.xp + xp_gain;
             let mut projected_level = self.player.level;
             while projected_xp >= projected_level * 8 {
@@ -1507,13 +1578,18 @@ impl Simulation {
                 }
             }
             let attack_pos = approach.last().copied().unwrap_or(self.player.pos);
-            let retaliation_turns = if enemy.kind == EnemyKind::Melee {
+            let retaliation_turns = if enemy.kind == EnemyKind::Brute {
+                let contact_turns =
+                    (attack_turns - 1 - 2 * (attack_pos.manhattan_distance(enemy.pos) - 1).max(0))
+                        .max(0);
+                (contact_turns + i32::from(enemy.windup_target == Some(attack_pos))) / 2
+            } else if enemy.kind == EnemyKind::Melee {
                 (attack_turns - attack_pos.manhattan_distance(enemy.pos)).max(0)
             } else {
                 attack_turns - 1
             };
             let target_attack =
-                if enemy.kind == EnemyKind::Melee || attack_pos.distance_squared(enemy.pos) > 2 {
+                if enemy.kind != EnemyKind::Archer || attack_pos.distance_squared(enemy.pos) > 2 {
                     enemy.attack
                 } else {
                     1
@@ -1744,6 +1820,17 @@ impl Simulation {
                     distance if distance <= 80 => 3,
                     _ => 0,
                 },
+                EnemyKind::Brute => {
+                    if enemy.windup_target == Some(pos) {
+                        45
+                    } else {
+                        match pos.manhattan_distance(enemy.pos) {
+                            1 => 12,
+                            2 => 4,
+                            _ => 0,
+                        }
+                    }
+                }
                 EnemyKind::Melee => match pos.manhattan_distance(enemy.pos) {
                     1 => 30,
                     2 => 8,
@@ -1910,7 +1997,7 @@ impl Simulation {
                 self.player.score += 1;
                 self.player.xp += 3;
             }
-            EnemyKind::Archer => {
+            EnemyKind::Archer | EnemyKind::Brute => {
                 self.player.score += 2;
                 self.player.xp += 5;
             }
@@ -1949,6 +2036,7 @@ impl Simulation {
             match enemy.kind {
                 EnemyKind::Melee => self.run_melee_turn(index, &enemy),
                 EnemyKind::Archer => self.run_archer_turn(index, &enemy),
+                EnemyKind::Brute => self.run_brute_turn(index, &enemy),
             }
             if self.game_over {
                 break;
@@ -1966,6 +2054,37 @@ impl Simulation {
         }
         if self.can_enemy_see_player(enemy.pos) {
             let step = self.choose_enemy_step(enemy.pos, delta);
+            self.try_move_enemy(index, enemy.pos + step);
+        }
+    }
+
+    fn run_brute_turn(&mut self, index: usize, enemy: &Enemy) {
+        if let Some(target) = enemy.windup_target {
+            self.enemies[index].windup_target = None;
+            if self.player.pos == target && enemy.pos.manhattan_distance(target) == 1 {
+                self.damage_player_from(enemy, enemy.attack, false);
+            } else {
+                self.emit_event(
+                    "battle_result",
+                    json!({"result": "enemy_strike_missed",
+                    "enemy_id": enemy.id, "enemy_type": "brute", "enemy_pos": enemy.pos,
+                    "target": target, "windup_target": null}),
+                );
+            }
+            return;
+        }
+        if enemy.pos.manhattan_distance(self.player.pos) == 1 {
+            self.enemies[index].windup_target = Some(self.player.pos);
+            self.emit_event(
+                "battle_result",
+                json!({"result": "enemy_windup", "enemy_id": enemy.id,
+                "enemy_type": "brute", "enemy_pos": enemy.pos, "target": self.player.pos,
+                "windup_target": self.player.pos}),
+            );
+            return;
+        }
+        if self.turn % 2 == 0 && self.can_enemy_see_player(enemy.pos) {
+            let step = self.choose_enemy_step(enemy.pos, self.player.pos - enemy.pos);
             self.try_move_enemy(index, enemy.pos + step);
         }
     }
@@ -2010,6 +2129,9 @@ impl Simulation {
             "player_hp_before": hp_before,
             "player_hp_after": self.player.hp,
         });
+        if enemy.kind == EnemyKind::Brute {
+            details["windup_target"] = Value::Null;
+        }
         if ranged {
             details["ranged"] = json!(true);
         }
@@ -2237,7 +2359,7 @@ mod tests {
         assert_eq!(logged_run.events[2].event, "user_action");
         assert_eq!(logged_run.events[3].event, "decision");
         assert_eq!(logged_run.events[0].sequence, 1);
-        assert_eq!(logged_run.events[0].schema_version, 6);
+        assert_eq!(logged_run.events[0].schema_version, 7);
     }
 
     fn item_test_simulation(strategy: Strategy) -> Simulation {
@@ -2334,6 +2456,7 @@ mod tests {
         sim.enemies.push(Enemy {
             id: "target".to_owned(),
             kind: EnemyKind::Melee,
+            windup_target: None,
             pos: Point { x: 7, y: 2 },
             hp: 10,
             attack: 3,
@@ -2388,6 +2511,7 @@ mod tests {
         sim.enemies.push(Enemy {
             id: "archer".to_owned(),
             kind: EnemyKind::Archer,
+            windup_target: None,
             pos: Point { x: 7, y: 2 },
             hp: 20,
             attack: 3,
@@ -2416,6 +2540,149 @@ mod tests {
         let before = sim.turn;
         assert!(!sim.player_shoot("archer", "no-bow"));
         assert_eq!(sim.turn, before);
+    }
+
+    fn test_brute(pos: Point) -> Enemy {
+        Enemy {
+            id: "brute-test".to_owned(),
+            kind: EnemyKind::Brute,
+            windup_target: None,
+            pos,
+            hp: 17,
+            attack: 5,
+            defense: 0,
+        }
+    }
+
+    #[test]
+    fn brute_moves_slowly_winds_up_and_strikes_the_locked_tile() {
+        let mut sim = item_test_simulation(Strategy::AggressiveV1);
+        sim.enemies.push(test_brute(Point { x: 4, y: 2 }));
+        sim.turn = 1;
+        sim.run_enemy_turn();
+        assert_eq!(sim.enemies[0].pos, Point { x: 4, y: 2 });
+        sim.turn = 2;
+        sim.run_enemy_turn();
+        assert_eq!(sim.enemies[0].pos, Point { x: 3, y: 2 });
+        sim.turn = 3;
+        sim.run_enemy_turn();
+        assert_eq!(sim.enemies[0].windup_target, Some(sim.player.pos));
+        assert_eq!(sim.player.hp, 18);
+        assert_eq!(sim.incoming_damage_at(sim.player.pos, None), 5);
+        assert_eq!(sim.incoming_damage_at(Point { x: 2, y: 3 }, None), 0);
+        sim.player.pos = Point { x: 3, y: 3 }; // Remains adjacent, but on a different tile.
+        sim.turn = 4;
+        sim.run_enemy_turn();
+        assert_eq!(sim.player.hp, 18);
+        assert_eq!(sim.enemies[0].windup_target, None);
+        assert_eq!(
+            sim.logger.as_ref().unwrap().events.last().unwrap().details["result"],
+            "enemy_strike_missed"
+        );
+        sim.turn = 5;
+        sim.run_enemy_turn();
+        sim.player.equipment.armor = Some(Gear {
+            id: "armor".into(),
+            kind: "armor",
+            weapon_kind: None,
+            attack_bonus: 0,
+            defense_bonus: 2,
+        });
+        sim.turn = 6;
+        sim.run_enemy_turn();
+        assert_eq!(sim.player.hp, 15);
+        assert_eq!(sim.enemies[0].windup_target, None);
+        assert_eq!(
+            sim.logger.as_ref().unwrap().events.last().unwrap().details["windup_target"],
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn cautious_evades_brute_but_interrupts_a_killable_strike() {
+        let mut sim = item_test_simulation(Strategy::CautiousV1);
+        let mut brute = test_brute(Point { x: 3, y: 2 });
+        brute.windup_target = Some(sim.player.pos);
+        sim.enemies.push(brute);
+        let escape = sim.choose_windup_response().unwrap();
+        assert_eq!(escape.rule_id, "evade_windup");
+        assert_eq!(
+            sim.incoming_damage_at(sim.player.pos + escape.direction, None),
+            0
+        );
+        sim.run_auto_player_turn();
+        assert_eq!(sim.player.hp, 18);
+        assert_eq!(sim.enemies[0].windup_target, None);
+        sim.player.pos = Point { x: 2, y: 2 };
+        sim.enemies[0].windup_target = Some(sim.player.pos);
+        sim.enemies[0].hp = 1;
+        sim.player.xp = 3;
+        assert_eq!(
+            sim.choose_windup_response().unwrap().rule_id,
+            "interrupt_windup"
+        );
+        // Another adjacent enemy must not steal the finishing attack.
+        let mut other = test_brute(Point { x: 2, y: 1 });
+        other.kind = EnemyKind::Melee;
+        other.id = "other".into();
+        other.attack = 1;
+        sim.enemies.push(other);
+        sim.run_auto_player_turn();
+        assert_eq!(sim.enemies.len(), 1);
+        assert_eq!(sim.enemies[0].id, "other");
+        assert_eq!(sim.player.level, 2);
+        assert_eq!(sim.player.xp, 0);
+        assert_eq!(sim.player.score, 2);
+        let mut trapped = item_test_simulation(Strategy::CautiousV1);
+        let mut brute = test_brute(Point { x: 3, y: 2 });
+        brute.windup_target = Some(trapped.player.pos);
+        trapped.enemies.push(brute);
+        for p in [
+            Point { x: 2, y: 1 },
+            Point { x: 2, y: 3 },
+            Point { x: 1, y: 2 },
+        ] {
+            trapped.map[p.y as usize][p.x as usize] = false;
+        }
+        assert!(trapped.choose_windup_response().is_none());
+        trapped.config.strategy = Strategy::AggressiveV1;
+        assert!(trapped.choose_windup_response().is_none());
+    }
+
+    #[test]
+    fn brute_growth_estimate_uses_alternating_strikes_and_spawn_is_paired() {
+        let mut sim = item_test_simulation(Strategy::AggressiveV1);
+        sim.enemies.push(test_brute(Point { x: 3, y: 2 }));
+        let c = sim
+            .choose_progression_decision()
+            .unwrap()
+            .progression
+            .unwrap();
+        assert_eq!(c["candidates"][0]["xp_gain"], 5);
+        assert_eq!(c["candidates"][0]["estimated_damage"], 5);
+        sim.enemies[0].windup_target = Some(sim.player.pos);
+        let c = sim
+            .choose_progression_decision()
+            .unwrap()
+            .progression
+            .unwrap();
+        assert_eq!(c["candidates"][0]["estimated_damage"], 10);
+        let config = SimulationConfig {
+            scenario_seed: 27,
+            strategy: Strategy::AggressiveV1,
+            map_width: 44,
+            map_height: 28,
+            max_turns: 500,
+        };
+        let a = Simulation::new(config).unwrap();
+        let c = Simulation::new(SimulationConfig {
+            strategy: Strategy::CautiousV1,
+            ..config
+        })
+        .unwrap();
+        assert_eq!(a.enemies, c.enemies);
+        assert_eq!(a.items, c.items);
+        assert!(a.enemies.iter().any(|e| e.kind == EnemyKind::Brute));
     }
 
     #[test]
@@ -2473,6 +2740,7 @@ mod tests {
         let enemy = Enemy {
             id: "target".to_owned(),
             kind: EnemyKind::Melee,
+            windup_target: None,
             pos: Point { x: 3, y: 2 },
             hp: 20,
             attack: 5,
@@ -2515,6 +2783,7 @@ mod tests {
         let enemy = Enemy {
             id: "archer".to_owned(),
             kind: EnemyKind::Archer,
+            windup_target: None,
             pos: Point { x: 7, y: 2 },
             hp: 6,
             attack: 14,
@@ -2577,6 +2846,7 @@ mod tests {
         sim.enemies.push(Enemy {
             id: "attacker".to_owned(),
             kind: EnemyKind::Melee,
+            windup_target: None,
             pos: sim.player.pos + DIRECTIONS[3],
             hp: 10,
             attack: 3,
@@ -2628,6 +2898,7 @@ mod tests {
         sim.enemies.push(Enemy {
             id: "guard".to_owned(),
             kind: EnemyKind::Melee,
+            windup_target: None,
             pos: Point { x: 5, y: 2 },
             hp: 10,
             attack: 3,
@@ -2710,6 +2981,7 @@ mod tests {
         sim.enemies = vec![Enemy {
             id: "growth".to_owned(),
             kind: EnemyKind::Melee,
+            windup_target: None,
             pos: Point { x: 4, y: 2 },
             hp: 5,
             attack: 1,
@@ -2779,6 +3051,7 @@ mod tests {
         sim.enemies = vec![Enemy {
             id: "first".to_owned(),
             kind: EnemyKind::Melee,
+            windup_target: None,
             pos: Point { x: 5, y: 2 },
             hp: 5,
             attack: 1,
@@ -2791,6 +3064,7 @@ mod tests {
         sim.enemies.push(Enemy {
             id: "closer".to_owned(),
             kind: EnemyKind::Melee,
+            windup_target: None,
             pos: Point { x: 3, y: 4 },
             hp: 5,
             attack: 1,
@@ -2828,6 +3102,7 @@ mod tests {
         sim.enemies.push(Enemy {
             id: "blocker".to_owned(),
             kind: EnemyKind::Melee,
+            windup_target: None,
             pos: Point { x: 3, y: 2 },
             hp: 5,
             attack: 1,
@@ -2842,6 +3117,7 @@ mod tests {
         let enemy = |id: &str, x, y| Enemy {
             id: id.to_owned(),
             kind: EnemyKind::Archer,
+            windup_target: None,
             pos: Point { x, y },
             hp: 6,
             attack: 1,
@@ -3047,6 +3323,7 @@ mod tests {
         let enemy = Enemy {
             id: "covered-archer".to_owned(),
             kind: EnemyKind::Archer,
+            windup_target: None,
             pos: Point { x: 6, y: 2 },
             hp: 6,
             attack: 14,
@@ -3107,6 +3384,7 @@ mod tests {
         simulation.enemies = vec![Enemy {
             id: "cornered-archer".to_owned(),
             kind: EnemyKind::Archer,
+            windup_target: None,
             pos: Point { x: 1, y: 1 },
             hp: 6,
             attack: 3,

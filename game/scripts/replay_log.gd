@@ -105,6 +105,23 @@ func build_frames(events: Array) -> Array[Dictionary]:
 				else "Health potion restored %d HP." % int(details.get("healed", 0))
 			)
 			result.append(item_frame)
+		elif event_name == "battle_result" and details.get("enemy_type", "") == "brute" and details.get("result", "") in ["enemy_windup", "enemy_strike_missed", "player_hit", "enemy_hit", "enemy_defeated"]:
+			for index in range(last_enemies.size() - 1, -1, -1):
+				if last_enemies[index].get("id", "") == details.get("enemy_id", ""):
+					if details["result"] == "enemy_defeated":
+						last_enemies.remove_at(index)
+					else:
+						last_enemies[index]["pos"] = details["enemy_pos"].duplicate()
+						if details.has("windup_target"):
+							last_enemies[index]["windup_target"] = details["windup_target"].duplicate() if details["windup_target"] != null else null
+						if details.has("enemy_hp_after"):
+							last_enemies[index]["hp"] = details["enemy_hp_after"]
+			var brute_frame := make_frame(event, floors, last_enemies, last_stairs, last_items, "brute_result")
+			brute_frame["reason"] = {"enemy_windup": "Brute winds up: leave the marked tile.", "enemy_strike_missed": "Brute strikes the old tile and misses.", "player_hit": "Brute's heavy strike hits Player.", "enemy_hit": "Player hits Brute.", "enemy_defeated": "Brute defeated."}[details["result"]]
+			if details.get("ranged", false):
+				brute_frame["kind"] = "player_ranged_hit"
+				brute_frame["arrow"] = {"from": details["attacker_pos"].duplicate(), "to": details["enemy_pos"].duplicate(), "player_shot": true}
+			result.append(brute_frame)
 		elif event_name == "battle_result" and details.get("ranged", false) and details.get("result", "") in ["enemy_hit", "enemy_defeated"]:
 			for index in range(last_enemies.size() - 1, -1, -1):
 				if last_enemies[index].get("id", "") == details.get("enemy_id", ""):

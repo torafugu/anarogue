@@ -55,6 +55,7 @@ export interface EnemySnapshot {
   hp: number;
   attack: number;
   defense?: number;
+  windup_target?: Vector2i | null;
   distance_squared?: number;
 }
 
@@ -222,7 +223,7 @@ export function parseJsonLines(source: string): ParsedLog {
     }
 
     const event = normalizeEvent(raw, index + 1);
-    if (event.schema_version !== 1 && event.schema_version !== 2 && event.schema_version !== 3 && event.schema_version !== 4 && event.schema_version !== 5 && event.schema_version !== 6) {
+    if (event.schema_version !== 1 && event.schema_version !== 2 && event.schema_version !== 3 && event.schema_version !== 4 && event.schema_version !== 5 && event.schema_version !== 6 && event.schema_version !== 7) {
       warnings.push(
         `Run ${event.run_id} contains legacy or unsupported schema data.`,
       );
@@ -306,6 +307,13 @@ export function eventCategory(event: RunEvent): string {
 
 export function describeEvent(event: RunEvent): { title: string; body: string } {
   const details = event.details;
+  if (event.event === "battle_result" && details.result === "enemy_windup") {
+    const target = details.target as Vector2i;
+    return { title: "Brute winds up", body: `Heavy strike next turn at (${target.x}, ${target.y}). Move off this tile to avoid it.` };
+  }
+  if (event.event === "battle_result" && details.result === "enemy_strike_missed") {
+    return { title: "Brute's strike missed", body: "The marked tile was empty. The Brute must wind up again before another strike." };
+  }
   if (event.event === "user_action" && details.action === "shoot") {
     return { title: "Player fired a bow", body: `Target: ${asString(details.enemy_id)}. One turn consumed.` };
   }

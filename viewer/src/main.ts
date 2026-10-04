@@ -113,6 +113,7 @@ app.innerHTML = `
             <span><i class="legend-player"></i>Player</span>
             <span><i class="legend-enemy"></i>Melee</span>
             <span><i class="legend-archer"></i>Archer</span>
+            <span><i class="legend-brute"></i>Brute / marked strike</span>
             <span style="color:#de8fe8">● Health potion</span>
             <span><svg class="map-stairs legend-stairs" viewBox="0 0 1 1" aria-hidden="true">${stairsIcon}</svg>Stairs</span>
           </div>
@@ -448,7 +449,7 @@ function renderRouteMap(events: RunEvent[], selected?: RunEvent): void {
     .map((event) => event.player_state?.pos)
     .filter((pos): pos is Vector2i => Boolean(pos));
   const stairs = asVector(floorStart?.details.stairs_pos);
-  const enemies = Array.isArray(floorStart?.details.enemies)
+  let enemies = Array.isArray(floorStart?.details.enemies)
     ? (floorStart.details.enemies as EnemySnapshot[])
     : [];
   const selectedPos =
@@ -459,6 +460,17 @@ function renderRouteMap(events: RunEvent[], selected?: RunEvent): void {
     if (event.sequence > cutoff) break;
     const observation = decisionDetails(event)?.observation;
     if (observation?.items) items = observation.items;
+    if (observation?.enemies) enemies = observation.enemies;
+    if (event.event === "battle_result") {
+      const d = event.details;
+      if (d.result === "enemy_defeated") enemies = enemies.filter(enemy => enemy.id !== d.enemy_id);
+      else enemies = enemies.map(enemy => enemy.id !== d.enemy_id ? enemy : {
+        ...enemy,
+        pos: (d.enemy_pos as Vector2i | undefined) ?? enemy.pos,
+        hp: (d.enemy_hp_after as number | undefined) ?? enemy.hp,
+        windup_target: "windup_target" in d ? d.windup_target as Vector2i | null : enemy.windup_target,
+      });
+    }
     if (event.event === "item_result" && event.details.result === "item_equipped") {
       items = event.details.items as typeof items;
     }
@@ -472,9 +484,10 @@ function renderRouteMap(events: RunEvent[], selected?: RunEvent): void {
   const enemyMarks = enemies
     .map(
       (enemy) => `
-        <g class="map-enemy ${enemy.type === "archer" ? "archer" : ""}">
+        <g class="map-enemy ${enemy.type === "archer" ? "archer" : enemy.type === "brute" ? "brute" : ""}">
           <circle cx="${enemy.pos.x + 0.5}" cy="${enemy.pos.y + 0.5}" r=".38" />
           <title>${escapeHtml(enemy.id)} · ${escapeHtml(enemy.type)}</title>
+          ${enemy.windup_target ? `<rect class="windup-mark" x="${enemy.windup_target.x}" y="${enemy.windup_target.y}" width="1" height="1"><title>Brute strike next enemy phase</title></rect>` : ""}
         </g>`,
     )
     .join("");
