@@ -457,12 +457,15 @@ function renderRouteMap(events: RunEvent[], selected?: RunEvent): void {
     if (event.sequence > cutoff) break;
     const observation = decisionDetails(event)?.observation;
     if (observation?.items) items = observation.items;
+    if (event.event === "item_result" && event.details.result === "item_equipped") {
+      items = event.details.items as typeof items;
+    }
     if (event.event === "item_result" && event.details.result === "item_picked_up") {
       const item = event.details.item as { id: string };
       items = items.filter((candidate) => candidate.id !== item.id);
     }
   }
-  const itemMarks = items.map((item) => `<g fill="#de8fe8"><circle cx="${item.pos.x + .5}" cy="${item.pos.y + .5}" r=".28"/><title>${escapeHtml(item.id)} · Health potion</title></g>`).join("");
+  const itemMarks = items.map((item) => `<g fill="#de8fe8"><circle cx="${item.pos.x + .5}" cy="${item.pos.y + .5}" r=".28"/><text x="${item.pos.x + .5}" y="${item.pos.y + .68}" text-anchor="middle" font-size=".45" fill="#17212b">${item.type === "weapon" ? "W" : item.type === "armor" ? "D" : "+"}</text><title>${escapeHtml(item.id)} · ${escapeHtml(item.type)}</title></g>`).join("");
   const route = positions.map((pos) => `${pos.x + 0.5},${pos.y + 0.5}`).join(" ");
   const enemyMarks = enemies
     .map(
@@ -588,6 +591,10 @@ function renderDetail(event?: RunEvent): void {
       <span>Turn <b>${event.turn}</b></span>
       <span>Depth <b>${event.depth}</b></span>
       <span>HP <b>${event.player_state?.hp ?? event.hp}</b></span>
+      <span>ATK <b>${event.player_state?.attack ?? 0}</b> (${event.player_state?.base_attack ?? event.player_state?.attack ?? 0} + ${event.player_state?.attack_bonus ?? 0})</span>
+      <span>DEF <b>${event.player_state?.defense ?? 0}</b> (${event.player_state?.base_defense ?? 0} + ${event.player_state?.defense_bonus ?? 0})</span>
+      <span>Weapon <b>${escapeHtml(event.player_state?.equipment?.weapon?.id ?? "None")}</b></span>
+      <span>Armor <b>${escapeHtml(event.player_state?.equipment?.armor?.id ?? "None")}</b></span>
       <span>Potions <b>${event.player_state?.inventory?.health_potion ?? 0}/3</b></span>
       <span>Gold <b>${event.player_state?.gold ?? event.gold}</b></span>
       <span>Score <b>${event.player_state?.score ?? 0}</b></span>

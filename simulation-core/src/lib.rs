@@ -224,6 +224,7 @@ struct Enemy {
     pos: Point,
     hp: i32,
     attack: i32,
+    defense: i32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -232,6 +233,23 @@ struct FloorItem {
     #[serde(rename = "type")]
     kind: &'static str,
     pos: Point,
+    attack_bonus: i32,
+    defense_bonus: i32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct Gear {
+    id: String,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    attack_bonus: i32,
+    defense_bonus: i32,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+struct Equipment {
+    weapon: Option<Gear>,
+    armor: Option<Gear>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
@@ -244,7 +262,9 @@ struct Player {
     pos: Point,
     hp: i32,
     max_hp: i32,
-    attack: i32,
+    base_attack: i32,
+    base_defense: i32,
+    equipment: Equipment,
     gold: u32,
     score: u32,
     level: u32,
@@ -278,7 +298,9 @@ impl Default for Player {
             pos: Point::ZERO,
             hp: BASE_MAX_HP,
             max_hp: BASE_MAX_HP,
-            attack: BASE_ATTACK,
+            base_attack: BASE_ATTACK,
+            base_defense: 0,
+            equipment: Equipment::default(),
             gold: 0,
             score: 0,
             level: 1,
@@ -476,7 +498,7 @@ impl Simulation {
             "scenario_id": logger.scenario_id,
             "scenario_seed": self.config.scenario_seed,
             "strategy_id": self.config.strategy.id(),
-            "simulation_version": 3,
+            "simulation_version": 4,
             "comparison": false,
             "comparison_phase": 0,
         });
@@ -497,7 +519,7 @@ impl Simulation {
         };
         logger.sequence += 1;
         logger.events.push(RunLogEvent {
-            schema_version: 3,
+            schema_version: 4,
             time: logger.timestamp.clone(),
             event: event.to_owned(),
             run_id: logger.run_id.clone(),
@@ -519,7 +541,13 @@ impl Simulation {
             "pos": self.player.pos,
             "hp": self.player.hp,
             "max_hp": self.player.max_hp,
-            "attack": self.player.attack,
+            "attack": self.effective_attack(),
+            "defense": self.effective_defense(),
+            "base_attack": self.player.base_attack,
+            "base_defense": self.player.base_defense,
+            "attack_bonus": self.attack_bonus(),
+            "defense_bonus": self.defense_bonus(),
+            "equipment": self.player.equipment,
             "gold": self.player.gold,
             "score": self.player.score,
             "level": self.player.level,
@@ -535,6 +563,7 @@ impl Simulation {
             "pos": enemy.pos,
             "hp": enemy.hp,
             "attack": enemy.attack,
+            "defense": enemy.defense,
             "distance_squared": enemy.pos.distance_squared(self.player.pos),
         })
     }
@@ -620,30 +649,140 @@ impl Simulation {
                 id: format!("item-{}-{}", self.player.depth, room_index + 1),
                 kind: "health_potion",
                 pos,
+                attack_bonus: 0,
+                defense_bonus: 0,
+            });
+        }
+        self.spawn_equipment();
+    }
+
+    fn attack_bonus(&self) -> i32 {
+        self.player
+            .equipment
+            .weapon
+            .as_ref()
+            .map_or(0, |gear| gear.attack_bonus)
+    }
+
+    fn defense_bonus(&self) -> i32 {
+        self.player
+            .equipment
+            .armor
+            .as_ref()
+            .map_or(0, |gear| gear.defense_bonus)
+    }
+
+    fn effective_attack(&self) -> i32 {
+        self.player.base_attack + self.attack_bonus()
+    }
+    fn effective_defense(&self) -> i32 {
+        self.player.base_defense + self.defense_bonus()
+    }
+    fn damage(attack: i32, defense: i32) -> i32 {
+        (attack - defense).max(1)
+    }
+
+    fn wants_item(&self, item: &FloorItem) -> bool {
+        match item.kind {
+            "health_potion" => self.player.inventory.health_potion < INVENTORY_CAPACITY,
+            "weapon" => item.attack_bonus > self.attack_bonus(),
+            "armor" => item.defense_bonus > self.defense_bonus(),
+            _ => false,
+        }
+    }
+
+    fn spawn_equipment(&mut self) {
+        let mut rng = PortableRng::new(PortableRng::derive_seed(
+            self.config.scenario_seed,
+            "equipment",
+            self.player.depth,
+            None,
+        ));
+        for (kind, room_index) in [("weapon", 0), ("armor", self.rooms.len().min(2) - 1)] {
+            let room = self.rooms[room_index];
+            let mut candidates = Vec::new();
+            for y in room.y + 1..room.end_y() - 1 {
+                for x in room.x + 1..room.end_x() - 1 {
+                    let pos = Point { x, y };
+                    if pos != self.player.pos
+                        && pos != self.stairs
+                        && self.enemy_at(pos).is_none()
+                        && !self.items.iter().any(|item| item.pos == pos)
+                    {
+                        candidates.push(pos);
+                    }
+                }
+            }
+            if candidates.is_empty() {
+                continue;
+            }
+            let pos = candidates[rng.range_inclusive(0, candidates.len() as i32 - 1) as usize];
+            self.items.push(FloorItem {
+                id: format!("{}-{}", kind, self.player.depth),
+                kind,
+                pos,
+                attack_bonus: if kind == "weapon" {
+                    self.player.depth as i32 + 1
+                } else {
+                    0
+                },
+                defense_bonus: if kind == "armor" {
+                    (self.player.depth as i32 + 1) / 2
+                } else {
+                    0
+                },
             });
         }
     }
 
     fn pick_up_items(&mut self, decision_id: &str) {
-        let Some(index) = self
+        while let Some(index) = self
             .items
             .iter()
-            .position(|item| item.pos == self.player.pos)
-        else {
-            return;
-        };
-        if self.player.inventory.health_potion >= INVENTORY_CAPACITY {
-            return;
+            .position(|item| item.pos == self.player.pos && self.wants_item(item))
+        {
+            let item = self.items.remove(index);
+            if item.kind == "health_potion" {
+                self.player.inventory.health_potion += 1;
+                self.emit_event(
+                    "item_result",
+                    json!({
+                        "result": "item_picked_up", "item": item,
+                        "inventory": self.player.inventory, "decision_id": decision_id,
+                    }),
+                );
+                continue;
+            }
+            let gear = Gear {
+                id: item.id.clone(),
+                kind: item.kind,
+                attack_bonus: item.attack_bonus,
+                defense_bonus: item.defense_bonus,
+            };
+            let slot = if item.kind == "weapon" {
+                &mut self.player.equipment.weapon
+            } else {
+                &mut self.player.equipment.armor
+            };
+            let previous = slot.replace(gear);
+            if let Some(old) = &previous {
+                self.items.push(FloorItem {
+                    id: old.id.clone(),
+                    kind: old.kind,
+                    pos: self.player.pos,
+                    attack_bonus: old.attack_bonus,
+                    defense_bonus: old.defense_bonus,
+                });
+            }
+            self.emit_event(
+                "item_result",
+                json!({
+                    "result": "item_equipped", "item": item, "previous_equipment": previous,
+                    "equipment": self.player.equipment, "items": self.items,
+                    "inventory": self.player.inventory, "decision_id": decision_id,
+                }),
+            );
         }
-        let item = self.items.remove(index);
-        self.player.inventory.health_potion += 1;
-        self.emit_event(
-            "item_result",
-            json!({
-                "result": "item_picked_up", "item": item,
-                "inventory": self.player.inventory, "decision_id": decision_id,
-            }),
-        );
     }
 
     fn use_health_potion(&mut self, decision_id: &str) {
@@ -684,7 +823,7 @@ impl Simulation {
             .iter()
             .map(|enemy| match enemy.kind {
                 EnemyKind::Melee if enemy.pos.manhattan_distance(self.player.pos) == 1 => {
-                    enemy.attack
+                    Self::damage(enemy.attack, self.effective_defense())
                 }
                 EnemyKind::Archer
                     if self.has_line_of_sight(enemy.pos, self.player.pos)
@@ -696,7 +835,7 @@ impl Simulation {
                     if self.has_line_of_sight(enemy.pos, self.player.pos)
                         && enemy.pos.distance_squared(self.player.pos) <= 49 =>
                 {
-                    enemy.attack
+                    Self::damage(enemy.attack, self.effective_defense())
                 }
                 _ => 0,
             })
@@ -716,9 +855,7 @@ impl Simulation {
                 selected_step_danger: Some(self.danger_cost(self.player.pos)),
             });
         }
-        if self.player.inventory.health_potion >= INVENTORY_CAPACITY
-            || self.direction_to_adjacent_enemy().is_some()
-        {
+        if self.direction_to_adjacent_enemy().is_some() {
             return None;
         }
         // Cautious never gathers under current threat; its entire item route must be safe.
@@ -728,6 +865,9 @@ impl Simulation {
         let limit = if cautious { 4 } else { 8 };
         let mut best: Option<(usize, Point, &FloorItem)> = None;
         for item in &self.items {
+            if !self.wants_item(item) {
+                continue;
+            }
             if let Some((steps, direction)) = self.item_route(item.pos, limit, cautious) {
                 if best
                     .as_ref()
@@ -739,8 +879,12 @@ impl Simulation {
         }
         best.map(|(_, direction, item)| Decision {
             direction,
-            rule_id: if cautious { "cautious_collect_potion" } else { "collect_nearby_potion" },
-            reason: if cautious { "A potion is within four safe steps, so the cautious strategy makes a short detour." }
+            rule_id: match (cautious, item.kind == "health_potion") {
+                (true, true) => "cautious_collect_potion", (false, true) => "collect_nearby_potion",
+                (true, false) => "cautious_collect_equipment", (false, false) => "collect_nearby_equipment",
+            },
+            reason: if item.kind != "health_potion" { "A stronger piece of equipment is within the item detour limit." }
+                else if cautious { "A potion is within four safe steps, so the cautious strategy makes a short detour." }
                 else { "A potion is within eight unobstructed steps, so the aggressive strategy gathers supplies." },
             action_type: "move", target: json!(item),
             selected_step_danger: Some(self.danger_cost(self.player.pos + direction)),
@@ -897,6 +1041,7 @@ impl Simulation {
             pos,
             hp,
             attack,
+            defense: 0,
         });
     }
 
@@ -1346,7 +1491,9 @@ impl Simulation {
     }
 
     fn attack_enemy(&mut self, index: usize) {
-        let damage = self.player.attack;
+        let attack = self.effective_attack();
+        let defense = self.enemies[index].defense;
+        let damage = Self::damage(attack, defense);
         let hp_before = self.enemies[index].hp;
         self.enemies[index].hp -= damage;
         if self.enemies[index].hp > 0 {
@@ -1358,7 +1505,7 @@ impl Simulation {
                     "enemy_id": enemy.id,
                     "enemy_type": enemy.kind.id(),
                     "enemy_pos": enemy.pos,
-                    "damage": damage,
+                    "damage": damage, "attack_power": attack, "defense_power": defense,
                     "enemy_hp_before": hp_before,
                     "enemy_hp_after": enemy.hp,
                 }),
@@ -1392,7 +1539,7 @@ impl Simulation {
                 "enemy_id": enemy.id,
                 "enemy_type": enemy.kind.id(),
                 "enemy_pos": enemy.pos,
-                "damage": damage,
+                "damage": damage, "attack_power": attack, "defense_power": defense,
                 "enemy_hp_before": hp_before,
                 "gold_gained": gold,
             }),
@@ -1406,7 +1553,7 @@ impl Simulation {
             self.player.level += 1;
             self.player.max_hp += 2;
             self.player.hp = (self.player.hp + 2).min(self.player.max_hp);
-            self.player.attack += 1;
+            self.player.base_attack += 1;
             xp_needed = self.player.level * 8;
         }
     }
@@ -1464,6 +1611,9 @@ impl Simulation {
     }
 
     fn damage_player_from(&mut self, enemy: &Enemy, damage: i32, ranged: bool) {
+        let attack = damage;
+        let defense = self.effective_defense();
+        let damage = Self::damage(attack, defense);
         let hp_before = self.player.hp;
         self.player.hp = (self.player.hp - damage).max(0);
         let mut details = json!({
@@ -1471,7 +1621,7 @@ impl Simulation {
             "enemy_id": enemy.id,
             "enemy_type": enemy.kind.id(),
             "enemy_pos": enemy.pos,
-            "damage": damage,
+            "damage": damage, "attack_power": attack, "defense_power": defense,
             "player_hp_before": hp_before,
             "player_hp_after": self.player.hp,
         });
@@ -1702,7 +1852,7 @@ mod tests {
         assert_eq!(logged_run.events[2].event, "user_action");
         assert_eq!(logged_run.events[3].event, "decision");
         assert_eq!(logged_run.events[0].sequence, 1);
-        assert_eq!(logged_run.events[0].schema_version, 3);
+        assert_eq!(logged_run.events[0].schema_version, 4);
     }
 
     fn item_test_simulation(strategy: Strategy) -> Simulation {
@@ -1725,6 +1875,128 @@ mod tests {
         sim
     }
 
+    fn gear_item(kind: &'static str, id: &str, pos: Point, bonus: i32) -> FloorItem {
+        FloorItem {
+            id: id.to_owned(),
+            kind,
+            pos,
+            attack_bonus: if kind == "weapon" { bonus } else { 0 },
+            defense_bonus: if kind == "armor" { bonus } else { 0 },
+        }
+    }
+
+    #[test]
+    fn equipment_upgrades_drop_previous_without_extra_turns_or_potion_capacity() {
+        let mut sim = item_test_simulation(Strategy::AggressiveV1);
+        sim.player.inventory.health_potion = INVENTORY_CAPACITY;
+        let next = sim.player.pos + DIRECTIONS[3];
+        sim.items.push(gear_item("weapon", "sword", next, 2));
+        sim.items.push(gear_item("armor", "vest", next, 1));
+        sim.player_act(DIRECTIONS[3], "equip");
+        assert_eq!(sim.turn, 1);
+        assert_eq!(sim.effective_attack(), BASE_ATTACK + 2);
+        assert_eq!(sim.effective_defense(), 1);
+        assert_eq!(sim.player.inventory.health_potion, INVENTORY_CAPACITY);
+        assert!(sim.items.is_empty());
+        sim.items.push(gear_item("weapon", "better-sword", next, 4));
+        sim.pick_up_items("upgrade");
+        assert_eq!(sim.effective_attack(), BASE_ATTACK + 4);
+        assert_eq!(sim.items[0].id, "sword");
+        assert_eq!(sim.items[0].pos, next);
+        let event = sim.logger.as_ref().unwrap().events.last().unwrap();
+        assert_eq!(event.details["result"], "item_equipped");
+        assert_eq!(event.details["previous_equipment"]["id"], "sword");
+        sim.items.push(gear_item("weapon", "equal-sword", next, 4));
+        sim.pick_up_items("no-downgrade");
+        assert_eq!(
+            sim.player.equipment.weapon.as_ref().unwrap().id,
+            "better-sword"
+        );
+        assert_eq!(sim.items.len(), 2);
+        sim.new_floor();
+        assert_eq!(sim.attack_bonus(), 4);
+        assert_eq!(sim.defense_bonus(), 1);
+        sim.player = Player::default();
+        assert_eq!(sim.attack_bonus(), 0);
+        assert_eq!(sim.defense_bonus(), 0);
+    }
+
+    #[test]
+    fn level_growth_does_not_stack_equipment_and_defense_applies_to_all_hits() {
+        let mut sim = item_test_simulation(Strategy::AggressiveV1);
+        sim.items
+            .push(gear_item("weapon", "sword", sim.player.pos, 2));
+        sim.items
+            .push(gear_item("armor", "vest", sim.player.pos, 2));
+        sim.pick_up_items("equip");
+        sim.player.xp = 8;
+        sim.check_level_up();
+        assert_eq!(sim.player.base_attack, BASE_ATTACK + 1);
+        assert_eq!(sim.effective_attack(), BASE_ATTACK + 3);
+        assert_eq!(sim.player.base_defense, 0);
+        assert_eq!(sim.defense_bonus(), 2);
+        sim.pick_up_items("again");
+        assert_eq!(sim.effective_attack(), BASE_ATTACK + 3);
+        let enemy = Enemy {
+            id: "target".to_owned(),
+            kind: EnemyKind::Melee,
+            pos: Point { x: 3, y: 2 },
+            hp: 20,
+            attack: 5,
+            defense: 0,
+        };
+        sim.enemies.push(enemy.clone());
+        sim.attack_enemy(0);
+        assert_eq!(sim.enemies[0].hp, 12);
+        sim.enemies[0].defense = 20;
+        sim.attack_enemy(0);
+        assert_eq!(sim.enemies[0].hp, 11);
+        let hp = sim.player.hp;
+        sim.damage_player_from(&enemy, 5, false);
+        assert_eq!(sim.player.hp, hp - 3);
+        sim.damage_player_from(&enemy, 5, true);
+        assert_eq!(sim.player.hp, hp - 6);
+        sim.damage_player_from(&enemy, 1, false);
+        assert_eq!(sim.player.hp, hp - 7);
+        assert_eq!(Simulation::damage(3, 20), 1);
+    }
+
+    #[test]
+    fn equipment_policy_ignores_weaker_gear_and_accounts_for_armor_in_healing() {
+        let mut sim = item_test_simulation(Strategy::AggressiveV1);
+        sim.player.inventory.health_potion = INVENTORY_CAPACITY;
+        let next = sim.player.pos + DIRECTIONS[3];
+        sim.items.push(gear_item("armor", "vest", next, 2));
+        assert_eq!(
+            sim.choose_item_decision().unwrap().rule_id,
+            "collect_nearby_equipment"
+        );
+        sim.player_act(DIRECTIONS[3], "equip");
+        sim.items.push(gear_item(
+            "armor",
+            "weaker",
+            sim.player.pos + DIRECTIONS[3],
+            1,
+        ));
+        assert!(sim.choose_item_decision().is_none());
+        let enemy = Enemy {
+            id: "archer".to_owned(),
+            kind: EnemyKind::Archer,
+            pos: Point { x: 7, y: 2 },
+            hp: 6,
+            attack: 14,
+            defense: 0,
+        };
+        sim.enemies.push(enemy);
+        sim.player.hp = 14; // Unarmored shot would be lethal, armored shot is 12.
+        assert!(sim.choose_item_decision().is_none());
+        sim.player.equipment.armor = None;
+        assert_eq!(
+            sim.choose_item_decision().unwrap().rule_id,
+            "use_health_potion"
+        );
+    }
+
     #[test]
     fn pickup_is_part_of_movement_and_capacity_leaves_item_on_floor() {
         let mut sim = item_test_simulation(Strategy::AggressiveV1);
@@ -1733,6 +2005,8 @@ mod tests {
             id: "potion".to_owned(),
             kind: "health_potion",
             pos,
+            attack_bonus: 0,
+            defense_bonus: 0,
         });
         sim.player_act(DIRECTIONS[3], "pickup");
         assert_eq!(sim.turn, 1);
@@ -1746,6 +2020,8 @@ mod tests {
             id: "overflow".to_owned(),
             kind: "health_potion",
             pos,
+            attack_bonus: 0,
+            defense_bonus: 0,
         });
         sim.player.inventory.health_potion = INVENTORY_CAPACITY;
         sim.pick_up_items("full");
@@ -1769,6 +2045,7 @@ mod tests {
             pos: sim.player.pos + DIRECTIONS[3],
             hp: 10,
             attack: 3,
+            defense: 0,
         });
         sim.use_health_potion("heal");
         assert_eq!(sim.turn, 1);
@@ -1799,6 +2076,8 @@ mod tests {
             id: "safe".to_owned(),
             kind: "health_potion",
             pos,
+            attack_bonus: 0,
+            defense_bonus: 0,
         });
         assert_eq!(
             sim.choose_item_decision().unwrap().rule_id,
@@ -1816,6 +2095,7 @@ mod tests {
             pos: Point { x: 5, y: 2 },
             hp: 10,
             attack: 3,
+            defense: 0,
         });
         assert!(sim.choose_item_decision().is_none()); // The target has danger even though start is safe.
         sim.config.strategy = Strategy::AggressiveV1;
@@ -1897,6 +2177,7 @@ mod tests {
             pos: Point { x, y },
             hp: 6,
             attack: 1,
+            defense: 0,
         };
         sim.enemies = vec![enemy("first", 8, 2), enemy("second", 2, 9)];
         sim.run_auto_player_turn();
@@ -1944,7 +2225,7 @@ mod tests {
         for window in decisions.windows(3) {
             let cycling = window
                 .iter()
-                .all(|event| event.details["action"]["type"] == "move")
+                .all(|event| event.details["rule_id"] == "hunt_nearest_enemy")
                 && window[0].player_state["pos"] == window[2].player_state["pos"]
                 && window[0].player_state["pos"] != window[1].player_state["pos"];
             assert!(
@@ -2095,6 +2376,7 @@ mod tests {
             pos: Point { x: 6, y: 2 },
             hp: 6,
             attack: 14,
+            defense: 0,
         };
         sim.enemies.push(enemy.clone());
         sim.player.hp = 14;
@@ -2154,6 +2436,7 @@ mod tests {
             pos: Point { x: 1, y: 1 },
             hp: 6,
             attack: 3,
+            defense: 0,
         }];
         let archer = simulation.enemies[0].clone();
 
