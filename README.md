@@ -25,6 +25,7 @@ longer the project's default responsibility.
 
 - Procedural room-and-corridor dungeon generation
 - Automatic player movement and bump attacks
+- Repeated-visit path costs prevent pursuit-induced movement loops
 - Two automatic strategies:
   - **Aggressive** — hunts every enemy, then seeks the stairs
   - **Cautious** — takes a danger-weighted route to the stairs and only fights
@@ -104,6 +105,12 @@ event to the v3 stream.
 
 ## Tests
 
+Verify repeated movement recovery and required backtracking with:
+
+```bash
+godot --headless --path game --script res://tests/navigation_test.gd
+```
+
 Verify item pickup, capacity, healing, strategy decisions and replay with:
 
 ```bash
@@ -144,7 +151,7 @@ cd simulation-core
 cargo test --all-targets
 ```
 
-The Rust tests execute four fixed-seed full-run cases and compare every event
+The Rust tests execute five fixed-seed full-run cases and compare every event
 and final state with the Godot reference baseline.
 
 The Rust CLI can also write a replayable Schema v3 log directly into Godot's

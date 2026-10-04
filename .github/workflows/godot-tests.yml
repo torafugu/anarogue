@@ -33,6 +33,11 @@ jobs:
           godot --headless --path game
           --script res://tests/items_test.gd
 
+      - name: Verify navigation cycle recovery
+        run: >-
+          godot --headless --path game
+          --script res://tests/navigation_test.gd
+
       - name: Regenerate fixed-seed reference logs
         run: >-
           godot --headless --path game

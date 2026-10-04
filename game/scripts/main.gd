@@ -52,6 +52,7 @@ var map: Array = []
 var rooms: Array[Rect2i] = []
 var enemies: Array[Dictionary] = []
 var items: Array[Dictionary] = []
+var navigation_visits: Dictionary = {}
 var player := {
 	"pos": Vector2i.ZERO,
 	"hp": 18,
@@ -372,6 +373,8 @@ func new_floor() -> void:
 
 	generate_dungeon(floor_rng)
 	player["pos"] = rooms[0].get_center()
+	navigation_visits.clear()
+	navigation_visits[player["pos"]] = 1
 	stairs_pos = rooms[rooms.size() - 1].get_center()
 	if stairs_pos == player["pos"]:
 		stairs_pos = farthest_walkable_tile_from(player["pos"])
@@ -755,7 +758,7 @@ func choose_cautious_decision(decision_id: String) -> Dictionary:
 			"reason": (
 				"An enemy is adjacent, so the cautious strategy retreats toward the stairs."
 				if retreating
-				else "The cautious strategy takes the lowest-risk route to the stairs."
+				else "The cautious strategy takes a low-risk route, penalizing repeated visits to avoid movement loops."
 			),
 			"action_type": "move",
 			"direction": stairs_direction,
@@ -794,7 +797,13 @@ func choose_cautious_decision(decision_id: String) -> Dictionary:
 func choose_auto_player_direction() -> Vector2i:
 	return choose_auto_player_decision("preview")["direction"]
 
+func revisit_cost(pos: Vector2i) -> int:
+	return maxi(0, int(navigation_visits.get(pos, 0)) - 2) * 8
+
 func find_low_risk_step_toward(destination: Vector2i) -> Vector2i:
+	return find_weighted_step_toward(destination, true)
+
+func find_weighted_step_toward(destination: Vector2i, use_danger: bool) -> Vector2i:
 	var start: Vector2i = player["pos"]
 	var frontier: Array[Vector2i] = [start]
 	var came_from := {start: start}
@@ -814,7 +823,8 @@ func find_low_risk_step_toward(destination: Vector2i) -> Vector2i:
 			var next: Vector2i = current + direction
 			if not is_cautious_path_walkable(next, destination):
 				continue
-			var new_cost: int = cost_so_far[current] + 1 + danger_cost(next)
+			var danger := danger_cost(next) if use_danger else 0
+			var new_cost: int = cost_so_far[current] + 1 + danger + revisit_cost(next)
 			if not cost_so_far.has(next) or new_cost < cost_so_far[next]:
 				cost_so_far[next] = new_cost
 				came_from[next] = current
@@ -882,6 +892,9 @@ func nearest_enemy() -> Dictionary:
 	return best_enemy
 
 func find_next_step_toward(destination: Vector2i) -> Vector2i:
+	for visits in navigation_visits.values():
+		if int(visits) > 2:
+			return find_weighted_step_toward(destination, false)
 	var start: Vector2i = player["pos"]
 	var frontier: Array[Vector2i] = [start]
 	var came_from := {
@@ -950,6 +963,7 @@ func player_act(direction: Vector2i, decision_id: String = "") -> void:
 	else:
 		var from_pos: Vector2i = player["pos"]
 		player["pos"] = target
+		navigation_visits[target] = int(navigation_visits.get(target, 0)) + 1
 		var move_details := {
 			"direction": vector_to_log(direction),
 			"from": vector_to_log(from_pos),
@@ -1280,6 +1294,8 @@ func log_auto_decision(decision: Dictionary) -> void:
 		"target": decision["target"],
 	}
 	var observation := build_decision_observation()
+	if decision["action_type"] == "move":
+		observation["selected_step_revisit_cost"] = revisit_cost(player["pos"] + decision["direction"])
 	if decision.has("selected_step_danger"):
 		observation["selected_step_danger"] = decision["selected_step_danger"]
 	log_event("decision", {
@@ -1302,6 +1318,7 @@ func build_decision_observation() -> Dictionary:
 		"stairs_pos": vector_to_log(stairs_pos),
 		"stairs_distance_squared": player["pos"].distance_squared_to(stairs_pos),
 		"current_danger": danger_cost(player["pos"]),
+		"current_tile_visits": int(navigation_visits.get(player["pos"], 0)),
 		"items": items_to_log(),
 		"inventory": player["inventory"].duplicate(),
 	}

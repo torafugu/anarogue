@@ -566,6 +566,8 @@ function renderDetail(event?: RunEvent): void {
         <div><dt>Enemies</dt><dd>${decision.observation.enemy_count}</dd></div>
         <div><dt>Danger here</dt><dd>${decision.observation.current_danger ?? "—"}</dd></div>
         <div><dt>Next danger</dt><dd>${decision.observation.selected_step_danger ?? "—"}</dd></div>
+        <div><dt>Tile visits</dt><dd>${decision.observation.current_tile_visits ?? "—"}</dd></div>
+        <div><dt>Revisit cost</dt><dd>${decision.observation.selected_step_revisit_cost ?? 0}</dd></div>
       </dl>
       <div class="action-vector">
         direction <code>(${decision.action.direction.x}, ${decision.action.direction.y})</code>

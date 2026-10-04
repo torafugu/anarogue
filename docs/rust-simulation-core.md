@@ -59,7 +59,7 @@ run completes.
 cargo test --all-targets
 ```
 
-The test suite checks the published FNV-1a/xorshift32 vectors and runs all four
+The test suite checks the published FNV-1a/xorshift32 vectors and runs all five
 cases from `examples/reference-v3/manifest-v3.json` against the Godot event-stream and final-state
 baseline. GitHub Actions runs these tests independently of the Godot job.
 

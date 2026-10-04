@@ -574,6 +574,14 @@
             },
             "inventory": {
               "$ref": "#/$defs/inventory"
+            },
+            "selected_step_revisit_cost": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "current_tile_visits": {
+              "type": "integer",
+              "minimum": 0
             }
           },
           "additionalProperties": false

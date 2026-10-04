@@ -85,7 +85,10 @@ Comparison mode gives both strategies the same scenario seed. Floor generation,
 enemy placement, potion placement, and each enemy's gold reward are derived separately from that
 seed, so different decisions do not change the scenario itself.
 
-Walking into a wall does not advance the turn.
+Walking into a wall does not advance the turn. The pathfinder remembers visited
+tiles and adds a growing cost after the second visit, so changing enemy positions
+do not trap the player in an endless back-and-forth. Returning through a corridor
+remains possible; this is a preference, not a movement restriction.
 
 ## Movement
 

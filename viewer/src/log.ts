@@ -57,6 +57,8 @@ export interface DecisionDetails {
     inventory?: { health_potion: number };
     current_danger?: number;
     selected_step_danger?: number;
+    selected_step_revisit_cost?: number;
+    current_tile_visits?: number;
   };
   action: {
     type: "move" | "attack" | "wait" | string;

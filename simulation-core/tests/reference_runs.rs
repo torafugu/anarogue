@@ -4,14 +4,7 @@ use serde_json::Value;
 
 #[derive(Deserialize)]
 struct ReferenceManifest {
-    map_size: MapSize,
     cases: Vec<ReferenceCase>,
-}
-
-#[derive(Deserialize)]
-struct MapSize {
-    width: i32,
-    height: i32,
 }
 
 #[derive(Deserialize)]
@@ -21,6 +14,8 @@ struct ReferenceCase {
     scenario_seed: u32,
     strategy_id: String,
     max_turns: u32,
+    map_width: i32,
+    map_height: i32,
     outcome: RunOutcome,
     turns: u32,
     final_depth: u32,
@@ -45,8 +40,8 @@ fn godot_reference_runs_match() {
             SimulationConfig {
                 scenario_seed: case.scenario_seed,
                 strategy,
-                map_width: manifest.map_size.width,
-                map_height: manifest.map_size.height,
+                map_width: case.map_width,
+                map_height: case.map_height,
                 max_turns: case.max_turns,
             },
             "rust-test.jsonl".to_owned(),

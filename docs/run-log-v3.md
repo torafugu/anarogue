@@ -9,6 +9,8 @@ V3 retains v2 terrain and combat events and adds:
 - `floor_start.details.item_seed` and `items`, each item carrying `id`, `type`
   (`health_potion`) and `pos`.
 - Decision observations include current `items` and `inventory`.
+- Optional `current_tile_visits` and `selected_step_revisit_cost` describe navigation
+  memory and the selected move's repeat penalty. Older v3 logs remain valid.
 - Decision targets can be a floor item or
   `{ kind: "inventory_item", type: "health_potion" }`.
 - `use_item` is a decision action and a `user_action` with result `item_used`.

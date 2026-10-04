@@ -8,6 +8,15 @@ const MAP_WIDTH := 24
 const MAP_HEIGHT := 18
 const CASES := [
 	{
+		"name": "cautious-seed-27-cycle",
+		"strategy": MainGame.StrategyType.CAUTIOUS,
+		"seed": 27,
+		"map_width": 44,
+		"map_height": 28,
+		"max_turns": 500,
+		"expected": {"outcome": "player_defeated", "turns": 134, "final_depth": 1, "final_hp": 0, "final_gold": 7, "final_score": 2, "final_potions": 0},
+	},
+	{
 		"name": "cautious-seed-2",
 		"expected": {"outcome": "dungeon_cleared", "turns": 104, "final_depth": 5, "final_hp": 9, "final_gold": 4, "final_score": 13, "final_potions": 0},
 		"strategy": MainGame.StrategyType.CAUTIOUS,
@@ -87,7 +96,9 @@ func generate_case(test_case: Dictionary) -> Dictionary:
 	var strategy: int = test_case["strategy"]
 	var game := MainGame.new()
 	game.configure_headless(test_case["seed"], strategy, output_path)
-	game.configure_headless_map(MAP_WIDTH, MAP_HEIGHT)
+	var width: int = int(test_case.get("map_width", MAP_WIDTH))
+	var height: int = int(test_case.get("map_height", MAP_HEIGHT))
+	game.configure_headless_map(width, height)
 	game.configure_reference_log(
 		"reference-%s" % case_name,
 		FIXED_EVENT_TIME,
@@ -111,6 +122,8 @@ func generate_case(test_case: Dictionary) -> Dictionary:
 		"strategy_id": game.strategy_id(strategy),
 		"scenario_seed": test_case["seed"],
 		"max_turns": test_case["max_turns"],
+		"map_width": width,
+		"map_height": height,
 		"outcome": outcome,
 		"turns": game.turn_count,
 		"final_depth": game.player["depth"],

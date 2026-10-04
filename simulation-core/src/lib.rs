@@ -363,6 +363,7 @@ pub struct Simulation {
     rooms: Vec<Rect>,
     enemies: Vec<Enemy>,
     items: Vec<FloorItem>,
+    navigation_visits: HashMap<Point, u32>,
     player: Player,
     stairs: Point,
     turn: u32,
@@ -410,6 +411,7 @@ impl Simulation {
             rooms: Vec::new(),
             enemies: Vec::new(),
             items: Vec::new(),
+            navigation_visits: HashMap::new(),
             player: Player::default(),
             stairs: Point::ZERO,
             turn: 0,
@@ -566,6 +568,8 @@ impl Simulation {
             PortableRng::derive_seed(self.config.scenario_seed, "spawn", self.player.depth, None);
         self.generate_dungeon(&mut PortableRng::new(floor_seed));
         self.player.pos = self.rooms[0].center();
+        self.navigation_visits.clear();
+        self.navigation_visits.insert(self.player.pos, 1);
         self.stairs = self.rooms[self.rooms.len() - 1].center();
         if self.stairs == self.player.pos {
             self.stairs = self.farthest_walkable_tile_from(self.player.pos);
@@ -1034,7 +1038,7 @@ impl Simulation {
                 reason: if retreating {
                     "An enemy is adjacent, so the cautious strategy retreats toward the stairs."
                 } else {
-                    "The cautious strategy takes the lowest-risk route to the stairs."
+                    "The cautious strategy takes a low-risk route, penalizing repeated visits to avoid movement loops."
                 },
                 action_type: "move",
                 target: json!({"kind": "stairs", "pos": self.stairs}),
@@ -1081,9 +1085,14 @@ impl Simulation {
             "stairs_pos": self.stairs,
             "stairs_distance_squared": self.player.pos.distance_squared(self.stairs),
             "current_danger": self.danger_cost(self.player.pos),
+            "current_tile_visits": self.navigation_visits.get(&self.player.pos).copied().unwrap_or(0),
             "items": self.items,
             "inventory": self.player.inventory,
         });
+        if decision.action_type == "move" {
+            observation["selected_step_revisit_cost"] =
+                json!(self.revisit_cost(self.player.pos + decision.direction));
+        }
         if let Some(danger) = decision.selected_step_danger {
             observation["selected_step_danger"] = json!(danger);
         }
@@ -1106,7 +1115,20 @@ impl Simulation {
         decision_id
     }
 
+    fn revisit_cost(&self, pos: Point) -> i32 {
+        // First arrival and one legitimate return are free. Repetition grows costly.
+        self.navigation_visits
+            .get(&pos)
+            .copied()
+            .unwrap_or(0)
+            .saturating_sub(2) as i32
+            * 8
+    }
+
     fn find_next_step_toward(&self, destination: Point) -> Option<Point> {
+        if self.navigation_visits.values().any(|visits| *visits > 2) {
+            return self.find_weighted_step_toward(destination, false);
+        }
         let start = self.player.pos;
         let mut frontier = VecDeque::from([start]);
         let mut came_from = HashMap::from([(start, start)]);
@@ -1127,6 +1149,10 @@ impl Simulation {
     }
 
     fn find_low_risk_step_toward(&self, destination: Point) -> Option<Point> {
+        self.find_weighted_step_toward(destination, true)
+    }
+
+    fn find_weighted_step_toward(&self, destination: Point, use_danger: bool) -> Option<Point> {
         let start = self.player.pos;
         let mut frontier = vec![start];
         let mut came_from = HashMap::from([(start, start)]);
@@ -1147,7 +1173,12 @@ impl Simulation {
                 if !self.is_path_walkable(next, destination) {
                     continue;
                 }
-                let new_cost = costs[&current] + 1 + self.danger_cost(next);
+                let danger = if use_danger {
+                    self.danger_cost(next)
+                } else {
+                    0
+                };
+                let new_cost = costs[&current] + 1 + danger + self.revisit_cost(next);
                 if !costs.contains_key(&next) || new_cost < costs[&next] {
                     costs.insert(next, new_cost);
                     came_from.insert(next, current);
@@ -1236,6 +1267,7 @@ impl Simulation {
         } else {
             let from = self.player.pos;
             self.player.pos = target;
+            *self.navigation_visits.entry(target).or_default() += 1;
             self.emit_event(
                 "user_action",
                 json!({
@@ -1734,6 +1766,104 @@ mod tests {
         sim.enemies[0].pos = sim.player.pos + DIRECTIONS[3];
         sim.enemies[0].attack = 17;
         assert_eq!(sim.choose_item_decision().unwrap().action_type, "use_item");
+    }
+
+    #[test]
+    fn repeated_visits_prefer_a_detour_but_do_not_block_required_backtracking() {
+        let mut sim = item_test_simulation(Strategy::CautiousV1);
+        sim.navigation_visits.clear();
+        let repeated = Point { x: 3, y: 2 };
+        let destination = Point { x: 6, y: 2 };
+        sim.navigation_visits.insert(repeated, 2);
+        assert_eq!(sim.revisit_cost(repeated), 0);
+        assert_eq!(
+            sim.find_low_risk_step_toward(destination),
+            Some(DIRECTIONS[3])
+        );
+        sim.navigation_visits.insert(repeated, 3);
+        assert_eq!(sim.revisit_cost(repeated), 8);
+        assert_eq!(
+            sim.find_low_risk_step_toward(destination),
+            Some(DIRECTIONS[0])
+        );
+        assert_eq!(sim.find_next_step_toward(destination), Some(DIRECTIONS[0]));
+        sim.map = vec![vec![false; 24]; 18];
+        for x in 2..=6 {
+            sim.map[2][x] = true;
+        }
+        assert_eq!(
+            sim.find_low_risk_step_toward(destination),
+            Some(DIRECTIONS[3])
+        );
+        sim.new_floor();
+        assert_eq!(sim.navigation_visits.len(), 1);
+        assert_eq!(sim.navigation_visits[&sim.player.pos], 1);
+    }
+
+    #[test]
+    fn movement_history_counts_only_successful_moves() {
+        let mut sim = item_test_simulation(Strategy::CautiousV1);
+        sim.navigation_visits.clear();
+        let start = sim.player.pos;
+        sim.navigation_visits.insert(start, 1);
+        sim.player_act(DIRECTIONS[3], "right");
+        sim.player_act(DIRECTIONS[2], "left");
+        assert_eq!(sim.navigation_visits[&start], 2);
+        assert_eq!(sim.revisit_cost(start), 0);
+        sim.player_act(DIRECTIONS[3], "right-again");
+        sim.player_act(DIRECTIONS[2], "left-again");
+        assert_eq!(sim.navigation_visits[&start], 3);
+        assert_eq!(sim.revisit_cost(start), 8);
+        sim.player.inventory.health_potion = 1;
+        sim.player.hp = 9;
+        sim.use_health_potion("heal");
+        assert_eq!(sim.navigation_visits[&start], 3);
+        sim.map[1][2] = false;
+        sim.player_act(DIRECTIONS[0], "wall");
+        assert_eq!(sim.navigation_visits.len(), 2);
+    }
+
+    #[test]
+    fn cautious_seed_27_breaks_the_pursuer_oscillation() {
+        let logged = Simulation::new_logged(
+            SimulationConfig {
+                scenario_seed: 27,
+                strategy: Strategy::CautiousV1,
+                map_width: 44,
+                map_height: 28,
+                max_turns: 500,
+            },
+            "cycle-regression.jsonl".to_owned(),
+        )
+        .unwrap()
+        .run_logged();
+        assert_ne!(logged.summary.outcome, RunOutcome::TurnLimit);
+        let decisions: Vec<_> = logged
+            .events
+            .iter()
+            .filter(|event| event.event == "decision")
+            .collect();
+        assert!(decisions
+            .iter()
+            .any(|event| event.details["observation"]["current_tile_visits"]
+                .as_u64()
+                .unwrap()
+                >= 3));
+        // Old code alternated between (13,15) and (14,15) for 487 decisions.
+        for window in decisions.windows(12) {
+            let first = &window[0].player_state["pos"];
+            let second = &window[1].player_state["pos"];
+            let cycling = first != second
+                && window.iter().enumerate().all(|(index, event)| {
+                    event.depth == window[0].depth
+                        && event.details["action"]["type"] == "move"
+                        && &event.player_state["pos"] == if index % 2 == 0 { first } else { second }
+                });
+            assert!(
+                !cycling,
+                "Cautious entered an extended two-tile movement cycle"
+            );
+        }
     }
 
     #[test]

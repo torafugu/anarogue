@@ -59,6 +59,26 @@ stairs; fog of war is not introduced. Danger retains v2's radius-based model.
 Strategy IDs remain `aggressive_v1` and `cautious_v1`; the ruleset change is
 identified separately by `run_start.details.simulation_version: 3`.
 
+## Movement-cycle recovery
+
+Each floor tracks successful player arrivals at each tile, counting the initial
+spawn as one visit. Attacks, waits, rejected moves and potion use do not add
+visits. A new floor or restart clears the history.
+
+Pathfinding adds `8 * max(0, visits - 2)` to the cost of entering a tile. The first
+arrival and one return are free. Cautious adds this to its existing danger cost;
+Aggressive keeps its normal BFS until any tile has been visited three times, then
+uses weighted shortest paths with the same revisit cost and no danger weighting.
+This is a soft penalty: mandatory backtracking remains possible. Item detours
+retain their existing bounded BFS rules.
+
+This corrects a pursuit cycle reproduced with Cautious, seed 27, 44x28: the player
+alternated between (13,15) and (14,15) while a melee enemy mirrored the movement
+three tiles below. Recomputing a route against each new enemy position flipped
+the chosen direction. In the corrected baseline, the maximum alternating run is
+6 decisions and the run advances until defeat at turn 134, rather than oscillating
+to the 500-turn limit. This fixes navigation; it does not guarantee survival.
+
 ## Logs and compatibility
 
 New simulations emit [Schema v3](run-log-v3.md). V1/v2 schemas and reference logs

@@ -2,8 +2,8 @@
 
 [`examples/reference-v3/`](../examples/reference-v3/) is the current deterministic
 Godot baseline for [simulation v3](simulation-spec-v3.md) and Schema v3.
-Four 24x18 cases cover gathering and healing under both strategies, player defeat,
-dungeon completion and the turn limit. `manifest-v3.json` includes expected final
+Four 24x18 cases and one 44x28 pursuit-cycle regression cover gathering and healing under both strategies, player defeat,
+dungeon completion, the turn limit and recovery from repeated movement. `manifest-v3.json` includes expected final
 inventory. V1 and v2 files remain unchanged historical references.
 
 The Rust test compares the complete event stream as well as final outcomes,
