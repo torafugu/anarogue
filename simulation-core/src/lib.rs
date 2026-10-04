@@ -364,6 +364,7 @@ pub struct Simulation {
     enemies: Vec<Enemy>,
     items: Vec<FloorItem>,
     navigation_visits: HashMap<Point, u32>,
+    aggressive_target_id: Option<String>,
     player: Player,
     stairs: Point,
     turn: u32,
@@ -412,6 +413,7 @@ impl Simulation {
             enemies: Vec::new(),
             items: Vec::new(),
             navigation_visits: HashMap::new(),
+            aggressive_target_id: None,
             player: Player::default(),
             stairs: Point::ZERO,
             turn: 0,
@@ -569,6 +571,7 @@ impl Simulation {
         self.generate_dungeon(&mut PortableRng::new(floor_seed));
         self.player.pos = self.rooms[0].center();
         self.navigation_visits.clear();
+        self.aggressive_target_id = None;
         self.navigation_visits.insert(self.player.pos, 1);
         self.stairs = self.rooms[self.rooms.len() - 1].center();
         if self.stairs == self.player.pos {
@@ -930,6 +933,9 @@ impl Simulation {
                 Strategy::AggressiveV1 => self.choose_aggressive_decision(),
                 Strategy::CautiousV1 => self.choose_cautious_decision(),
             });
+        if decision.rule_id == "hunt_nearest_enemy" {
+            self.aggressive_target_id = decision.target["id"].as_str().map(str::to_owned);
+        }
         let decision_id = self.emit_decision(&decision);
         if decision.action_type == "use_item" {
             self.use_health_potion(&decision_id);
@@ -964,8 +970,7 @@ impl Simulation {
             };
         }
         if !self.enemies.is_empty() {
-            let enemy = self.nearest_enemy();
-            let direction = self.find_next_step_toward(enemy.pos).unwrap_or(Point::ZERO);
+            let (enemy, direction) = self.aggressive_pursuit();
             let has_path = direction != Point::ZERO;
             return Decision {
                 direction,
@@ -975,7 +980,7 @@ impl Simulation {
                     "wait_no_path_to_enemy"
                 },
                 reason: if has_path {
-                    "Enemies remain, so the default strategy pursues the nearest one."
+                    "The aggressive strategy keeps pursuing its chosen enemy until defeated or unreachable."
                 } else {
                     "No walkable path to the nearest enemy was found."
                 },
@@ -1220,17 +1225,24 @@ impl Simulation {
             .find(|direction| self.enemy_at(self.player.pos + *direction).is_some())
     }
 
-    fn nearest_enemy(&self) -> &Enemy {
-        let mut best = &self.enemies[0];
-        let mut best_distance = self.player.pos.distance_squared(best.pos);
-        for enemy in &self.enemies {
-            let distance = self.player.pos.distance_squared(enemy.pos);
-            if distance < best_distance {
-                best = enemy;
-                best_distance = distance;
+    fn aggressive_pursuit(&self) -> (&Enemy, Point) {
+        if let Some(enemy) = self
+            .enemies
+            .iter()
+            .find(|enemy| self.aggressive_target_id.as_deref() == Some(enemy.id.as_str()))
+        {
+            if let Some(direction) = self.find_next_step_toward(enemy.pos) {
+                return (enemy, direction);
             }
         }
-        best
+        let mut candidates: Vec<_> = self.enemies.iter().collect();
+        candidates.sort_by_key(|enemy| self.player.pos.distance_squared(enemy.pos));
+        for enemy in &candidates {
+            if let Some(direction) = self.find_next_step_toward(enemy.pos) {
+                return (enemy, direction);
+            }
+        }
+        (candidates[0], Point::ZERO)
     }
 
     fn player_act(&mut self, direction: Point, decision_id: &str) {
@@ -1821,6 +1833,72 @@ mod tests {
         sim.map[1][2] = false;
         sim.player_act(DIRECTIONS[0], "wall");
         assert_eq!(sim.navigation_visits.len(), 2);
+    }
+
+    #[test]
+    fn aggressive_keeps_target_and_reselects_when_dead_or_unreachable() {
+        let mut sim = item_test_simulation(Strategy::AggressiveV1);
+        let enemy = |id: &str, x, y| Enemy {
+            id: id.to_owned(),
+            kind: EnemyKind::Archer,
+            pos: Point { x, y },
+            hp: 6,
+            attack: 1,
+        };
+        sim.enemies = vec![enemy("first", 8, 2), enemy("second", 2, 9)];
+        sim.run_auto_player_turn();
+        assert_eq!(sim.aggressive_target_id.as_deref(), Some("first"));
+        // Another enemy becomes closer; the pursuit must not reverse.
+        sim.enemies[1].pos = Point { x: 3, y: 5 };
+        assert_eq!(sim.choose_aggressive_decision().target["id"], "first");
+        // Healing does not erase the pursuit.
+        sim.player.inventory.health_potion = 1;
+        sim.player.hp = 9;
+        sim.run_auto_player_turn();
+        assert_eq!(sim.aggressive_target_id.as_deref(), Some("first"));
+        assert_eq!(sim.choose_aggressive_decision().target["id"], "first");
+        let locked = sim.enemies[0].pos;
+        for direction in DIRECTIONS {
+            let wall = locked + direction;
+            sim.map[wall.y as usize][wall.x as usize] = false;
+        }
+        assert_eq!(sim.choose_aggressive_decision().target["id"], "second");
+        sim.enemies.remove(0);
+        assert_eq!(sim.choose_aggressive_decision().target["id"], "second");
+        sim.new_floor();
+        assert!(sim.aggressive_target_id.is_none());
+    }
+
+    #[test]
+    fn aggressive_seed_301_does_not_alternate_pursuit_targets() {
+        let logged = Simulation::new_logged(
+            SimulationConfig {
+                scenario_seed: 301,
+                strategy: Strategy::AggressiveV1,
+                map_width: 64,
+                map_height: 40,
+                max_turns: 500,
+            },
+            "aggressive-cycle.jsonl".to_owned(),
+        )
+        .unwrap()
+        .run_logged();
+        let decisions: Vec<_> = logged
+            .events
+            .iter()
+            .filter(|event| event.event == "decision")
+            .collect();
+        for window in decisions.windows(3) {
+            let cycling = window
+                .iter()
+                .all(|event| event.details["action"]["type"] == "move")
+                && window[0].player_state["pos"] == window[2].player_state["pos"]
+                && window[0].player_state["pos"] != window[1].player_state["pos"];
+            assert!(
+                !cycling,
+                "Aggressive reversed between two tiles in seed 301"
+            );
+        }
     }
 
     #[test]

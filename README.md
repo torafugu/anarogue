@@ -151,7 +151,7 @@ cd simulation-core
 cargo test --all-targets
 ```
 
-The Rust tests execute five fixed-seed full-run cases and compare every event
+The Rust tests execute six fixed-seed full-run cases and compare every event
 and final state with the Godot reference baseline.
 
 The Rust CLI can also write a replayable Schema v3 log directly into Godot's

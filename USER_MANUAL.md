@@ -71,7 +71,7 @@ After you move, attack, or wait, enemies get a turn. Enemies may move toward you
 
 ### Automatic Strategies
 
-**Aggressive** attacks adjacent enemies, hunts the nearest remaining enemy, and
+**Aggressive** attacks adjacent enemies, selects the nearest reachable enemy and keeps pursuing it until defeated or unreachable, and
 only heads for the stairs after clearing the floor.
 
 **Cautious** heads for the stairs immediately. Its pathfinder assigns extra cost
