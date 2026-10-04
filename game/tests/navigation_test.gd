@@ -13,8 +13,10 @@ func check(condition: bool, message: String) -> void:
 func run_tests() -> void:
 	test_soft_penalty_and_reset()
 	test_seed_27_oscillation()
+	test_aggressive_target_retention()
+	test_aggressive_seed_301()
 	if failures.is_empty():
-		print("Navigation tests passed: revisits, required backtracking, history reset and seed-27 pursuit cycle.")
+		print("Navigation tests passed: revisits, required backtracking, history reset, Cautious pursuit cycle and Aggressive target retention.")
 		quit(0)
 	else:
 		for failure in failures:
@@ -93,5 +95,54 @@ func test_seed_27_oscillation() -> void:
 	check(game.game_over, "seed 27 no longer spends its entire turn budget oscillating")
 	check(longest < 12 and observed_revisit, "pursuit cycle breaks after repeat penalties activate")
 	check(game.turn_count == 134, "seed-27 regression remains deterministic")
+	game.close_log_file()
+	game.free()
+
+func test_aggressive_target_retention() -> void:
+	var game = create_game(1, 24, 18)
+	game.active_strategy = MainGame.StrategyType.AGGRESSIVE
+	game.items.clear()
+	for y in range(18):
+		for x in range(24):
+			game.map[y][x] = game.TILE_FLOOR
+	game.player["pos"] = Vector2i(2, 2)
+	game.stairs_pos = Vector2i(20, 15)
+	game.enemies.assign([
+		{"id": "first", "type": "archer", "pos": Vector2i(8, 2), "hp": 6, "attack": 1},
+		{"id": "second", "type": "archer", "pos": Vector2i(2, 9), "hp": 6, "attack": 1},
+	])
+	game.run_auto_player_turn()
+	check(game.aggressive_target_id == "first", "pursuit records its initial target")
+	game.enemies[1]["pos"] = Vector2i(3, 5)
+	check(game.choose_aggressive_decision("preview")["target"]["id"] == "first", "a closer enemy does not reverse pursuit")
+	game.player["inventory"]["health_potion"] = 1
+	game.player["hp"] = 9
+	game.run_auto_player_turn()
+	check(game.aggressive_target_id == "first", "healing preserves the pursuit target")
+	var locked: Vector2i = game.enemies[0]["pos"]
+	for direction in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
+		var wall: Vector2i = locked + direction
+		game.map[wall.y][wall.x] = game.TILE_WALL
+	check(game.choose_aggressive_decision("blocked")["target"]["id"] == "second", "unreachable target is replaced")
+	game.enemies.remove_at(0)
+	check(game.choose_aggressive_decision("dead")["target"]["id"] == "second", "dead target is replaced")
+	game.new_floor()
+	check(game.aggressive_target_id.is_empty(), "floor transition resets pursuit")
+	game.close_log_file()
+	game.free()
+
+func test_aggressive_seed_301() -> void:
+	var game = create_game(301, 64, 40)
+	game.active_strategy = MainGame.StrategyType.AGGRESSIVE
+	var positions: Array[Vector2i] = []
+	var move_flags: Array[bool] = []
+	while not game.game_over and game.turn_count < 500:
+		positions.append(game.player["pos"])
+		move_flags.append(game.choose_auto_player_decision("preview")["action_type"] == "move")
+		var index := positions.size() - 1
+		if index >= 2 and move_flags[index] and move_flags[index - 1] and move_flags[index - 2]:
+			check(positions[index] != positions[index - 2] or positions[index] == positions[index - 1], "seed 301 never reverses between two tiles")
+		game.run_auto_player_turn()
+	check(game.turn_count == 72 and game.game_over, "aggressive seed-301 run is deterministic")
 	game.close_log_file()
 	game.free()

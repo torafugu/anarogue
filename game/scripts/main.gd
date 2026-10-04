@@ -53,6 +53,7 @@ var rooms: Array[Rect2i] = []
 var enemies: Array[Dictionary] = []
 var items: Array[Dictionary] = []
 var navigation_visits: Dictionary = {}
+var aggressive_target_id := ""
 var player := {
 	"pos": Vector2i.ZERO,
 	"hp": 18,
@@ -374,6 +375,7 @@ func new_floor() -> void:
 	generate_dungeon(floor_rng)
 	player["pos"] = rooms[0].get_center()
 	navigation_visits.clear()
+	aggressive_target_id = ""
 	navigation_visits[player["pos"]] = 1
 	stairs_pos = rooms[rooms.size() - 1].get_center()
 	if stairs_pos == player["pos"]:
@@ -651,6 +653,8 @@ func run_auto_player_turn() -> void:
 	decision_sequence += 1
 	var decision_id := "%s-decision-%d" % [run_id, decision_sequence]
 	var decision := choose_auto_player_decision(decision_id)
+	if decision["rule_id"] == "hunt_nearest_enemy":
+		aggressive_target_id = decision["target"]["id"]
 	log_auto_decision(decision)
 	if decision["action_type"] == "use_item":
 		use_health_potion(decision_id)
@@ -690,11 +694,12 @@ func choose_aggressive_decision(decision_id: String) -> Dictionary:
 		}
 
 	if not enemies.is_empty():
-		var target_enemy := nearest_enemy()
-		var direction := find_next_step_toward(target_enemy["pos"])
+		var pursuit := aggressive_pursuit()
+		var target_enemy: Dictionary = pursuit["enemy"]
+		var direction: Vector2i = pursuit["direction"]
 		var has_path := direction != Vector2i.ZERO
 		var reason := (
-			"Enemies remain, so the default strategy pursues the nearest one."
+			"The aggressive strategy keeps pursuing its chosen enemy until defeated or unreachable."
 			if has_path
 			else "No walkable path to the nearest enemy was found."
 		)
@@ -890,6 +895,27 @@ func nearest_enemy() -> Dictionary:
 			best_distance = distance
 			best_enemy = enemy
 	return best_enemy
+
+func aggressive_pursuit() -> Dictionary:
+	for enemy in enemies:
+		if enemy["id"] == aggressive_target_id:
+			var direction := find_next_step_toward(enemy["pos"])
+			if direction != Vector2i.ZERO:
+				return {"enemy": enemy, "direction": direction}
+	var candidates := enemies.duplicate()
+	# Stable insertion sort preserves enemy order for equal distances.
+	for index in range(1, candidates.size()):
+		var enemy: Dictionary = candidates[index]
+		var cursor := index
+		while cursor > 0 and player["pos"].distance_squared_to(candidates[cursor - 1]["pos"]) > player["pos"].distance_squared_to(enemy["pos"]):
+			candidates[cursor] = candidates[cursor - 1]
+			cursor -= 1
+		candidates[cursor] = enemy
+	for enemy in candidates:
+		var direction := find_next_step_toward(enemy["pos"])
+		if direction != Vector2i.ZERO:
+			return {"enemy": enemy, "direction": direction}
+	return {"enemy": candidates[0], "direction": Vector2i.ZERO}
 
 func find_next_step_toward(destination: Vector2i) -> Vector2i:
 	for visits in navigation_visits.values():

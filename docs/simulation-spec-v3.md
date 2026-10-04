@@ -88,3 +88,18 @@ regression baseline is [reference v3](reference-logs-v3.md).
 V3 also fixes the Godot defeat-event damage field: record the attack used for the
 hit before awarding XP, rather than the attack after a possible level-up. This
 changes logging only, not the damage applied.
+
+### Aggressive pursuit target
+
+Aggressive chooses the nearest reachable enemy and remembers its ID when a pursuit
+move is executed. A change in which enemy is geometrically closest does not change
+the target. Defeated or unreachable targets are replaced, and a new floor resets
+the ID. Adjacent attacks, potion collection and healing retain priority and do not
+erase the remembered target. Equal-distance candidates retain spawn order.
+The existing `hunt_nearest_enemy` rule ID now describes initial selection plus
+continued pursuit; the action target and reason expose the current choice.
+
+The 64x40, seed-301 regression previously alternated between stationary archers
+and produced a ten-decision two-tile cycle despite revisit costs. Remembering the
+target removes those reversals in this case. This is a navigation correction,
+not a guarantee that Aggressive survives combat.

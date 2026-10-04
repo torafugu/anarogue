@@ -8,6 +8,12 @@ const MAP_WIDTH := 24
 const MAP_HEIGHT := 18
 const CASES := [
 	{
+		"name": "aggressive-seed-301-cycle",
+		"strategy": MainGame.StrategyType.AGGRESSIVE,
+		"seed": 301, "map_width": 64, "map_height": 40, "max_turns": 500,
+		"expected": {"outcome": "player_defeated", "turns": 72, "final_depth": 1, "final_hp": 0, "final_gold": 5, "final_score": 4, "final_potions": 0},
+	},
+	{
 		"name": "cautious-seed-27-cycle",
 		"strategy": MainGame.StrategyType.CAUTIOUS,
 		"seed": 27,
