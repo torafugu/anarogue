@@ -53,11 +53,17 @@ Find the green stairs on each floor and step onto them to descend. When you ente
 The right side of the screen shows:
 
 - Current dungeon depth
+- Player level and XP toward the next level (for example, `Lv 2 · XP 5/16`)
 - Current and maximum HP
 - Health potions carried (0–3)
 - Gold collected
 - Control reminders
 - Recent message log
+
+XP is progress within the current level, not lifetime XP. The next level requires
+`current level × 8` XP; leveling up spends that amount and carries any remainder
+forward. The Godot replay status and the web viewer event details also show level
+and XP for the selected frame or event.
 
 The message log reports important events, such as defeating enemies, taking damage, finding a new floor, or losing the run.
 
