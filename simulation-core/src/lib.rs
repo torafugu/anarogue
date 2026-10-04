@@ -686,8 +686,16 @@ impl Simulation {
                 EnemyKind::Melee if enemy.pos.manhattan_distance(self.player.pos) == 1 => {
                     enemy.attack
                 }
-                EnemyKind::Archer if enemy.pos.distance_squared(self.player.pos) <= 2 => 1,
-                EnemyKind::Archer if enemy.pos.distance_squared(self.player.pos) <= 49 => {
+                EnemyKind::Archer
+                    if self.has_line_of_sight(enemy.pos, self.player.pos)
+                        && enemy.pos.distance_squared(self.player.pos) <= 2 =>
+                {
+                    1
+                }
+                EnemyKind::Archer
+                    if self.has_line_of_sight(enemy.pos, self.player.pos)
+                        && enemy.pos.distance_squared(self.player.pos) <= 49 =>
+                {
                     enemy.attack
                 }
                 _ => 0,
@@ -1204,6 +1212,7 @@ impl Simulation {
         self.enemies
             .iter()
             .map(|enemy| match enemy.kind {
+                EnemyKind::Archer if !self.has_line_of_sight(enemy.pos, pos) => 0,
                 EnemyKind::Archer => match pos.distance_squared(enemy.pos) {
                     distance if distance <= 2 => 30,
                     distance if distance <= 49 => 12,
@@ -1430,6 +1439,9 @@ impl Simulation {
     }
 
     fn run_archer_turn(&mut self, index: usize, enemy: &Enemy) {
+        if !self.has_line_of_sight(enemy.pos, self.player.pos) {
+            return;
+        }
         let distance = enemy.pos.distance_squared(self.player.pos);
         if distance <= 2 {
             if self.try_archer_retreat(index, enemy.pos) {
@@ -1542,6 +1554,47 @@ impl Simulation {
         {
             self.enemies[index].pos = target;
         }
+    }
+
+    fn has_line_of_sight(&self, from: Point, to: Point) -> bool {
+        if !self.is_walkable(from) || !self.is_walkable(to) {
+            return false;
+        }
+        let nx = (to.x - from.x).abs();
+        let ny = (to.y - from.y).abs();
+        let sx = (to.x - from.x).signum();
+        let sy = (to.y - from.y).signum();
+        let (mut ix, mut iy) = (0, 0);
+        let mut current = from;
+        while ix < nx || iy < ny {
+            let crossing = (1 + 2 * ix) * ny - (1 + 2 * iy) * nx;
+            if crossing == 0 {
+                // A corner crossing touches both side tiles: neither may be a wall.
+                if !self.is_walkable(Point {
+                    x: current.x + sx,
+                    y: current.y,
+                }) || !self.is_walkable(Point {
+                    x: current.x,
+                    y: current.y + sy,
+                }) {
+                    return false;
+                }
+                current.x += sx;
+                current.y += sy;
+                ix += 1;
+                iy += 1;
+            } else if crossing < 0 {
+                current.x += sx;
+                ix += 1;
+            } else {
+                current.y += sy;
+                iy += 1;
+            }
+            if !self.is_walkable(current) {
+                return false;
+            }
+        }
+        true
     }
 
     fn can_enemy_see_player(&self, enemy_pos: Point) -> bool {
@@ -1995,6 +2048,90 @@ mod tests {
         assert!(simulation.game_over);
         assert_eq!(simulation.run_outcome, Some(RunOutcome::DungeonCleared));
         assert_eq!(simulation.player.depth, MAX_DEPTH);
+    }
+
+    #[test]
+    fn line_of_sight_blocks_walls_and_corners_symmetrically() {
+        let mut sim = item_test_simulation(Strategy::AggressiveV1);
+        let from = Point { x: 2, y: 2 };
+        for to in [
+            Point { x: 8, y: 2 },
+            Point { x: 2, y: 8 },
+            Point { x: 8, y: 5 },
+            Point { x: 5, y: 8 },
+            Point { x: 6, y: 6 },
+        ] {
+            assert!(sim.has_line_of_sight(from, to));
+            assert!(sim.has_line_of_sight(to, from));
+        }
+        sim.map[2][5] = false;
+        assert!(!sim.has_line_of_sight(from, Point { x: 8, y: 2 }));
+        assert!(!sim.has_line_of_sight(Point { x: 8, y: 2 }, from));
+        sim.map[2][5] = true; // An open doorway restores the ray.
+        assert!(sim.has_line_of_sight(from, Point { x: 8, y: 2 }));
+        sim.map[2][3] = false;
+        assert!(!sim.has_line_of_sight(from, Point { x: 6, y: 6 }));
+        assert!(!sim.has_line_of_sight(Point { x: 6, y: 6 }, from));
+        sim.map[2][3] = true;
+        sim.map[3][2] = false;
+        assert!(!sim.has_line_of_sight(from, Point { x: 6, y: 6 }));
+        sim.map[3][2] = true;
+        sim.map[3][3] = false;
+        assert!(!sim.has_line_of_sight(from, Point { x: 6, y: 6 }));
+        sim.map[3][3] = true;
+        sim.map[3][4] = false; // A shallow ray intersects this wall.
+        assert!(!sim.has_line_of_sight(from, Point { x: 8, y: 5 }));
+        assert!(!sim.has_line_of_sight(Point { x: 8, y: 5 }, from));
+        assert!(sim.has_line_of_sight(from, from));
+        assert!(!sim.has_line_of_sight(from, Point { x: -1, y: 2 }));
+    }
+
+    #[test]
+    fn archer_cover_matches_damage_danger_and_healing_prediction() {
+        let mut sim = item_test_simulation(Strategy::CautiousV1);
+        let enemy = Enemy {
+            id: "covered-archer".to_owned(),
+            kind: EnemyKind::Archer,
+            pos: Point { x: 6, y: 2 },
+            hp: 6,
+            attack: 14,
+        };
+        sim.enemies.push(enemy.clone());
+        sim.player.hp = 14;
+        sim.player.inventory.health_potion = 1;
+        sim.map[2][4] = false;
+        let events_before = sim.logger.as_ref().unwrap().events.len();
+        sim.run_archer_turn(0, &enemy);
+        assert_eq!(sim.player.hp, 14);
+        assert_eq!(sim.logger.as_ref().unwrap().events.len(), events_before);
+        assert_eq!(sim.danger_cost(sim.player.pos), 0);
+        assert!(sim.choose_item_decision().is_none());
+        sim.map[2][4] = true;
+        assert_eq!(sim.danger_cost(sim.player.pos), 12);
+        assert_eq!(
+            sim.choose_item_decision().unwrap().rule_id,
+            "use_health_potion"
+        );
+        sim.enemies[0].attack = 2;
+        let visible = sim.enemies[0].clone();
+        sim.run_archer_turn(0, &visible);
+        assert_eq!(sim.player.hp, 12);
+        assert_eq!(
+            sim.logger.as_ref().unwrap().events.last().unwrap().details["ranged"],
+            true
+        );
+        sim.enemies[0].pos = Point { x: 10, y: 2 }; // Visible but outside bow range.
+        let distant = sim.enemies[0].clone();
+        sim.run_archer_turn(0, &distant);
+        assert_eq!(sim.player.hp, 12);
+        assert_ne!(sim.enemies[0].pos, distant.pos);
+        // Diagonal close combat must also respect a blocking corner.
+        sim.enemies[0].pos = Point { x: 3, y: 3 };
+        sim.map[2][3] = false;
+        let diagonal = sim.enemies[0].clone();
+        sim.run_archer_turn(0, &diagonal);
+        assert_eq!(sim.player.hp, 12);
+        assert_eq!(sim.enemies[0].pos, diagonal.pos);
     }
 
     #[test]

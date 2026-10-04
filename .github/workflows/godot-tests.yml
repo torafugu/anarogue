@@ -38,6 +38,11 @@ jobs:
           godot --headless --path game
           --script res://tests/navigation_test.gd
 
+      - name: Verify Archer line of sight
+        run: >-
+          godot --headless --path game
+          --script res://tests/line_of_sight_test.gd
+
       - name: Regenerate fixed-seed reference logs
         run: >-
           godot --headless --path game

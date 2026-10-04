@@ -117,6 +117,12 @@ Verify item pickup, capacity, healing, strategy decisions and replay with:
 godot --headless --path game --script res://tests/items_test.gd
 ```
 
+Verify Archer wall and corner occlusion with Godot 4.5:
+
+```sh
+godot --headless --path game --script res://tests/line_of_sight_test.gd
+```
+
 Run the fixed-seed simulation regression suite with Godot 4.5:
 
 ```bash

@@ -466,7 +466,7 @@ func choose_item_decision(decision_id: String) -> Dictionary:
 		var delta := enemy_pos - player_pos
 		if enemy["type"] == "melee" and absi(delta.x) + absi(delta.y) == 1:
 			incoming += int(enemy["attack"])
-		elif enemy["type"] == "archer":
+		elif enemy["type"] == "archer" and has_line_of_sight(enemy_pos, player_pos):
 			var distance := enemy_pos.distance_squared_to(player_pos)
 			if distance <= 2:
 				incoming += 1
@@ -857,6 +857,8 @@ func danger_cost(pos: Vector2i) -> int:
 		var manhattan := absi(delta.x) + absi(delta.y)
 		var distance_squared := pos.distance_squared_to(enemy_pos)
 		if enemy["type"] == "archer":
+			if not has_line_of_sight(enemy_pos, pos):
+				continue
 			if distance_squared <= 2:
 				total += 30
 			elif distance_squared <= 49:
@@ -1115,6 +1117,8 @@ func run_melee_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i, delta: V
 			enemies[index] = enemy
 
 func run_archer_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i) -> void:
+	if not has_line_of_sight(enemy_pos, player["pos"]):
+		return
 	var dist_sq := enemy_pos.distance_squared_to(player["pos"])
 
 	# Adjacent: try to retreat, otherwise melee for 1
@@ -1189,6 +1193,35 @@ func try_archer_retreat(index: int, enemy: Dictionary, enemy_pos: Vector2i) -> b
 			enemies[index] = enemy
 			return true
 	return false
+
+func has_line_of_sight(from: Vector2i, to: Vector2i) -> bool:
+	if not is_walkable(from) or not is_walkable(to):
+		return false
+	var nx := absi(to.x - from.x)
+	var ny := absi(to.y - from.y)
+	var sx := signi(to.x - from.x)
+	var sy := signi(to.y - from.y)
+	var ix := 0
+	var iy := 0
+	var current := from
+	while ix < nx or iy < ny:
+		var crossing := (1 + 2 * ix) * ny - (1 + 2 * iy) * nx
+		if crossing == 0:
+			# Block corner grazing through either adjoining wall.
+			if not is_walkable(current + Vector2i(sx, 0)) or not is_walkable(current + Vector2i(0, sy)):
+				return false
+			current += Vector2i(sx, sy)
+			ix += 1
+			iy += 1
+		elif crossing < 0:
+			current.x += sx
+			ix += 1
+		else:
+			current.y += sy
+			iy += 1
+		if not is_walkable(current):
+			return false
+	return true
 
 func can_enemy_see_player(enemy_pos: Vector2i) -> bool:
 	return enemy_pos.distance_squared_to(player["pos"]) <= 80
