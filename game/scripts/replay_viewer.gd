@@ -1,7 +1,7 @@
 extends Node2D
 
 const ReplayData := preload("res://scripts/replay_log.gd")
-const DEFAULT_REPLAY := "res://../examples/reference-v4/aggressive-seed-424242.jsonl"
+const DEFAULT_REPLAY := "res://../examples/reference-v5/aggressive-seed-424242.jsonl"
 const AUTO_STEP_SECONDS := 0.28
 const ARROW_FLIGHT_DURATION := 0.28
 const ARROW_IMPACT_DURATION := 0.12
@@ -125,14 +125,14 @@ func layout_controls() -> void:
 		button.size = Vector2(132, 44)
 		x += 140
 	status_label.position = Vector2(16, 126)
-	status_label.size = Vector2(width - 32, 112)
+	status_label.size = Vector2(width - 32, 144)
 	layout_result_popup()
 	queue_redraw()
 
 
 func layout_result_popup() -> void:
 	var viewport_size := get_viewport_rect().size
-	var map_height := maxf(0, viewport_size.y - 266)
+	var map_height := maxf(0, viewport_size.y - 298)
 	if not replay.frames.is_empty():
 		var rows: Array = replay.frames[frame_index]["map_rows"]
 		if not rows.is_empty() and not str(rows[0]).is_empty():
@@ -141,7 +141,7 @@ func layout_result_popup() -> void:
 	result_popup.size = Vector2(maxf(0, minf(560, viewport_size.x - 32)), 190)
 	result_popup.position = Vector2(
 		(viewport_size.x - result_popup.size.x) * 0.5,
-		250 + maxf(0, (map_height - result_popup.size.y) * 0.5)
+		282 + maxf(0, (map_height - result_popup.size.y) * 0.5)
 	)
 
 
@@ -327,10 +327,21 @@ func update_status() -> void:
 	var weapon = equipment.get("weapon")
 	var armor = equipment.get("armor")
 	status_label.text += "  ·  W %s  D %s" % [weapon["id"] if weapon != null else "none", armor["id"] if armor != null else "none"]
+	var progression: Dictionary = frame.get("progression", {})
+	if not progression.is_empty():
+		var best_score := "none"
+		for candidate in progression["candidates"]:
+			if candidate["eligible"] and (best_score == "none" or int(candidate["score"]) > int(best_score)):
+				best_score = str(candidate["score"])
+		if progression["selected"] == "combat":
+			for candidate in progression["candidates"]:
+				if candidate["enemy_id"] == progression["selected_enemy_id"]:
+					best_score = str(candidate["score"])
+		status_label.text += "\nGrowth %s vs stairs %d · %s" % [best_score, progression["stairs_score"], progression["selected"]]
 	if frame["kind"] == "item_result":
 		status_label.text += "\n%s" % frame["reason"]
 	elif not rule.is_empty():
-		status_label.text += "\n%s — %s" % [rule, frame["reason"]]
+		status_label.text += "\n%s" % rule if not progression.is_empty() else "\n%s — %s" % [rule, frame["reason"]]
 	elif frame["kind"] == "ranged_hit":
 		status_label.text += "\nArcher ranged attack"
 	elif not replay.warnings.is_empty():
@@ -347,11 +358,11 @@ func _draw() -> void:
 		return
 	var map_height := rows.size()
 	var map_width: int = str(rows[0]).length()
-	var available := Vector2(get_viewport_rect().size.x - 32, get_viewport_rect().size.y - 266)
+	var available := Vector2(get_viewport_rect().size.x - 32, get_viewport_rect().size.y - 298)
 	var tile_size := minf(available.x / map_width, available.y / map_height)
 	var origin := Vector2(
 		(get_viewport_rect().size.x - map_width * tile_size) * 0.5,
-		250
+		282
 	)
 	for y in range(map_height):
 		var row := str(rows[y])

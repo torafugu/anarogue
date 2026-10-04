@@ -10,6 +10,7 @@ const schemaPaths = [
   resolve(repositoryRoot, "schemas/run-log-v2.schema.json"),
   resolve(repositoryRoot, "schemas/run-log-v3.schema.json"),
   resolve(repositoryRoot, "schemas/run-log-v4.schema.json"),
+  resolve(repositoryRoot, "schemas/run-log-v5.schema.json"),
 ];
 const defaultLogPath = resolve(repositoryRoot, "examples/sample-run-v1.jsonl");
 
@@ -149,7 +150,7 @@ function validateSemanticInvariants(event, runStates, logPath, lineNumber) {
     }
   }
 
-  if (event.schema_version === 4) {
+  if (event.schema_version >= 4) {
     const player = event.player_state;
     assert(player.attack === player.base_attack + player.attack_bonus, location, "effective attack mismatch");
     assert(player.defense === player.base_defense + player.defense_bonus, location, "effective defense mismatch");
@@ -163,6 +164,45 @@ function validateSemanticInvariants(event, runStates, logPath, lineNumber) {
     if (event.details.result === "item_equipped") {
       assert(JSON.stringify(event.details.equipment) === JSON.stringify(player.equipment), location, "equipped item mismatch");
       assert(!event.details.items.some(item => item.id === event.details.item.id), location, "equipped item remains on floor");
+    }
+  }
+
+  if (event.schema_version >= 5 && event.event === "decision") {
+    const p = event.player_state;
+    const ob = event.details.observation;
+    assert(ob.level === p.level && ob.xp === p.xp, location, "growth observation differs from player");
+    assert(ob.xp_to_next_level === p.level * 8 - p.xp, location, "XP threshold mismatch");
+    const comparison = ob.progression;
+    if (comparison) {
+      const cautious = event.strategy_id === "cautious_v1";
+      assert(comparison.stairs_healing === Math.min(4, p.max_hp - p.hp), location, "stairs recovery estimate mismatch");
+      const stairsScore = (cautious ? 16 : 8) + comparison.stairs_healing * 2 - Math.min(comparison.stairs_steps, 8) + (event.depth === 4 ? 20 : 0);
+      assert(comparison.stairs_score === stairsScore, location, "stairs score mismatch");
+      for (const candidate of comparison.candidates) {
+        if (candidate.rejection === "out_of_reach") continue;
+        const enemy = ob.enemies.find(enemy => enemy.id === candidate.enemy_id);
+        assert(Boolean(enemy), location, "unknown growth enemy");
+        const xpGain = enemy.type === "archer" ? 5 : 3;
+        assert(candidate.xp_gain === xpGain, location, "growth XP reward mismatch");
+        let level = p.level, xp = p.xp + xpGain;
+        while (xp >= level * 8) { xp -= level * 8; level += 1; }
+        assert(candidate.levels_gained === level - p.level, location, "projected growth mismatch");
+        assert(candidate.attack_turns === Math.ceil(enemy.hp / Math.max(1, p.attack - enemy.defense)), location, "projected attack count mismatch");
+        const score = xpGain * (cautious ? 2 : 4) + candidate.levels_gained * (8 + (4 - event.depth) * 6)
+          - candidate.steps * (cautious ? 2 : 1) - candidate.attack_turns - candidate.estimated_damage * (cautious ? 3 : 2) - candidate.revisit_penalty;
+        assert(candidate.score === score, location, "combat score mismatch");
+        const rejection = p.hp - candidate.estimated_damage <= (cautious ? 4 : 2) ? "hp_reserve"
+          : cautious && enemy.type === "archer" ? "mobile_target" : cautious && candidate.levels_gained === 0 ? "no_level_up" : "";
+        assert(candidate.rejection === rejection && candidate.eligible === !rejection, location, "combat safety assessment mismatch");
+      }
+      if (comparison.selected === "combat") {
+        const candidate = comparison.candidates.find(candidate => candidate.enemy_id === comparison.selected_enemy_id);
+        assert(candidate?.eligible && candidate.score > comparison.stairs_score, location, "selected growth fight is not advantageous");
+        assert(event.details.action.target.id === comparison.selected_enemy_id && event.details.rule_id === "hunt_for_growth", location, "selected growth target mismatch");
+      } else {
+        assert(comparison.selected_enemy_id === null && !comparison.target_retained, location, "stairs decision has a combat target");
+        assert(event.details.action.target.kind === "stairs" && event.details.rule_id === "descend_for_progress", location, "stairs action mismatch");
+      }
     }
   }
 

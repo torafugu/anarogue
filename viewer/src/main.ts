@@ -301,6 +301,7 @@ function renderComparison(events: RunEvent[]): void {
             <button class="comparison-card ${runId === state.runId ? "active" : ""}" data-compare-run="${escapeHtml(runId)}" type="button">
               <span class="comparison-name">${escapeHtml(strategyLabel(strategy))}</span>
               <span class="comparison-strategy">${escapeHtml(strategy)}</span>
+              <span class="comparison-stat"><b>Lv ${summary.level}</b> · XP ${summary.xp}/${summary.level * 8}</span>
               <span class="comparison-stat"><b>${summary.score}</b> score</span>
               <span class="comparison-stat"><b>${summary.maxDepth}</b> depth</span>
               <span class="comparison-stat"><b>${summary.damageTaken}</b> damage</span>
@@ -325,6 +326,7 @@ function renderMetrics(events: RunEvent[]): void {
   const summary = summarizeRun(events);
   const metrics = [
     ["Score", summary.score, "latest total"],
+    ["Level", summary.level, `XP ${summary.xp}/${summary.level * 8}`],
     ["Turns", summary.turns, "elapsed actions"],
     ["Depth", summary.maxDepth, "deepest floor"],
     ["Kills", summary.kills, "enemies removed"],
@@ -554,6 +556,22 @@ function renderDetail(event?: RunEvent): void {
   }
   const description = describeEvent(event);
   const decision = decisionDetails(event);
+  const comparison = decision?.observation.progression;
+  const rejectionLabels = { hp_reserve: "HP reserve too low", mobile_target: "Retreating Archer", no_level_up: "No level-up", out_of_reach: "Beyond route limit / blocked", "": "Eligible" };
+  const growthMarkup = comparison ? `
+    <div class="growth-comparison">
+      <h4>Growth vs. descent · ${comparison.selected === "combat" ? "Combat selected" : "Stairs selected"}${comparison.target_retained ? " · Current target retained" : ""}</h4>
+      <p>Stairs: score <b>${comparison.stairs_score}</b> · ${comparison.stairs_steps} shortest-route steps · up to ${comparison.stairs_healing} HP recovered</p>
+      <div class="growth-table-scroll"><table>
+        <thead><tr><th>Enemy</th><th>Approach</th><th>Attacks</th><th>XP</th><th>Levels</th><th>Est. damage</th><th>Revisit penalty</th><th>Score</th><th>Assessment</th></tr></thead>
+        <tbody>${comparison.candidates.map((candidate) => `<tr>
+          <td>${escapeHtml(candidate.enemy_id)}</td><td>${candidate.steps ?? "—"}</td><td>${candidate.attack_turns ?? "—"}</td>
+          <td>${candidate.xp_gain ?? "—"}</td><td>${candidate.levels_gained ?? "—"}</td><td>${candidate.estimated_damage ?? "—"}</td>
+          <td>${candidate.revisit_penalty ?? "—"}</td><td>${candidate.score ?? "—"}</td><td>${candidate.enemy_id === comparison.selected_enemy_id ? "Selected" : !candidate.rejection && (candidate.score ?? 0) <= comparison.stairs_score ? "Stairs favored" : escapeHtml(rejectionLabels[candidate.rejection] ?? candidate.rejection)}</td>
+        </tr>`).join("") || '<tr><td colspan="9">No enemies remain.</td></tr>'}</tbody>
+      </table></div>
+      <p class="detail-description">Damage uses current enemy positions and equipment. Enemy movement is not predicted; the scores are policy estimates.</p>
+    </div>` : "";
   const decisionMarkup = decision
     ? `
       <div class="decision-rule">
@@ -587,6 +605,7 @@ function renderDetail(event?: RunEvent): void {
       <span class="event-chip category-${eventCategory(event)}">${escapeHtml(event.event)}</span>
     </div>
     ${decisionMarkup}
+    ${growthMarkup}
     <div class="state-strip">
       <span>Turn <b>${event.turn}</b></span>
       <span>Depth <b>${event.depth}</b></span>

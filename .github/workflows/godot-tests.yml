@@ -43,6 +43,11 @@ jobs:
           godot --headless --path game
           --script res://tests/equipment_test.gd
 
+      - name: Verify growth and descent decisions
+        run: >-
+          godot --headless --path game
+          --script res://tests/growth_test.gd
+
       - name: Verify Archer line of sight
         run: >-
           godot --headless --path game
@@ -54,7 +59,7 @@ jobs:
           --script res://tools/generate_reference_logs.gd
 
       - name: Verify reference logs are reproducible
-        run: sha256sum -c examples/reference-v4/checksums-v4.sha256
+        run: sha256sum -c examples/reference-v5/checksums-v5.sha256
 
       - name: Verify Godot replay data
         run: >-

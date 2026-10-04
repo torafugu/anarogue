@@ -55,6 +55,27 @@ export interface EnemySnapshot {
   distance_squared?: number;
 }
 
+export interface ProgressionComparison {
+  stairs_steps: number;
+  stairs_healing: number;
+  stairs_score: number;
+  selected: "combat" | "stairs";
+  selected_enemy_id: string | null;
+  target_retained: boolean;
+  candidates: {
+    enemy_id: string;
+    eligible: boolean;
+    rejection: "" | "hp_reserve" | "no_level_up" | "mobile_target" | "out_of_reach";
+    steps?: number;
+    attack_turns?: number;
+    xp_gain?: number;
+    levels_gained?: number;
+    estimated_damage?: number;
+    score?: number;
+    revisit_penalty?: number;
+  }[];
+}
+
 export interface DecisionDetails {
   decision_id: string;
   strategy_id: string;
@@ -75,6 +96,10 @@ export interface DecisionDetails {
     selected_step_danger?: number;
     selected_step_revisit_cost?: number;
     current_tile_visits?: number;
+    level?: number;
+    xp?: number;
+    xp_to_next_level?: number;
+    progression?: ProgressionComparison;
   };
   action: {
     type: "move" | "attack" | "wait" | string;
@@ -115,6 +140,8 @@ export interface RunSummary {
   hpHealed: number;
   gold: number;
   score: number;
+  level: number;
+  xp: number;
   decisions: number;
   finalHp: number;
   result: "defeated" | "cleared" | "restarted" | "active";
@@ -191,7 +218,7 @@ export function parseJsonLines(source: string): ParsedLog {
     }
 
     const event = normalizeEvent(raw, index + 1);
-    if (event.schema_version !== 1 && event.schema_version !== 2 && event.schema_version !== 3 && event.schema_version !== 4) {
+    if (event.schema_version !== 1 && event.schema_version !== 2 && event.schema_version !== 3 && event.schema_version !== 4 && event.schema_version !== 5) {
       warnings.push(
         `Run ${event.run_id} contains legacy or unsupported schema data.`,
       );
@@ -252,6 +279,8 @@ export function summarizeRun(events: RunEvent[]): RunSummary {
     hpHealed,
     gold: last?.player_state?.gold ?? last?.gold ?? 0,
     score: last?.player_state?.score ?? 0,
+    level: last?.player_state?.level ?? 1,
+    xp: last?.player_state?.xp ?? 0,
     decisions,
     finalHp: last?.player_state?.hp ?? last?.hp ?? 0,
     result,

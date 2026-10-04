@@ -1,0 +1,1572 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/torafugu/anarogue/schemas/run-log-v5.schema.json",
+  "title": "AnaRogue run log event v5",
+  "description": "Contract for one JSON Lines event emitted by the AnaRogue simulator.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "time",
+    "event",
+    "run_id",
+    "scenario_id",
+    "scenario_seed",
+    "strategy_id",
+    "sequence",
+    "turn",
+    "depth",
+    "hp",
+    "gold",
+    "player_state",
+    "details"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 5
+    },
+    "time": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}$"
+    },
+    "event": {
+      "enum": [
+        "run_start",
+        "floor_start",
+        "decision",
+        "user_action",
+        "battle_result",
+        "floor_descend",
+        "item_result"
+      ]
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scenario_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scenario_seed": {
+      "$ref": "#/$defs/u32"
+    },
+    "strategy_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "turn": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "depth": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "hp": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "gold": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "player_state": {
+      "$ref": "#/$defs/player_state"
+    },
+    "details": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "run_start"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "details": {
+            "$ref": "#/$defs/run_start_details"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "floor_start"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "details": {
+            "$ref": "#/$defs/floor_start_details"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "decision"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "details": {
+            "$ref": "#/$defs/decision_details"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "user_action"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "details": {
+            "$ref": "#/$defs/user_action_details"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "battle_result"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "details": {
+            "$ref": "#/$defs/battle_result_details"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "floor_descend"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "details": {
+            "$ref": "#/$defs/floor_descend_details"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "item_result"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "details": {
+            "$ref": "#/$defs/item_result_details"
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "u32": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "vector2i": {
+      "type": "object",
+      "required": [
+        "x",
+        "y"
+      ],
+      "properties": {
+        "x": {
+          "type": "integer"
+        },
+        "y": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false
+    },
+    "map_size": {
+      "type": "object",
+      "required": [
+        "width",
+        "height"
+      ],
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "map_rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^[.#]+$"
+      }
+    },
+    "player_state": {
+      "type": "object",
+      "required": [
+        "pos",
+        "hp",
+        "max_hp",
+        "attack",
+        "gold",
+        "score",
+        "level",
+        "xp",
+        "inventory",
+        "defense",
+        "base_attack",
+        "base_defense",
+        "attack_bonus",
+        "defense_bonus",
+        "equipment"
+      ],
+      "properties": {
+        "pos": {
+          "$ref": "#/$defs/vector2i"
+        },
+        "hp": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_hp": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "attack": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gold": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "score": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "xp": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inventory": {
+          "$ref": "#/$defs/inventory"
+        },
+        "defense": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "base_attack": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "base_defense": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "attack_bonus": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "defense_bonus": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "equipment": {
+          "$ref": "#/$defs/equipment"
+        }
+      },
+      "additionalProperties": false
+    },
+    "enemy_snapshot": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "pos",
+        "hp",
+        "attack",
+        "distance_squared",
+        "defense"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "enum": [
+            "melee",
+            "archer"
+          ]
+        },
+        "pos": {
+          "$ref": "#/$defs/vector2i"
+        },
+        "hp": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "attack": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "distance_squared": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "defense": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "stairs_target": {
+      "type": "object",
+      "required": [
+        "kind",
+        "pos"
+      ],
+      "properties": {
+        "kind": {
+          "const": "stairs"
+        },
+        "pos": {
+          "$ref": "#/$defs/vector2i"
+        }
+      },
+      "additionalProperties": false
+    },
+    "decision_target": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/enemy_snapshot"
+        },
+        {
+          "$ref": "#/$defs/stairs_target"
+        },
+        {
+          "$ref": "#/$defs/item_snapshot"
+        },
+        {
+          "$ref": "#/$defs/inventory_target"
+        }
+      ]
+    },
+    "run_start_details": {
+      "type": "object",
+      "required": [
+        "log_file",
+        "scenario_id",
+        "scenario_seed",
+        "strategy_id",
+        "comparison",
+        "comparison_phase",
+        "simulation_version"
+      ],
+      "properties": {
+        "log_file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scenario_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scenario_seed": {
+          "$ref": "#/$defs/u32"
+        },
+        "strategy_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "comparison": {
+          "type": "boolean"
+        },
+        "comparison_phase": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "simulation_version": {
+          "const": 5
+        }
+      },
+      "additionalProperties": false
+    },
+    "floor_start_details": {
+      "type": "object",
+      "required": [
+        "floor_seed",
+        "spawn_seed",
+        "enemy_count",
+        "enemies",
+        "map_size",
+        "map_rows",
+        "player_pos",
+        "stairs_pos",
+        "items",
+        "item_seed"
+      ],
+      "properties": {
+        "floor_seed": {
+          "$ref": "#/$defs/u32"
+        },
+        "spawn_seed": {
+          "$ref": "#/$defs/u32"
+        },
+        "enemy_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "enemies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/enemy_snapshot"
+          }
+        },
+        "map_size": {
+          "$ref": "#/$defs/map_size"
+        },
+        "map_rows": {
+          "$ref": "#/$defs/map_rows"
+        },
+        "player_pos": {
+          "$ref": "#/$defs/vector2i"
+        },
+        "stairs_pos": {
+          "$ref": "#/$defs/vector2i"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/item_snapshot"
+          }
+        },
+        "item_seed": {
+          "$ref": "#/$defs/u32"
+        }
+      },
+      "additionalProperties": false
+    },
+    "decision_details": {
+      "type": "object",
+      "required": [
+        "decision_id",
+        "strategy_id",
+        "rule_id",
+        "reason",
+        "action_turn",
+        "observation",
+        "action"
+      ],
+      "properties": {
+        "decision_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "strategy_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rule_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action_turn": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "observation": {
+          "type": "object",
+          "required": [
+            "player_pos",
+            "hp",
+            "max_hp",
+            "enemy_count",
+            "enemies",
+            "stairs_pos",
+            "stairs_distance_squared",
+            "current_danger",
+            "items",
+            "inventory",
+            "level",
+            "xp",
+            "xp_to_next_level"
+          ],
+          "properties": {
+            "player_pos": {
+              "$ref": "#/$defs/vector2i"
+            },
+            "hp": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_hp": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "enemy_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "enemies": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/enemy_snapshot"
+              }
+            },
+            "stairs_pos": {
+              "$ref": "#/$defs/vector2i"
+            },
+            "stairs_distance_squared": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "current_danger": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "selected_step_danger": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/item_snapshot"
+              }
+            },
+            "inventory": {
+              "$ref": "#/$defs/inventory"
+            },
+            "selected_step_revisit_cost": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "current_tile_visits": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "level": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "xp": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "xp_to_next_level": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "progression": {
+              "$ref": "#/$defs/progression"
+            }
+          },
+          "additionalProperties": false
+        },
+        "action": {
+          "type": "object",
+          "required": [
+            "type",
+            "direction",
+            "target"
+          ],
+          "properties": {
+            "type": {
+              "enum": [
+                "move",
+                "attack",
+                "wait",
+                "use_item"
+              ]
+            },
+            "direction": {
+              "$ref": "#/$defs/vector2i"
+            },
+            "target": {
+              "$ref": "#/$defs/decision_target"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "user_action_details": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/start_action"
+        },
+        {
+          "$ref": "#/$defs/restart_action"
+        },
+        {
+          "$ref": "#/$defs/wait_action"
+        },
+        {
+          "$ref": "#/$defs/auto_wait_action"
+        },
+        {
+          "$ref": "#/$defs/move_action"
+        },
+        {
+          "$ref": "#/$defs/attack_action"
+        },
+        {
+          "$ref": "#/$defs/descend_action"
+        },
+        {
+          "$ref": "#/$defs/use_item_action"
+        }
+      ]
+    },
+    "start_action": {
+      "type": "object",
+      "required": [
+        "action",
+        "result"
+      ],
+      "properties": {
+        "action": {
+          "const": "start"
+        },
+        "result": {
+          "const": "auto_exploration_started"
+        },
+        "comparison": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "restart_action": {
+      "type": "object",
+      "required": [
+        "action",
+        "result"
+      ],
+      "properties": {
+        "action": {
+          "const": "restart"
+        },
+        "result": {
+          "const": "new_run"
+        }
+      },
+      "additionalProperties": false
+    },
+    "wait_action": {
+      "type": "object",
+      "required": [
+        "action",
+        "result"
+      ],
+      "properties": {
+        "action": {
+          "const": "wait"
+        },
+        "result": {
+          "const": "turn_advanced"
+        }
+      },
+      "additionalProperties": false
+    },
+    "auto_wait_action": {
+      "type": "object",
+      "required": [
+        "action",
+        "result",
+        "decision_id"
+      ],
+      "properties": {
+        "action": {
+          "const": "auto_wait"
+        },
+        "result": {
+          "const": "turn_advanced"
+        },
+        "decision_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "move_action": {
+      "type": "object",
+      "required": [
+        "action",
+        "result",
+        "direction",
+        "from",
+        "target"
+      ],
+      "properties": {
+        "action": {
+          "const": "move"
+        },
+        "result": {
+          "enum": [
+            "moved",
+            "blocked_wall"
+          ]
+        },
+        "decision_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "direction": {
+          "$ref": "#/$defs/vector2i"
+        },
+        "from": {
+          "$ref": "#/$defs/vector2i"
+        },
+        "target": {
+          "$ref": "#/$defs/vector2i"
+        }
+      },
+      "additionalProperties": false
+    },
+    "attack_action": {
+      "type": "object",
+      "required": [
+        "action",
+        "result",
+        "enemy_id",
+        "direction",
+        "from",
+        "target"
+      ],
+      "properties": {
+        "action": {
+          "const": "attack"
+        },
+        "result": {
+          "const": "enemy_targeted"
+        },
+        "decision_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "enemy_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "direction": {
+          "$ref": "#/$defs/vector2i"
+        },
+        "from": {
+          "$ref": "#/$defs/vector2i"
+        },
+        "target": {
+          "$ref": "#/$defs/vector2i"
+        }
+      },
+      "additionalProperties": false
+    },
+    "descend_action": {
+      "type": "object",
+      "required": [
+        "action",
+        "result",
+        "from_depth",
+        "hp_before"
+      ],
+      "properties": {
+        "action": {
+          "const": "descend"
+        },
+        "result": {
+          "const": "stairs_used"
+        },
+        "decision_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "from_depth": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "hp_before": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "battle_result_details": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/restart_result"
+        },
+        {
+          "$ref": "#/$defs/enemy_hit_result"
+        },
+        {
+          "$ref": "#/$defs/enemy_defeated_result"
+        },
+        {
+          "$ref": "#/$defs/player_hit_result"
+        },
+        {
+          "$ref": "#/$defs/player_defeated_result"
+        },
+        {
+          "$ref": "#/$defs/dungeon_cleared_result"
+        }
+      ]
+    },
+    "restart_result": {
+      "type": "object",
+      "required": [
+        "result",
+        "reason"
+      ],
+      "properties": {
+        "result": {
+          "const": "restart"
+        },
+        "reason": {
+          "enum": [
+            "user_restart",
+            "strategy_changed"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "enemy_hit_result": {
+      "type": "object",
+      "required": [
+        "result",
+        "enemy_id",
+        "enemy_type",
+        "enemy_pos",
+        "damage",
+        "enemy_hp_before",
+        "enemy_hp_after",
+        "attack_power",
+        "defense_power"
+      ],
+      "properties": {
+        "result": {
+          "const": "enemy_hit"
+        },
+        "enemy_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "enemy_type": {
+          "enum": [
+            "melee",
+            "archer"
+          ]
+        },
+        "enemy_pos": {
+          "$ref": "#/$defs/vector2i"
+        },
+        "damage": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "enemy_hp_before": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "enemy_hp_after": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "attack_power": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "defense_power": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "enemy_defeated_result": {
+      "type": "object",
+      "required": [
+        "result",
+        "enemy_id",
+        "enemy_type",
+        "enemy_pos",
+        "damage",
+        "enemy_hp_before",
+        "gold_gained",
+        "attack_power",
+        "defense_power"
+      ],
+      "properties": {
+        "result": {
+          "const": "enemy_defeated"
+        },
+        "enemy_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "enemy_type": {
+          "enum": [
+            "melee",
+            "archer"
+          ]
+        },
+        "enemy_pos": {
+          "$ref": "#/$defs/vector2i"
+        },
+        "damage": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "enemy_hp_before": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "gold_gained": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "attack_power": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "defense_power": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "player_hit_result": {
+      "type": "object",
+      "required": [
+        "result",
+        "enemy_id",
+        "enemy_type",
+        "enemy_pos",
+        "damage",
+        "player_hp_before",
+        "player_hp_after",
+        "attack_power",
+        "defense_power"
+      ],
+      "properties": {
+        "result": {
+          "const": "player_hit"
+        },
+        "enemy_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "enemy_type": {
+          "enum": [
+            "melee",
+            "archer"
+          ]
+        },
+        "enemy_pos": {
+          "$ref": "#/$defs/vector2i"
+        },
+        "damage": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "player_hp_before": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "player_hp_after": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ranged": {
+          "type": "boolean"
+        },
+        "attack_power": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "defense_power": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "player_defeated_result": {
+      "type": "object",
+      "required": [
+        "result",
+        "final_depth",
+        "final_gold",
+        "turns",
+        "strategy_id",
+        "scenario_seed"
+      ],
+      "properties": {
+        "result": {
+          "const": "player_defeated"
+        },
+        "final_depth": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "final_gold": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "turns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "strategy_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scenario_seed": {
+          "$ref": "#/$defs/u32"
+        }
+      },
+      "additionalProperties": false
+    },
+    "dungeon_cleared_result": {
+      "type": "object",
+      "required": [
+        "result",
+        "final_depth",
+        "final_gold",
+        "final_score",
+        "turns",
+        "strategy_id",
+        "scenario_seed"
+      ],
+      "properties": {
+        "result": {
+          "const": "dungeon_cleared"
+        },
+        "final_depth": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "final_gold": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "final_score": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "turns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "strategy_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scenario_seed": {
+          "$ref": "#/$defs/u32"
+        }
+      },
+      "additionalProperties": false
+    },
+    "floor_descend_details": {
+      "type": "object",
+      "required": [
+        "to_depth",
+        "hp_after"
+      ],
+      "properties": {
+        "to_depth": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "hp_after": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "inventory": {
+      "type": "object",
+      "required": [
+        "health_potion"
+      ],
+      "properties": {
+        "health_potion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        }
+      },
+      "additionalProperties": false
+    },
+    "item_snapshot": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "pos",
+        "attack_bonus",
+        "defense_bonus"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "enum": [
+            "health_potion",
+            "weapon",
+            "armor"
+          ]
+        },
+        "pos": {
+          "$ref": "#/$defs/vector2i"
+        },
+        "attack_bonus": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "defense_bonus": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "inventory_target": {
+      "type": "object",
+      "required": [
+        "kind",
+        "type"
+      ],
+      "properties": {
+        "kind": {
+          "const": "inventory_item"
+        },
+        "type": {
+          "const": "health_potion"
+        }
+      },
+      "additionalProperties": false
+    },
+    "use_item_action": {
+      "type": "object",
+      "required": [
+        "action",
+        "result",
+        "item_type"
+      ],
+      "properties": {
+        "action": {
+          "const": "use_item"
+        },
+        "result": {
+          "const": "item_used"
+        },
+        "item_type": {
+          "const": "health_potion"
+        },
+        "decision_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "item_picked_up": {
+      "type": "object",
+      "required": [
+        "result",
+        "item",
+        "inventory",
+        "decision_id"
+      ],
+      "properties": {
+        "result": {
+          "const": "item_picked_up"
+        },
+        "item": {
+          "$ref": "#/$defs/item_snapshot"
+        },
+        "inventory": {
+          "$ref": "#/$defs/inventory"
+        },
+        "decision_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "item_used": {
+      "type": "object",
+      "required": [
+        "result",
+        "item_type",
+        "hp_before",
+        "hp_after",
+        "healed",
+        "inventory",
+        "decision_id"
+      ],
+      "properties": {
+        "result": {
+          "const": "item_used"
+        },
+        "item_type": {
+          "const": "health_potion"
+        },
+        "hp_before": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "hp_after": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "healed": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "inventory": {
+          "$ref": "#/$defs/inventory"
+        },
+        "decision_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "item_result_details": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/item_picked_up"
+        },
+        {
+          "$ref": "#/$defs/item_used"
+        },
+        {
+          "$ref": "#/$defs/item_equipped"
+        }
+      ]
+    },
+    "gear": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "attack_bonus",
+        "defense_bonus"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "enum": [
+            "weapon",
+            "armor"
+          ]
+        },
+        "attack_bonus": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "defense_bonus": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "equipment": {
+      "type": "object",
+      "required": [
+        "weapon",
+        "armor"
+      ],
+      "properties": {
+        "weapon": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/gear"
+            }
+          ]
+        },
+        "armor": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/gear"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "item_equipped": {
+      "type": "object",
+      "required": [
+        "result",
+        "item",
+        "previous_equipment",
+        "equipment",
+        "items",
+        "inventory",
+        "decision_id"
+      ],
+      "properties": {
+        "result": {
+          "const": "item_equipped"
+        },
+        "item": {
+          "$ref": "#/$defs/item_snapshot"
+        },
+        "previous_equipment": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/gear"
+            }
+          ]
+        },
+        "equipment": {
+          "$ref": "#/$defs/equipment"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/item_snapshot"
+          }
+        },
+        "inventory": {
+          "$ref": "#/$defs/inventory"
+        },
+        "decision_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "progression": {
+      "type": "object",
+      "required": [
+        "stairs_steps",
+        "stairs_healing",
+        "stairs_score",
+        "candidates",
+        "selected",
+        "selected_enemy_id",
+        "target_retained"
+      ],
+      "properties": {
+        "stairs_steps": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "stairs_healing": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "stairs_score": {
+          "type": "integer"
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "enemy_id",
+                  "eligible",
+                  "rejection",
+                  "steps",
+                  "xp_gain",
+                  "levels_gained",
+                  "estimated_damage",
+                  "attack_turns",
+                  "score",
+                  "revisit_penalty"
+                ],
+                "properties": {
+                  "enemy_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "eligible": {
+                    "type": "boolean"
+                  },
+                  "rejection": {
+                    "enum": [
+                      "",
+                      "hp_reserve",
+                      "mobile_target",
+                      "no_level_up"
+                    ]
+                  },
+                  "steps": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "xp_gain": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "levels_gained": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "estimated_damage": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "attack_turns": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "score": {
+                    "type": "integer"
+                  },
+                  "revisit_penalty": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "enemy_id",
+                  "eligible",
+                  "rejection"
+                ],
+                "properties": {
+                  "enemy_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "eligible": {
+                    "const": false
+                  },
+                  "rejection": {
+                    "const": "out_of_reach"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "selected": {
+          "enum": [
+            "combat",
+            "stairs"
+          ]
+        },
+        "selected_enemy_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target_retained": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -9,7 +9,7 @@ Each action you take advances the game by one turn. Move carefully, watch your H
 ## Starting the Game
 
 1. Open `game/` in Godot 4 and run the project to open the replay client.
-2. Select a JSONL log, or use the bundled v3 reference. Pickup and healing have their own frames.
+2. Select a JSONL log, or use the bundled v5 reference. Pickup and healing have their own frames.
 3. For a live run, select `Live check` (`res://scenes/main.tscn`); it starts on Depth 1.
 4. Choose an automatic strategy on the right side of the screen.
 5. Click `Start selected strategy`, or run both strategies with
@@ -77,10 +77,13 @@ After you move, attack, or wait, enemies get a turn. Enemies may move toward you
 
 ### Automatic Strategies
 
-**Aggressive** attacks adjacent enemies, selects the nearest reachable enemy and keeps pursuing it until defeated or unreachable, and
-only heads for the stairs after clearing the floor.
+**Aggressive** attacks adjacent enemies, then compares growth from combat with
+descent. It values XP even before a level-up and pursues a worthwhile, survivable
+fight. When descending offers more value, it may leave enemies behind.
 
-**Cautious** heads for the stairs immediately. Its pathfinder assigns extra cost
+**Cautious** normally heads for the stairs, but can take a short melee detour
+when the next kill would yield a level-up and its estimated cost beats descent.
+It avoids chasing retreating Archers for growth. Its pathfinder assigns extra cost
 to tiles threatened by melee enemies and archers, so it prefers safer detours.
 It avoids combat before contact, but attacks a melee enemy once caught because
 both move at the same speed and retreating cannot open a gap. If the stairs are
@@ -200,3 +203,20 @@ Weapon bonus is depth + 1; armor bonus is floor((depth + 1) / 2). Aggressive loo
 for upgrades within eight steps; Cautious within four fully safe steps. Emergency
 healing estimates damage after armor. Logs generated under Schema v4 include
 these rules; earlier logs remain readable and retain their recorded outcomes.
+
+## Growth and descent decisions
+
+Exploration uses your current level, XP, effective attack and defense. A kill near
+the next level is worth more, especially on early floors where +1 base attack and
++2 max HP have longer to help. Costly fights, repeated approaches, recovery from
+stairs and completing Depth 4 favor descending. Both strategies preserve a viable
+growth target to avoid reversing toward whichever enemy happens to be nearer.
+Potion use, item gathering and adjacent combat/escape retain their priority.
+
+Godot replay displays growth versus stairs scores. In the web viewer, select a
+`hunt_for_growth` or `descend_for_progress` decision to see **Growth vs. descent**:
+XP reward, projected levels, attack count, estimated damage, revisit penalties,
+scores and reasons a fight was skipped. Comparison cards show final level and XP.
+The scores are policy preferences, not actual score rewards. Damage is a static
+estimate using current enemy positions; it does not guarantee survival. Generate
+a new v5 log to see this behavior; earlier logs retain their original decisions.

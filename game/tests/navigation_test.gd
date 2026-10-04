@@ -107,6 +107,10 @@ func test_aggressive_target_retention() -> void:
 			game.map[y][x] = game.TILE_FLOOR
 	game.player["pos"] = Vector2i(2, 2)
 	game.stairs_pos = Vector2i(20, 15)
+	# Exercise legacy pursuit when the stairs are blocked.
+	for direction in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
+		var wall: Vector2i = game.stairs_pos + direction
+		game.map[wall.y][wall.x] = game.TILE_WALL
 	game.enemies.assign([
 		{"id": "first", "type": "archer", "pos": Vector2i(8, 2), "hp": 6, "attack": 1},
 		{"id": "second", "type": "archer", "pos": Vector2i(2, 9), "hp": 6, "attack": 1},
@@ -138,11 +142,11 @@ func test_aggressive_seed_301() -> void:
 	var move_flags: Array[bool] = []
 	while not game.game_over and game.turn_count < 500:
 		positions.append(game.player["pos"])
-		move_flags.append(game.choose_auto_player_decision("preview")["rule_id"] == "hunt_nearest_enemy")
+		move_flags.append(game.choose_auto_player_decision("preview")["rule_id"] in ["hunt_nearest_enemy", "hunt_for_growth"])
 		var index := positions.size() - 1
 		if index >= 2 and move_flags[index] and move_flags[index - 1] and move_flags[index - 2]:
 			check(positions[index] != positions[index - 2] or positions[index] == positions[index - 1], "seed 301 never reverses between two tiles")
 		game.run_auto_player_turn()
-	check(game.turn_count == 186 and game.game_over, "aggressive seed-301 run is deterministic")
+	check(game.turn_count == 164 and game.game_over, "aggressive seed-301 run is deterministic")
 	game.close_log_file()
 	game.free()

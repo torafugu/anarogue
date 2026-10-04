@@ -23,12 +23,14 @@ struct ReferenceCase {
     final_gold: u32,
     final_score: u32,
     final_potions: u32,
+    final_level: u32,
+    final_xp: u32,
 }
 
 #[test]
 fn godot_reference_runs_match() {
     let manifest: ReferenceManifest =
-        serde_json::from_str(include_str!("../../examples/reference-v4/manifest-v4.json"))
+        serde_json::from_str(include_str!("../../examples/reference-v5/manifest-v5.json"))
             .expect("reference manifest must be valid JSON");
 
     for case in manifest.cases {
@@ -62,6 +64,18 @@ fn godot_reference_runs_match() {
             logged.events.len(),
             expected.len(),
             "{} event count",
+            case.name
+        );
+        assert_eq!(
+            logged.events.last().unwrap().player_state["level"],
+            case.final_level,
+            "{} level",
+            case.name
+        );
+        assert_eq!(
+            logged.events.last().unwrap().player_state["xp"],
+            case.final_xp,
+            "{} XP",
             case.name
         );
         for (actual, mut expected) in logged.events.into_iter().zip(expected) {
