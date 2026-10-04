@@ -11,6 +11,7 @@ const schemaPaths = [
   resolve(repositoryRoot, "schemas/run-log-v3.schema.json"),
   resolve(repositoryRoot, "schemas/run-log-v4.schema.json"),
   resolve(repositoryRoot, "schemas/run-log-v5.schema.json"),
+  resolve(repositoryRoot, "schemas/run-log-v6.schema.json"),
 ];
 const defaultLogPath = resolve(repositoryRoot, "examples/sample-run-v1.jsonl");
 
@@ -152,7 +153,9 @@ function validateSemanticInvariants(event, runStates, logPath, lineNumber) {
 
   if (event.schema_version >= 4) {
     const player = event.player_state;
-    assert(player.attack === player.base_attack + player.attack_bonus, location, "effective attack mismatch");
+    const rawAttack = player.base_attack + player.attack_bonus;
+    const effectiveAttack = event.schema_version >= 6 && player.weapon_kind === "bow" ? Math.max(1, Math.floor(rawAttack / 2)) : rawAttack;
+    assert(player.attack === effectiveAttack, location, "effective attack mismatch");
     assert(player.defense === player.base_defense + player.defense_bonus, location, "effective defense mismatch");
     assert(player.attack_bonus === (player.equipment.weapon?.attack_bonus ?? 0), location, "weapon bonus mismatch");
     assert(player.defense_bonus === (player.equipment.armor?.defense_bonus ?? 0), location, "armor bonus mismatch");
@@ -192,7 +195,7 @@ function validateSemanticInvariants(event, runStates, logPath, lineNumber) {
           - candidate.steps * (cautious ? 2 : 1) - candidate.attack_turns - candidate.estimated_damage * (cautious ? 3 : 2) - candidate.revisit_penalty;
         assert(candidate.score === score, location, "combat score mismatch");
         const rejection = p.hp - candidate.estimated_damage <= (cautious ? 4 : 2) ? "hp_reserve"
-          : cautious && enemy.type === "archer" ? "mobile_target" : cautious && candidate.levels_gained === 0 ? "no_level_up" : "";
+          : cautious && enemy.type === "archer" && (event.schema_version < 6 || p.weapon_kind !== "bow") ? "mobile_target" : cautious && candidate.levels_gained === 0 ? "no_level_up" : "";
         assert(candidate.rejection === rejection && candidate.eligible === !rejection, location, "combat safety assessment mismatch");
       }
       if (comparison.selected === "combat") {
@@ -203,6 +206,21 @@ function validateSemanticInvariants(event, runStates, logPath, lineNumber) {
         assert(comparison.selected_enemy_id === null && !comparison.target_retained, location, "stairs decision has a combat target");
         assert(event.details.action.target.kind === "stairs" && event.details.rule_id === "descend_for_progress", location, "stairs action mismatch");
       }
+    }
+  }
+
+  if (event.schema_version >= 6) {
+    const p = event.player_state;
+    assert(p.weapon_kind === (p.equipment.weapon?.weapon_kind ?? "melee"), location, "weapon subtype mismatch");
+    assert(p.attack_range === (p.weapon_kind === "bow" ? 5 : 1), location, "weapon range mismatch");
+    if (event.event === "user_action" && event.details.action === "shoot") {
+      const from = event.details.from, to = event.details.target;
+      const distance = (from.x - to.x) ** 2 + (from.y - to.y) ** 2;
+      assert(p.weapon_kind === "bow" && distance > 0 && distance <= 25, location, "shot outside bow range");
+      assert(from.x === p.pos.x && from.y === p.pos.y, location, "shot origin mismatch");
+    }
+    if (event.event === "battle_result" && ["enemy_hit", "enemy_defeated"].includes(event.details.result) && event.details.ranged) {
+      assert(p.weapon_kind === "bow", location, "player ranged hit without bow");
     }
   }
 
