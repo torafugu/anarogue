@@ -6,7 +6,7 @@ A tiny Godot 4 roguelike starter.
 
 Open `game/` in Godot 4 and run the project. The default scene is a replay client,
 not the simulator. It lists JSONL files in `user://`, selects the most recently
-modified log, and falls back to the committed Aggressive seed-424242 v7 reference run when
+modified log, and falls back to the committed Aggressive seed-424242 v8 reference run when
 no user log exists.
 
 Controls:
@@ -27,13 +27,15 @@ longer the project's default responsibility.
 - Automatic player movement and bump attacks
 - Repeated-visit path costs prevent pursuit-induced movement loops
 - Two automatic strategies:
-  - **Aggressive** — prefers melee weapons and compares combat growth with descent
-  - **Cautious** — prefers bows, fires at visible targets and takes safer routes
+  - **Aggressive** — prefers melee weapons and weights enemy/item/stairs goals 4/2/1
+  - **Cautious** — prefers bows and weights enemy/item/stairs goals 1/2/4
+- Adjustable enemy/item/stairs priorities and temperature; weighted random goal selection
+- Pure decision previews and an independent policy RNG with reproducible draws
 - Same-seed comparison mode with deterministic floor layouts, enemy spawns, and
   per-enemy rewards
 - Floor health potions, automatic pickup and persistent inventory (up to 3)
 - Potion use restores up to 8 HP and consumes one turn before enemy actions
-- Automatic gathering and healing, with conservative safe detours for Cautious
+- Automatic gathering and healing, with benefit/risk estimates and persistent goals
 - Weapon and armor slots with automatic upgrades, separate base stats and bonuses
 - Melee weapons favor damage; bows reach five tiles with clear line of sight and half attack
 - Aggressive prefers melee equipment; Cautious prefers bows; `F` fires manually
@@ -52,14 +54,14 @@ longer the project's default responsibility.
 - Versioned run-log schema with automatic-player observations, selected rules,
   actions, and human-readable decision reasons
 
-See [Simulation specification v7](docs/simulation-spec-v7.md) for the current
+See [Simulation specification v8](docs/simulation-spec-v8.md) for the current
 state and turn-processing rules, [Run log schema v1](docs/run-log-v1.md) and
 [Run log schema v2](docs/run-log-v2.md) and
 [Run log schema v3](docs/run-log-v3.md) and
-[Run log schema v7](docs/run-log-v7.md) for the event contracts,
+[Run log schema v8](docs/run-log-v8.md) for the event contracts,
 [Portable randomness specification v1](docs/randomness-v1.md)
 for cross-runtime seed derivation and PRNG behavior,
-[Fixed-seed reference logs v7](docs/reference-logs-v7.md) for the Godot-to-Rust
+[Fixed-seed reference logs v8](docs/reference-logs-v8.md) for the Godot-to-Rust
 compatibility baseline, [Rust Simulation Core](docs/rust-simulation-core.md) for
 the Godot-independent batch implementation, and
 [`examples/sample-run-v1.jsonl`](examples/sample-run-v1.jsonl) for sample data.
@@ -79,7 +81,7 @@ npm run dev
 ## Run headless simulation
 
 Run one automatic game without opening the UI. The runner advances turns as fast
-as possible, writes the same v7 event stream as the interactive game, and prints
+as possible, writes the same v8 event stream as the interactive game, and prints
 a final `HEADLESS_RUN_SUMMARY` line to standard output.
 
 ```bash
@@ -106,7 +108,7 @@ Defaults are equivalent to:
 The process exits successfully whether the player is defeated or the turn limit
 is reached. Read the summary's `outcome` field to distinguish
 `player_defeated` from `turn_limit`. A turn-limit stop does not add a synthetic
-event to the v7 stream.
+event to the v8 stream.
 
 ## Tests
 
@@ -163,9 +165,9 @@ godot --headless --path game \
   --script res://tests/fixed_seed_regression.gd -- --write-fixture
 ```
 
-Review the fixture diff before committing it. A fixture update changes the v7
+Review the fixture diff before committing it. A fixture update changes the v8
 simulation baseline described in
-[Simulation specification v7](docs/simulation-spec-v7.md).
+[Simulation specification v8](docs/simulation-spec-v8.md).
 
 Run the Rust simulation-core compatibility suite with:
 
@@ -177,7 +179,7 @@ cargo test --all-targets
 The Rust tests execute six fixed-seed full-run cases and compare every event
 and final state with the Godot reference baseline.
 
-The Rust CLI can also write a replayable Schema v7 log directly into Godot's
+The Rust CLI can also write a replayable Schema v8 log directly into Godot's
 macOS application-data folder:
 
 ```bash
@@ -198,9 +200,9 @@ godot --headless --path game \
   --script res://tools/generate_reference_logs.gd
 ```
 
-With no simulation change, this command must leave `examples/reference-v7/`
+With no simulation change, this command must leave `examples/reference-v8/`
 byte-for-byte unchanged. See
-[Fixed-seed reference logs v7](docs/reference-logs-v7.md) for the cases and Rust
+[Fixed-seed reference logs v8](docs/reference-logs-v8.md) for the cases and Rust
 parity workflow.
 
 Validate JSONL events against their versioned JSON Schema and stream invariants with:
@@ -217,7 +219,7 @@ Pass one or more JSONL paths after `--` to validate other logs:
 npm run validate:logs -- ../path/to/anarogue.jsonl
 ```
 
-Growth-aware exploration compares XP / projected levels and estimated combat cost with descent, recovery and completion. See [simulation v7](docs/simulation-spec-v7.md). The web viewer shows the candidate scores and final level / XP for strategy comparisons.
+Growth-aware exploration compares XP / projected levels and estimated combat cost with descent, recovery and completion. See [simulation v8](docs/simulation-spec-v8.md). The web viewer shows the candidate scores and final level / XP for strategy comparisons.
 
 Compare both policies across seeds with:
 
@@ -225,7 +227,7 @@ Compare both policies across seeds with:
 python3 tools/compare_strategies.py --seeds 1-50 --output-dir logs/strategy-comparison
 ```
 
-See [the paired comparison](docs/strategy-comparison-v7.md) for the frozen
+See [the paired comparison](docs/strategy-comparison-v8.md) for the frozen
 100-run results, parameters, replay logs and interpretation limits.
 
 Verify Brute cadence, fixed targets, evasion and replay with:

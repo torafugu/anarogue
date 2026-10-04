@@ -32,7 +32,7 @@ jobs:
         run: |
           cargo build --release
           python3 ../tools/compare_strategies.py --binary target/release/anarogue-sim --output-dir /tmp/anarogue-comparison
-          diff -r ../examples/comparison-v7 /tmp/anarogue-comparison
+          diff -r ../examples/comparison-v8 /tmp/anarogue-comparison
 
       - name: Generate Rust JSONL run log
         run: >-

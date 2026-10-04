@@ -1,8 +1,8 @@
 extends SceneTree
 
 const MainGame := preload("res://scripts/main.gd")
-const OUTPUT_DIRECTORY := "res://../examples/reference-v7"
-const DISPLAY_DIRECTORY := "examples/reference-v7"
+const OUTPUT_DIRECTORY := "res://../examples/reference-v8"
+const DISPLAY_DIRECTORY := "examples/reference-v8"
 const FIXED_EVENT_TIME := "2000-01-01 00:00:00"
 const MAP_WIDTH := 24
 const MAP_HEIGHT := 18
@@ -11,37 +11,37 @@ const CASES := [
 		"name": "aggressive-seed-301-cycle",
 		"strategy": MainGame.StrategyType.AGGRESSIVE,
 		"seed": 301, "map_width": 64, "map_height": 40, "max_turns": 500,
-		"expected": {"outcome": "player_defeated", "turns": 182, "final_depth": 2, "final_hp": 0, "final_gold": 7, "final_score": 9, "final_level": 2, "final_xp": 8, "final_potions": 0},
+		"expected": {"outcome": "player_defeated", "turns": 342, "final_depth": 4, "final_hp": 0, "final_gold": 18, "final_score": 22, "final_level": 3, "final_xp": 10, "final_potions": 0},
 	},
 	{
 		"name": "cautious-seed-27-cycle",
 		"strategy": MainGame.StrategyType.CAUTIOUS,
 		"seed": 27, "map_width": 44, "map_height": 28, "max_turns": 500,
-		"expected": {"outcome": "dungeon_cleared", "turns": 203, "final_depth": 5, "final_hp": 20, "final_gold": 23, "final_score": 25, "final_level": 3, "final_xp": 10, "final_potions": 0},
+		"expected": {"outcome": "player_defeated", "turns": 170, "final_depth": 1, "final_hp": 0, "final_gold": 8, "final_score": 4, "final_level": 2, "final_xp": 3, "final_potions": 0},
 	},
 	{
 		"name": "cautious-seed-2",
 		"strategy": MainGame.StrategyType.CAUTIOUS,
 		"seed": 2, "map_width": 24, "map_height": 18, "max_turns": 120,
-		"expected": {"outcome": "dungeon_cleared", "turns": 102, "final_depth": 5, "final_hp": 20, "final_gold": 9, "final_score": 18, "final_level": 2, "final_xp": 7, "final_potions": 3},
+		"expected": {"outcome": "dungeon_cleared", "turns": 116, "final_depth": 5, "final_hp": 18, "final_gold": 9, "final_score": 18, "final_level": 2, "final_xp": 7, "final_potions": 0},
 	},
 	{
 		"name": "aggressive-seed-1",
 		"strategy": MainGame.StrategyType.AGGRESSIVE,
 		"seed": 1, "map_width": 24, "map_height": 18, "max_turns": 120,
-		"expected": {"outcome": "dungeon_cleared", "turns": 99, "final_depth": 5, "final_hp": 17, "final_gold": 10, "final_score": 18, "final_level": 2, "final_xp": 8, "final_potions": 3},
+		"expected": {"outcome": "dungeon_cleared", "turns": 101, "final_depth": 5, "final_hp": 17, "final_gold": 10, "final_score": 18, "final_level": 2, "final_xp": 8, "final_potions": 2},
 	},
 	{
 		"name": "cautious-seed-1",
 		"strategy": MainGame.StrategyType.CAUTIOUS,
 		"seed": 1, "map_width": 24, "map_height": 18, "max_turns": 120,
-		"expected": {"outcome": "dungeon_cleared", "turns": 105, "final_depth": 5, "final_hp": 20, "final_gold": 10, "final_score": 18, "final_level": 2, "final_xp": 8, "final_potions": 3},
+		"expected": {"outcome": "turn_limit", "turns": 120, "final_depth": 3, "final_hp": 15, "final_gold": 2, "final_score": 7, "final_level": 1, "final_xp": 3, "final_potions": 0},
 	},
 	{
 		"name": "aggressive-seed-424242",
 		"strategy": MainGame.StrategyType.AGGRESSIVE,
 		"seed": 424242, "map_width": 24, "map_height": 18, "max_turns": 120,
-		"expected": {"outcome": "dungeon_cleared", "turns": 120, "final_depth": 5, "final_hp": 20, "final_gold": 7, "final_score": 20, "final_level": 2, "final_xp": 12, "final_potions": 3},
+		"expected": {"outcome": "dungeon_cleared", "turns": 108, "final_depth": 5, "final_hp": 20, "final_gold": 7, "final_score": 20, "final_level": 2, "final_xp": 12, "final_potions": 0},
 	},
 ]
 
@@ -66,15 +66,15 @@ func generate() -> void:
 		manifest_cases.append(result)
 
 	var manifest := {
-		"format_version": 7,
-		"simulation_spec": "v7",
+		"format_version": 8,
+		"simulation_spec": "v8",
 		"randomness_spec": "v1",
-		"event_schema": "v7",
+		"event_schema": "v8",
 		"fixed_event_time": FIXED_EVENT_TIME,
 		"map_size": {"width": MAP_WIDTH, "height": MAP_HEIGHT},
 		"cases": manifest_cases,
 	}
-	var manifest_path := OUTPUT_DIRECTORY.path_join("manifest-v7.json")
+	var manifest_path := OUTPUT_DIRECTORY.path_join("manifest-v8.json")
 	var manifest_file := FileAccess.open(manifest_path, FileAccess.WRITE)
 	if manifest_file == null:
 		printerr("Could not write reference manifest: %s" % manifest_path)

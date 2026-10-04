@@ -37,6 +37,13 @@ class ComparisonTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             aggregate(rows + [rows[0]])
 
+    def test_goal_draws_are_distinct_from_retained_and_emergency_decisions(self):
+        events = [dict(event='decision', details=dict(observation=dict(goal_selection=dict(selected_kind=k, target_retained=r))))
+                  for k, r in [('enemy', False), ('item', False), ('stairs', False), ('enemy', True)]]
+        events.append(dict(event='decision', details=dict(rule_id='evade_windup', observation={})))
+        row = metrics(self.summary(), events)
+        self.assertEqual([row[k] for k in ['goal_enemy_draws', 'goal_item_draws', 'goal_stairs_draws', 'goal_retained']], [1, 1, 1, 1])
+
     def test_seeds_are_unique_and_bounded(self):
         self.assertEqual(parse_seeds('3,1-2'), [1, 2, 3])
         for value in ['1,1', '3-1', '-1', '4294967296', '0-4294967295', '']:

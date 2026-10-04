@@ -13,6 +13,7 @@ const schemaPaths = [
   resolve(repositoryRoot, "schemas/run-log-v5.schema.json"),
   resolve(repositoryRoot, "schemas/run-log-v6.schema.json"),
   resolve(repositoryRoot, "schemas/run-log-v7.schema.json"),
+  resolve(repositoryRoot, "schemas/run-log-v8.schema.json"),
 ];
 const defaultLogPath = resolve(repositoryRoot, "examples/sample-run-v1.jsonl");
 
@@ -131,6 +132,37 @@ function validateSemanticInvariants(event, runStates, logPath, lineNumber) {
       location,
       "decision enemy_count must match enemies.length",
     );
+  }
+
+  if (event.schema_version >= 8 && event.event === "run_start") {
+    const p = event.details.goal_policy;
+    assert(p.enemy_weight + p.item_weight + p.stairs_weight > 0, location, "all goal weights are zero");
+  }
+  if (event.schema_version >= 8 && event.details.observation?.goal_selection) {
+    const g = event.details.observation.goal_selection;
+    const total = g.distribution.reduce((n, row) => n + row.mass, 0);
+    assert(new Set(g.distribution.map(row => row.kind)).size === g.distribution.length, location, "duplicate goal category in lottery");
+    for (const row of g.distribution) {
+      assert(row.total_mass === total, location, "goal probability denominator mismatch");
+      assert(g.candidates.some(c => c.kind === row.kind && c.id === row.id && c.eligible), location, "lottery goal is not eligible");
+    }
+    for (const c of g.candidates) {
+      const remaining = event.hp - c.estimated_damage;
+      const risk = Math.floor(c.estimated_damage * 20 / Math.max(1, event.hp)) + Math.max(0, 6 - remaining) * 4;
+      assert(c.risk === risk && c.utility === c.benefit - risk - c.turns - c.revisit_penalty, location, "goal utility mismatch");
+      assert(!c.eligible || remaining > 0, location, "lethal goal included");
+    }
+    assert(g.candidates.some(c => c.kind === g.selected_kind && c.id === g.selected_id && c.eligible), location, "selected goal is not eligible");
+    if (g.target_retained) {
+      assert(g.draw === null && g.rng_before === g.rng_after, location, "retention consumes policy randomness");
+    } else {
+      assert(g.draw !== null && g.draw < total, location, "goal draw outside distribution");
+      let cursor = g.draw;
+      const chosen = g.distribution.find(row => { if (cursor < row.mass) return true; cursor -= row.mass; return false; });
+      assert(chosen?.kind === g.selected_kind && chosen.id === g.selected_id, location, "goal draw does not match selected target");
+    }
+    const target = event.details.action.target;
+    assert(g.selected_kind === "stairs" ? target.kind === "stairs" : target.id === g.selected_id, location, "goal / action target mismatch");
   }
 
   if (event.event === "floor_descend") {

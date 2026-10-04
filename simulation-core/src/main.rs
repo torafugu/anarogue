@@ -1,4 +1,4 @@
-use anarogue_simulation::{RunLogEvent, Simulation, SimulationConfig, Strategy};
+use anarogue_simulation::{GoalPolicy, RunLogEvent, Simulation, SimulationConfig, Strategy};
 use std::fs::{create_dir_all, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -11,7 +11,7 @@ fn main() -> ExitCode {
             eprintln!("error: {message}");
             eprintln!(
                 "usage: anarogue-sim [--strategy aggressive|cautious] [--seed N] \
-                 [--width N] [--height N] [--max-turns N] [--output PATH]"
+                 [--width N] [--height N] [--max-turns N] [--output PATH] [--enemy-weight N] [--item-weight N] [--stairs-weight N] [--temperature N]"
             );
             ExitCode::FAILURE
         }
@@ -21,20 +21,23 @@ fn main() -> ExitCode {
 struct CliOptions {
     config: SimulationConfig,
     output: Option<PathBuf>,
+    policy: GoalPolicy,
 }
 
 fn run() -> Result<(), String> {
     let options = parse_options()?;
     if let Some(output) = options.output {
         let display_path = output.to_string_lossy().into_owned();
-        let logged_run = Simulation::new_logged(options.config, display_path)?.run_logged();
+        let logged_run =
+            Simulation::new_logged_with_policy(options.config, display_path, options.policy)?
+                .run_logged();
         write_jsonl(&output, &logged_run.events)?;
         println!(
             "{}",
             serde_json::to_string(&logged_run.summary).expect("summary is serializable")
         );
     } else {
-        let summary = Simulation::new(options.config)?.run();
+        let summary = Simulation::new_with_policy(options.config, options.policy)?.run();
         println!(
             "{}",
             serde_json::to_string(&summary).expect("summary is serializable")
@@ -75,6 +78,7 @@ fn parse_options() -> Result<CliOptions, String> {
         max_turns: 120,
     };
     let mut output = None;
+    let mut weights = [None; 4];
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
         let value = arguments
@@ -86,12 +90,22 @@ fn parse_options() -> Result<CliOptions, String> {
             "--width" => config.map_width = parse_number(&argument, &value)?,
             "--height" => config.map_height = parse_number(&argument, &value)?,
             "--max-turns" => config.max_turns = parse_number(&argument, &value)?,
+            "--enemy-weight" => weights[0] = Some(parse_number(&argument, &value)?),
+            "--item-weight" => weights[1] = Some(parse_number(&argument, &value)?),
+            "--stairs-weight" => weights[2] = Some(parse_number(&argument, &value)?),
+            "--temperature" => weights[3] = Some(parse_number(&argument, &value)?),
             "--output" => output = Some(PathBuf::from(value)),
             _ => return Err(format!("unknown argument: {argument}")),
         }
     }
+    let mut policy = GoalPolicy::preset(config.strategy);
+    policy.enemy_weight = weights[0].unwrap_or(policy.enemy_weight);
+    policy.item_weight = weights[1].unwrap_or(policy.item_weight);
+    policy.stairs_weight = weights[2].unwrap_or(policy.stairs_weight);
+    policy.temperature = weights[3].unwrap_or(policy.temperature);
     Ok(CliOptions {
         config: config.validate()?,
+        policy: policy.validate()?,
         output,
     })
 }

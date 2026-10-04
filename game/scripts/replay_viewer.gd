@@ -1,7 +1,7 @@
 extends Node2D
 
 const ReplayData := preload("res://scripts/replay_log.gd")
-const DEFAULT_REPLAY := "res://../examples/reference-v7/aggressive-seed-424242.jsonl"
+const DEFAULT_REPLAY := "res://../examples/reference-v8/aggressive-seed-424242.jsonl"
 const AUTO_STEP_SECONDS := 0.28
 const ARROW_FLIGHT_DURATION := 0.28
 const ARROW_IMPACT_DURATION := 0.12
@@ -331,6 +331,16 @@ func update_status() -> void:
 	var weapon = equipment.get("weapon")
 	var armor = equipment.get("armor")
 	status_label.text += "  ·  W %s  D %s" % [weapon["id"] if weapon != null else "none", armor["id"] if armor != null else "none"]
+	var goal: Dictionary = frame.get("goal_selection", {})
+	if not goal.is_empty():
+		status_label.text += "\nGoal %s / %s · %s" % [goal["selected_kind"], goal["selected_id"], "retained (no draw)" if goal["target_retained"] else "drawn"]
+		for candidate in goal["candidates"]:
+			if candidate["kind"] == goal["selected_kind"] and candidate["id"] == goal["selected_id"]:
+				status_label.text += " · benefit %d − risk %d · utility %d" % [candidate["benefit"], candidate["risk"], candidate["utility"]]
+		var chances: Array[String] = []
+		for entry in goal["distribution"]:
+			chances.append("%s %.1f%%" % [entry["kind"], 100.0 * entry["mass"] / entry["total_mass"]])
+		status_label.text += " · redraw: " + ", ".join(chances)
 	var progression: Dictionary = frame.get("progression", {})
 	if not progression.is_empty():
 		var best_score := "none"

@@ -281,6 +281,61 @@ struct Player {
     inventory: Inventory,
 }
 
+/// Independent preferences for goal categories. Zero disables discretionary selection.
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct GoalPolicy {
+    pub enemy_weight: u32,
+    pub item_weight: u32,
+    pub stairs_weight: u32,
+    pub temperature: u32,
+}
+impl GoalPolicy {
+    pub fn preset(strategy: Strategy) -> Self {
+        let (enemy_weight, stairs_weight) = if strategy == Strategy::CautiousV1 {
+            (1, 4)
+        } else {
+            (4, 1)
+        };
+        Self {
+            enemy_weight,
+            item_weight: 2,
+            stairs_weight,
+            temperature: 8,
+        }
+    }
+    pub fn validate(self) -> Result<Self, String> {
+        if self.enemy_weight > 1000
+            || self.item_weight > 1000
+            || self.stairs_weight > 1000
+            || self.enemy_weight + self.item_weight + self.stairs_weight == 0
+            || !(1..=100).contains(&self.temperature)
+        {
+            return Err("goal weights must be 0..1000 with at least one positive weight; temperature must be 1..100".into());
+        }
+        Ok(self)
+    }
+    fn weight(self, kind: &str) -> u32 {
+        match kind {
+            "enemy" => self.enemy_weight,
+            "item" => self.item_weight,
+            _ => self.stairs_weight,
+        }
+    }
+}
+#[derive(Clone)]
+struct GoalCandidate {
+    kind: &'static str,
+    id: String,
+    direction: Point,
+    target: Value,
+    ranged: bool,
+    evaluation: Value,
+}
+fn goal_mass(weight: u32, gap: i32, temperature: u32) -> u32 {
+    const EXP: [u32; 9] = [1000, 368, 135, 50, 18, 7, 2, 1, 1];
+    weight * EXP[((gap.max(0) as u32 / temperature).min(8)) as usize]
+}
+
 #[derive(Clone, Debug)]
 struct Decision {
     direction: Point,
@@ -290,6 +345,7 @@ struct Decision {
     target: Value,
     selected_step_danger: Option<i32>,
     progression: Option<Value>,
+    goal_selection: Option<Value>,
 }
 
 struct EventLogger {
@@ -397,6 +453,9 @@ pub struct Simulation {
     navigation_visits: HashMap<Point, u32>,
     aggressive_target_id: Option<String>,
     growth_target_id: Option<String>,
+    goal_policy: GoalPolicy,
+    policy_rng: PortableRng,
+    selected_goal: Option<(String, String, i32)>,
     player: Player,
     stairs: Point,
     turn: u32,
@@ -409,10 +468,20 @@ pub struct Simulation {
 
 impl Simulation {
     pub fn new(config: SimulationConfig) -> Result<Self, String> {
-        Self::create(config, None)
+        Self::create(config, None, None)
     }
 
+    pub fn new_with_policy(config: SimulationConfig, policy: GoalPolicy) -> Result<Self, String> {
+        Self::create(config, None, Some(policy))
+    }
     pub fn new_logged(config: SimulationConfig, log_file: String) -> Result<Self, String> {
+        Self::new_logged_with_policy(config, log_file, GoalPolicy::preset(config.strategy))
+    }
+    pub fn new_logged_with_policy(
+        config: SimulationConfig,
+        log_file: String,
+        policy: GoalPolicy,
+    ) -> Result<Self, String> {
         if log_file.is_empty() {
             return Err("log output path must not be empty".to_owned());
         }
@@ -433,11 +502,25 @@ impl Simulation {
                 sequence: 0,
                 events: Vec::new(),
             }),
+            Some(policy),
         )
     }
 
-    fn create(config: SimulationConfig, logger: Option<EventLogger>) -> Result<Self, String> {
+    fn create(
+        config: SimulationConfig,
+        logger: Option<EventLogger>,
+        policy: Option<GoalPolicy>,
+    ) -> Result<Self, String> {
         let config = config.validate()?;
+        let goal_policy = policy
+            .unwrap_or_else(|| GoalPolicy::preset(config.strategy))
+            .validate()?;
+        let policy_rng = PortableRng::new(PortableRng::derive_seed(
+            config.scenario_seed,
+            "policy",
+            0,
+            None,
+        ));
         let mut simulation = Self {
             config,
             map: Vec::new(),
@@ -447,6 +530,9 @@ impl Simulation {
             navigation_visits: HashMap::new(),
             aggressive_target_id: None,
             growth_target_id: None,
+            goal_policy,
+            policy_rng,
+            selected_goal: None,
             player: Player::default(),
             stairs: Point::ZERO,
             turn: 0,
@@ -511,7 +597,9 @@ impl Simulation {
             "scenario_id": logger.scenario_id,
             "scenario_seed": self.config.scenario_seed,
             "strategy_id": self.config.strategy.id(),
-            "simulation_version": 7,
+            "simulation_version": 8,
+            "goal_policy": self.goal_policy,
+            "policy_seed": PortableRng::derive_seed(self.config.scenario_seed, "policy", 0, None),
             "comparison": false,
             "comparison_phase": 0,
         });
@@ -532,7 +620,7 @@ impl Simulation {
         };
         logger.sequence += 1;
         logger.events.push(RunLogEvent {
-            schema_version: 7,
+            schema_version: 8,
             time: logger.timestamp.clone(),
             event: event.to_owned(),
             run_id: logger.run_id.clone(),
@@ -617,6 +705,7 @@ impl Simulation {
         self.navigation_visits.clear();
         self.aggressive_target_id = None;
         self.growth_target_id = None;
+        self.selected_goal = None;
         self.navigation_visits.insert(self.player.pos, 1);
         self.stairs = self.rooms[self.rooms.len() - 1].center();
         if self.stairs == self.player.pos {
@@ -931,6 +1020,7 @@ impl Simulation {
                 target: json!({"kind": "inventory_item", "type": "health_potion"}),
                 selected_step_danger: Some(self.danger_cost(self.player.pos)),
                 progression: None,
+                goal_selection: None,
             });
         }
         if self.direction_to_adjacent_enemy().is_some() {
@@ -968,6 +1058,7 @@ impl Simulation {
             action_type: "move", target: json!(item),
             selected_step_danger: Some(self.danger_cost(self.player.pos + direction)),
                 progression: None,
+            goal_selection: None,
         })
     }
 
@@ -1181,14 +1272,25 @@ impl Simulation {
             item_decision.unwrap()
         } else {
             self.choose_windup_response()
-                .or_else(|| self.choose_bow_decision())
-                .or(item_decision)
+                .or_else(|| {
+                    if self.direction_to_adjacent_enemy().is_some() {
+                        Some(match self.config.strategy {
+                            Strategy::AggressiveV1 => self.choose_aggressive_decision(),
+                            Strategy::CautiousV1 => self.choose_cautious_decision(),
+                        })
+                    } else {
+                        self.choose_goal_decision()
+                    }
+                })
                 .unwrap_or_else(|| match self.config.strategy {
                     Strategy::AggressiveV1 => self.choose_aggressive_decision(),
                     Strategy::CautiousV1 => self.choose_cautious_decision(),
                 })
         };
-        if decision.rule_id == "hunt_nearest_enemy" {
+        if matches!(
+            decision.rule_id,
+            "hunt_nearest_enemy" | "seek_blocking_enemy"
+        ) {
             self.aggressive_target_id = decision.target["id"].as_str().map(str::to_owned);
         }
         if decision.rule_id == "hunt_for_growth" {
@@ -1196,6 +1298,7 @@ impl Simulation {
         } else if decision.rule_id == "descend_for_progress" {
             self.growth_target_id = None;
         }
+        // A dead/disappeared goal is re-evaluated on the next discretionary turn.
         let decision_id = self.emit_decision(&decision);
         if decision.action_type == "use_item" {
             self.use_health_potion(&decision_id);
@@ -1232,6 +1335,7 @@ impl Simulation {
                 rule_id: "interrupt_windup", reason: "The marked Brute can be killed now; interrupt its strike before the enemy phase.",
                 action_type: "attack", direction: enemy.pos - self.player.pos,
                 target: self.enemy_snapshot(enemy), selected_step_danger: Some(self.danger_cost(self.player.pos)), progression: None,
+            goal_selection: None,
             });
         }
         let mut best = None;
@@ -1257,6 +1361,7 @@ impl Simulation {
             rule_id: "evade_windup", reason: "A Brute marked this tile for its next heavy strike; leave the marked tile before it lands.",
             action_type: "move", direction, target: self.enemy_snapshot(enemy),
             selected_step_danger: Some(self.danger_cost(self.player.pos + direction)), progression: None,
+            goal_selection: None,
         })
     }
 
@@ -1266,6 +1371,7 @@ impl Simulation {
             && origin.distance_squared(target) <= BOW_RANGE * BOW_RANGE
             && self.has_line_of_sight(origin, target)
     }
+    #[cfg(test)]
     fn choose_bow_decision(&self) -> Option<Decision> {
         if self.weapon_kind() != "bow" || self.direction_to_adjacent_enemy().is_some() {
             return None;
@@ -1306,6 +1412,7 @@ impl Simulation {
             target: self.enemy_snapshot(enemy),
             selected_step_danger: Some(self.danger_cost(self.player.pos)),
             progression: None,
+            goal_selection: None,
         })
     }
     fn player_shoot(&mut self, enemy_id: &str, decision_id: &str) -> bool {
@@ -1342,6 +1449,7 @@ impl Simulation {
                 target: self.enemy_snapshot(enemy),
                 selected_step_danger: None,
                 progression: None,
+                goal_selection: None,
             };
         }
         if let Some(decision) = self.choose_progression_decision() {
@@ -1366,6 +1474,7 @@ impl Simulation {
                 target: self.enemy_snapshot(enemy),
                 selected_step_danger: None,
                 progression: None,
+                goal_selection: None,
             };
         }
         let direction = self
@@ -1388,6 +1497,7 @@ impl Simulation {
             target: json!({"kind": "stairs", "pos": self.stairs}),
             selected_step_danger: None,
             progression: None,
+            goal_selection: None,
         }
     }
 
@@ -1417,6 +1527,7 @@ impl Simulation {
                     target: self.enemy_snapshot(&self.enemies[enemy_index]),
                     selected_step_danger: Some(self.danger_cost(self.player.pos)),
                     progression: None,
+                    goal_selection: None,
                 };
             }
         }
@@ -1443,6 +1554,7 @@ impl Simulation {
                 target: json!({"kind": "stairs", "pos": self.stairs}),
                 selected_step_danger: Some(self.danger_cost(self.player.pos + direction)),
                 progression: None,
+                goal_selection: None,
             };
         }
         if let Some(direction) = adjacent_direction {
@@ -1457,7 +1569,23 @@ impl Simulation {
                 target: self.enemy_snapshot(&self.enemies[enemy_index]),
                 selected_step_danger: Some(self.danger_cost(self.player.pos)),
                 progression: None,
+                goal_selection: None,
             };
+        }
+        if !self.enemies.is_empty() {
+            let (enemy, direction) = self.aggressive_pursuit();
+            if direction != Point::ZERO {
+                return Decision {
+                    direction,
+                    rule_id: "seek_blocking_enemy",
+                    reason: "The stairs route is blocked; approach a reachable enemy to reopen it.",
+                    action_type: "move",
+                    target: self.enemy_snapshot(enemy),
+                    selected_step_danger: Some(self.danger_cost(self.player.pos + direction)),
+                    progression: None,
+                    goal_selection: None,
+                };
+            }
         }
         Decision {
             direction: Point::ZERO,
@@ -1467,6 +1595,7 @@ impl Simulation {
             target: json!({"kind": "stairs", "pos": self.stairs}),
             selected_step_danger: Some(self.danger_cost(self.player.pos)),
             progression: None,
+            goal_selection: None,
         }
     }
 
@@ -1532,6 +1661,296 @@ impl Simulation {
                 _ => 0,
             })
             .sum()
+    }
+
+    fn goal_evaluation(
+        &self,
+        kind: &str,
+        id: &str,
+        benefit: i32,
+        damage: i32,
+        turns: i32,
+        repeated: i32,
+    ) -> Value {
+        let remaining = self.player.hp - damage;
+        let risk = damage * 20 / self.player.hp.max(1) + (6 - remaining).max(0) * 4;
+        let utility = benefit - risk - turns - repeated;
+        json!({"kind": kind, "id": id, "benefit": benefit, "estimated_damage": damage,
+            "risk": risk, "turns": turns, "revisit_penalty": repeated, "utility": utility,
+            "eligible": remaining > 0 && self.goal_policy.weight(kind) > 0,
+            "rejection": if remaining <= 0 { "estimated_lethal" } else if self.goal_policy.weight(kind) == 0 { "disabled" } else { "" }})
+    }
+    fn goal_candidates(&self) -> Vec<GoalCandidate> {
+        let mut candidates = Vec::new();
+        for enemy in &self.enemies {
+            let Some(route) = self.progression_route(enemy.pos, 12) else {
+                continue;
+            };
+            let hit_damage = Self::damage(self.effective_attack(), enemy.defense);
+            let attack_turns = (enemy.hp + hit_damage - 1) / hit_damage;
+            let xp_gain = if enemy.kind != EnemyKind::Melee { 5 } else { 3 };
+            let mut projected_xp = self.player.xp + xp_gain;
+            let mut projected_level = self.player.level;
+            while projected_xp >= projected_level * 8 {
+                projected_xp -= projected_level * 8;
+                projected_level += 1;
+            }
+            let levels_gained = projected_level - self.player.level;
+            let mut approach = Vec::new();
+            if !self.can_player_shoot_from(self.player.pos, enemy.pos) {
+                for pos in &route[..route.len() - 1] {
+                    approach.push(*pos);
+                    if self.can_player_shoot_from(*pos, enemy.pos) {
+                        break;
+                    }
+                }
+            }
+            let attack_pos = approach.last().copied().unwrap_or(self.player.pos);
+            let retaliation_turns = if enemy.kind == EnemyKind::Brute {
+                let contact_turns =
+                    (attack_turns - 1 - 2 * (attack_pos.manhattan_distance(enemy.pos) - 1).max(0))
+                        .max(0);
+                (contact_turns + i32::from(enemy.windup_target == Some(attack_pos))) / 2
+            } else if enemy.kind == EnemyKind::Melee {
+                (attack_turns - attack_pos.manhattan_distance(enemy.pos)).max(0)
+            } else {
+                attack_turns - 1
+            };
+            let target_attack =
+                if enemy.kind != EnemyKind::Archer || attack_pos.distance_squared(enemy.pos) > 2 {
+                    enemy.attack
+                } else {
+                    1
+                };
+            let mut damage =
+                retaliation_turns * Self::damage(target_attack, self.effective_defense());
+            damage += attack_turns * self.incoming_damage_at(attack_pos, Some(&enemy.id));
+            let mut repeated_cost = 0;
+            for pos in &approach {
+                damage += self.incoming_damage_at(*pos, None);
+                repeated_cost += self.revisit_cost(*pos);
+            }
+
+            let benefit = xp_gain as i32 * 2
+                + 2
+                + levels_gained as i32 * (8 + (MAX_DEPTH - 1 - self.player.depth) as i32 * 6);
+            let mut direction = if self.can_player_shoot_from(self.player.pos, enemy.pos) {
+                Point::ZERO
+            } else {
+                self.find_goal_step_toward(
+                    enemy.pos,
+                    self.config.strategy == Strategy::CautiousV1,
+                    true,
+                )
+                .unwrap_or(Point::ZERO)
+            };
+            if direction == Point::ZERO && !self.can_player_shoot_from(self.player.pos, enemy.pos) {
+                continue;
+            }
+            // After dodging, let the slow Brute close the final tile. Re-entering
+            // its reach would start another windup before we can land a hit.
+            if self.config.strategy == Strategy::CautiousV1
+                && enemy.kind == EnemyKind::Brute
+                && !self.can_player_shoot_from(self.player.pos, enemy.pos)
+                && self.player.pos.manhattan_distance(enemy.pos) == 2
+                && self.can_enemy_see_player(enemy.pos)
+            {
+                let next =
+                    enemy.pos + self.choose_enemy_step(enemy.pos, self.player.pos - enemy.pos);
+                if next != enemy.pos
+                    && self.enemy_at(next).is_none()
+                    && next.manhattan_distance(self.player.pos) == 1
+                {
+                    direction = Point::ZERO;
+                }
+            }
+            candidates.push(GoalCandidate {
+                kind: "enemy",
+                id: enemy.id.clone(),
+                direction,
+                target: self.enemy_snapshot(enemy),
+                ranged: self.can_player_shoot_from(self.player.pos, enemy.pos),
+                evaluation: self.goal_evaluation(
+                    "enemy",
+                    &enemy.id,
+                    benefit,
+                    damage,
+                    approach.len() as i32 + attack_turns,
+                    repeated_cost,
+                ),
+            });
+        }
+        for item in &self.items {
+            if !self.wants_item(item) {
+                continue;
+            }
+            let Some(route) = self.progression_route(item.pos, 12) else {
+                continue;
+            };
+            let Some(direction) = self.find_goal_step_toward(
+                item.pos,
+                self.config.strategy == Strategy::CautiousV1,
+                true,
+            ) else {
+                continue;
+            };
+            let damage = route
+                .iter()
+                .map(|p| self.incoming_damage_at(*p, None))
+                .sum();
+            let repeated = route.iter().map(|p| self.revisit_cost(*p)).sum();
+            let benefit = match item.kind {
+                "health_potion" => {
+                    POTION_HEAL.min(self.player.max_hp - self.player.hp) * 2
+                        + (INVENTORY_CAPACITY - self.player.inventory.health_potion) as i32 * 4
+                }
+                "armor" => (item.defense_bonus - self.defense_bonus()).max(0) * 8,
+                _ => {
+                    let raw = self.player.base_attack + item.attack_bonus;
+                    let attack = if item.weapon_kind == Some("bow") {
+                        (raw / 2).max(1)
+                    } else {
+                        raw
+                    };
+                    (attack - self.effective_attack()).max(0) * 6
+                        + self.item_priority(item) as i32 * 8
+                }
+            };
+            candidates.push(GoalCandidate {
+                kind: "item",
+                id: item.id.clone(),
+                direction,
+                target: json!(item),
+                ranged: false,
+                evaluation: self.goal_evaluation(
+                    "item",
+                    &item.id,
+                    benefit,
+                    damage,
+                    route.len() as i32,
+                    repeated,
+                ),
+            });
+        }
+        if let Some(route) = self.progression_route(
+            self.stairs,
+            (self.config.map_width * self.config.map_height) as usize,
+        ) {
+            if let Some(direction) = self.find_low_risk_step_toward(self.stairs) {
+                let damage = route
+                    .iter()
+                    .map(|p| self.incoming_damage_at(*p, None))
+                    .sum();
+                let repeated = route.iter().map(|p| self.revisit_cost(*p)).sum();
+                let benefit = 8
+                    + 4.min(self.player.max_hp - self.player.hp) * 2
+                    + if self.player.depth == MAX_DEPTH - 1 {
+                        20
+                    } else {
+                        0
+                    };
+                candidates.push(GoalCandidate {
+                    kind: "stairs",
+                    id: "stairs".into(),
+                    direction,
+                    target: json!({"kind": "stairs", "pos": self.stairs}),
+                    ranged: false,
+                    evaluation: self.goal_evaluation(
+                        "stairs",
+                        "stairs",
+                        benefit,
+                        damage,
+                        route.len().min(8) as i32,
+                        repeated,
+                    ),
+                });
+            }
+        }
+        candidates
+    }
+    fn choose_goal_decision(&mut self) -> Option<Decision> {
+        let candidates = self.goal_candidates();
+        let eligible = |c: &GoalCandidate| c.evaluation["eligible"].as_bool() == Some(true);
+        let retained = self.selected_goal.as_ref().and_then(|(kind, id, hp)| {
+            if (self.player.hp - hp).abs() >= 4 {
+                return None;
+            }
+            candidates
+                .iter()
+                .find(|c| c.kind == kind && c.id == *id && eligible(c))
+                .cloned()
+        });
+        let mut lottery = Vec::new();
+        for kind in ["enemy", "item", "stairs"] {
+            let mut best: Option<&GoalCandidate> = None;
+            for candidate in candidates.iter().filter(|c| c.kind == kind && eligible(c)) {
+                if best.is_none_or(|b| {
+                    candidate.evaluation["utility"].as_i64() > b.evaluation["utility"].as_i64()
+                }) {
+                    best = Some(candidate);
+                }
+            }
+            if let Some(best) = best {
+                lottery.push(best.clone());
+            }
+        }
+        if lottery.is_empty() {
+            self.selected_goal = None;
+            return None;
+        }
+        let max_utility = lottery
+            .iter()
+            .map(|c| c.evaluation["utility"].as_i64().unwrap() as i32)
+            .max()
+            .unwrap();
+        let masses: Vec<u32> = lottery
+            .iter()
+            .map(|c| {
+                goal_mass(
+                    self.goal_policy.weight(c.kind),
+                    max_utility - c.evaluation["utility"].as_i64().unwrap() as i32,
+                    self.goal_policy.temperature,
+                )
+            })
+            .collect();
+        let total: u32 = masses.iter().sum();
+        let before = self.policy_rng.state;
+        let draw = if retained.is_some() {
+            None
+        } else {
+            Some(self.policy_rng.range_inclusive(0, total as i32 - 1))
+        };
+        let selected = if let Some(c) = &retained {
+            c.clone()
+        } else {
+            let mut cursor = draw.unwrap() as u32;
+            let index = masses
+                .iter()
+                .position(|mass| {
+                    if cursor < *mass {
+                        true
+                    } else {
+                        cursor -= mass;
+                        false
+                    }
+                })
+                .unwrap();
+            lottery[index].clone()
+        };
+        if retained.is_none() {
+            self.selected_goal = Some((selected.kind.into(), selected.id.clone(), self.player.hp));
+        }
+        let distribution: Vec<Value> = lottery
+            .iter()
+            .zip(&masses)
+            .map(|(c, mass)| json!({"kind":c.kind,"id":c.id,"mass":mass,"total_mass":total}))
+            .collect();
+        let selection = json!({"selected_kind":selected.kind, "selected_id":selected.id, "target_retained":retained.is_some(),
+            "draw":draw, "rng_before":before,"rng_after":self.policy_rng.state,"distribution":distribution,
+            "candidates": candidates.iter().map(|c| c.evaluation.clone()).collect::<Vec<_>>()});
+        Some(Decision { direction:selected.direction, rule_id:"weighted_goal", reason:"Select a goal using category preferences and benefit minus risk; retain a viable target until completion or a material HP change.",
+            action_type:if selected.ranged {"ranged_attack"} else {"move"}, target:selected.target,
+            selected_step_danger:Some(self.danger_cost(self.player.pos + selected.direction)), progression:None, goal_selection:Some(selection) })
     }
 
     fn choose_progression_decision(&self) -> Option<Decision> {
@@ -1673,6 +2092,7 @@ impl Simulation {
                 json!({"kind": "stairs", "pos": self.stairs})
             },
             progression: Some(comparison),
+            goal_selection: None,
         })
     }
 
@@ -1702,6 +2122,9 @@ impl Simulation {
         });
         if let Some(progression) = &decision.progression {
             observation["progression"] = progression.clone();
+        }
+        if let Some(selection) = &decision.goal_selection {
+            observation["goal_selection"] = selection.clone();
         }
         if decision.action_type == "move" {
             observation["selected_step_revisit_cost"] =
@@ -1767,6 +2190,14 @@ impl Simulation {
     }
 
     fn find_weighted_step_toward(&self, destination: Point, use_danger: bool) -> Option<Point> {
+        self.find_goal_step_toward(destination, use_danger, false)
+    }
+    fn find_goal_step_toward(
+        &self,
+        destination: Point,
+        use_danger: bool,
+        avoid_stairs: bool,
+    ) -> Option<Point> {
         let start = self.player.pos;
         let mut frontier = vec![start];
         let mut came_from = HashMap::from([(start, start)]);
@@ -1784,7 +2215,9 @@ impl Simulation {
             }
             for direction in DIRECTIONS {
                 let next = current + direction;
-                if !self.is_path_walkable(next, destination) {
+                if !self.is_path_walkable(next, destination)
+                    || (avoid_stairs && next == self.stairs)
+                {
                     continue;
                 }
                 let danger = if use_danger {
@@ -2313,6 +2746,104 @@ mod tests {
     use super::*;
 
     #[test]
+    fn weighted_policy_preferences_sampling_and_rng_isolation() {
+        assert!(GoalPolicy {
+            enemy_weight: 0,
+            item_weight: 0,
+            stairs_weight: 0,
+            temperature: 8
+        }
+        .validate()
+        .is_err());
+        assert!(GoalPolicy {
+            enemy_weight: 1001,
+            ..GoalPolicy::preset(Strategy::AggressiveV1)
+        }
+        .validate()
+        .is_err());
+        assert_eq!(goal_mass(4, 0, 8), 4000);
+        assert_eq!(goal_mass(1, 8, 8), 368);
+        assert_eq!(goal_mass(1, 10000, 8), 1);
+        assert_eq!(goal_mass(0, 0, 8), 0);
+        let mut sim = item_test_simulation(Strategy::AggressiveV1);
+        sim.enemies.push(Enemy {
+            id: "target".into(),
+            kind: EnemyKind::Melee,
+            windup_target: None,
+            pos: Point { x: 5, y: 2 },
+            hp: 5,
+            attack: 1,
+            defense: 0,
+        });
+        let mut enemy_choices = 0;
+        let mut stairs_choices = 0;
+        for seed in 1..=1000 {
+            sim.selected_goal = None;
+            sim.policy_rng = PortableRng::new(PortableRng::derive_seed(seed, "policy", 0, None));
+            let d = sim.choose_goal_decision().unwrap();
+            let selection = d.goal_selection.unwrap();
+            if selection["selected_kind"] == "enemy" {
+                enemy_choices += 1;
+            } else {
+                stairs_choices += 1;
+            }
+            let distribution = selection["distribution"].as_array().unwrap();
+            assert_eq!(distribution.len(), 2);
+            assert_eq!(
+                distribution
+                    .iter()
+                    .map(|v| v["mass"].as_u64().unwrap())
+                    .sum::<u64>(),
+                distribution[0]["total_mass"]
+            );
+        }
+        assert!(
+            enemy_choices > stairs_choices && stairs_choices > 20,
+            "lower priority must still be selectable"
+        );
+        let before = sim.policy_rng.state;
+        let retained = sim.choose_goal_decision().unwrap().goal_selection.unwrap();
+        assert_eq!(retained["target_retained"], true);
+        assert!(retained["draw"].is_null());
+        assert_eq!(sim.policy_rng.state, before);
+        sim.player.hp -= 4;
+        assert_eq!(
+            sim.choose_goal_decision().unwrap().goal_selection.unwrap()["target_retained"],
+            false
+        );
+        let a = Simulation::new_with_policy(sim.config, GoalPolicy::preset(Strategy::AggressiveV1))
+            .unwrap();
+        let b = Simulation::new_with_policy(sim.config, GoalPolicy::preset(Strategy::CautiousV1))
+            .unwrap();
+        assert_eq!(a.map, b.map);
+        assert_eq!(a.enemies, b.enemies);
+        assert_eq!(a.items, b.items);
+    }
+    #[test]
+    fn cautious_brute_goal_waits_after_dodge_and_makes_combat_progress() {
+        let mut sim = item_test_simulation(Strategy::CautiousV1);
+        sim.goal_policy = GoalPolicy {
+            enemy_weight: 1,
+            item_weight: 0,
+            stairs_weight: 0,
+            temperature: 8,
+        };
+        sim.enemies.push(test_brute(Point { x: 4, y: 2 }));
+        let before = sim.player.hp;
+        for _ in 0..30 {
+            if sim.enemies.is_empty() {
+                break;
+            }
+            sim.run_auto_player_turn();
+        }
+        assert!(
+            sim.enemies.is_empty(),
+            "approach / windup / evasion must not loop indefinitely"
+        );
+        assert_eq!(sim.player.hp, before);
+    }
+
+    #[test]
     fn portable_random_vectors_match_v1() {
         assert_eq!(PortableRng::fnv1a_32(""), 2_166_136_261);
         assert_eq!(PortableRng::fnv1a_32("hello"), 1_335_831_723);
@@ -2359,7 +2890,7 @@ mod tests {
         assert_eq!(logged_run.events[2].event, "user_action");
         assert_eq!(logged_run.events[3].event, "decision");
         assert_eq!(logged_run.events[0].sequence, 1);
-        assert_eq!(logged_run.events[0].schema_version, 7);
+        assert_eq!(logged_run.events[0].schema_version, 8);
     }
 
     fn item_test_simulation(strategy: Strategy) -> Simulation {
@@ -3046,7 +3577,7 @@ mod tests {
     }
 
     #[test]
-    fn aggressive_growth_remembers_target_and_abandons_unsafe_or_repeated_fights() {
+    fn weighted_enemy_goal_retains_target_and_rejects_lethal_fights() {
         let mut sim = item_test_simulation(Strategy::AggressiveV1);
         sim.enemies = vec![Enemy {
             id: "first".to_owned(),
@@ -3057,8 +3588,17 @@ mod tests {
             attack: 1,
             defense: 0,
         }];
-        sim.run_auto_player_turn();
-        assert_eq!(sim.growth_target_id.as_deref(), Some("first"));
+        sim.goal_policy = GoalPolicy {
+            enemy_weight: 1,
+            item_weight: 0,
+            stairs_weight: 0,
+            temperature: 8,
+        };
+        sim.choose_goal_decision().unwrap();
+        assert_eq!(
+            sim.selected_goal.as_ref().map(|g| g.1.as_str()),
+            Some("first")
+        );
         // Choose a closer, equally rewarding enemy, but retain the viable target.
         sim.enemies[0].pos = Point { x: 7, y: 2 };
         sim.enemies.push(Enemy {
@@ -3070,20 +3610,21 @@ mod tests {
             attack: 1,
             defense: 0,
         });
-        assert_eq!(sim.choose_aggressive_decision().target["id"], "first");
+        assert_eq!(sim.choose_goal_decision().unwrap().target["id"], "first");
         sim.enemies[0].hp = 100;
         sim.enemies[0].attack = 20;
-        assert_ne!(sim.choose_aggressive_decision().target["id"], "first");
+        assert_ne!(sim.choose_goal_decision().unwrap().target["id"], "first");
         sim.enemies.truncate(1);
         sim.enemies[0].hp = 5;
         sim.enemies[0].attack = 1;
         sim.navigation_visits.insert(Point { x: 4, y: 2 }, 10);
+        assert_eq!(sim.choose_goal_decision().unwrap().target["id"], "first");
         assert_eq!(
-            sim.choose_aggressive_decision().rule_id,
-            "descend_for_progress"
+            sim.choose_goal_decision().unwrap().goal_selection.unwrap()["target_retained"],
+            true
         );
         sim.new_floor();
-        assert!(sim.growth_target_id.is_none());
+        assert!(sim.selected_goal.is_none());
     }
 
     #[test]
@@ -3128,27 +3669,41 @@ mod tests {
             sim.map[wall.y as usize][wall.x as usize] = false;
         }
         sim.enemies = vec![enemy("first", 8, 2), enemy("second", 2, 9)];
-        sim.run_auto_player_turn();
-        assert_eq!(sim.aggressive_target_id.as_deref(), Some("first"));
+        sim.goal_policy = GoalPolicy {
+            enemy_weight: 1,
+            item_weight: 0,
+            stairs_weight: 0,
+            temperature: 8,
+        };
+        sim.choose_goal_decision().unwrap();
+        assert_eq!(
+            sim.selected_goal.as_ref().map(|g| g.1.as_str()),
+            Some("first")
+        );
         // Another enemy becomes closer; the pursuit must not reverse.
         sim.enemies[1].pos = Point { x: 3, y: 5 };
-        assert_eq!(sim.choose_aggressive_decision().target["id"], "first");
+        assert_eq!(sim.choose_goal_decision().unwrap().target["id"], "first");
         // Healing does not erase the pursuit.
         sim.player.inventory.health_potion = 1;
         sim.player.hp = 9;
         sim.run_auto_player_turn();
-        assert_eq!(sim.aggressive_target_id.as_deref(), Some("first"));
-        assert_eq!(sim.choose_aggressive_decision().target["id"], "first");
+        assert_eq!(
+            sim.selected_goal.as_ref().map(|g| g.1.as_str()),
+            Some("first")
+        );
+        // Healing preserves memory, then a material HP change allows a new draw.
+        sim.selected_goal.as_mut().unwrap().2 = sim.player.hp;
+        assert_eq!(sim.choose_goal_decision().unwrap().target["id"], "first");
         let locked = sim.enemies[0].pos;
         for direction in DIRECTIONS {
             let wall = locked + direction;
             sim.map[wall.y as usize][wall.x as usize] = false;
         }
-        assert_eq!(sim.choose_aggressive_decision().target["id"], "second");
+        assert_eq!(sim.choose_goal_decision().unwrap().target["id"], "second");
         sim.enemies.remove(0);
-        assert_eq!(sim.choose_aggressive_decision().target["id"], "second");
+        assert_eq!(sim.choose_goal_decision().unwrap().target["id"], "second");
         sim.new_floor();
-        assert!(sim.aggressive_target_id.is_none());
+        assert!(sim.selected_goal.is_none());
     }
 
     #[test]
@@ -3170,17 +3725,18 @@ mod tests {
             .iter()
             .filter(|event| event.event == "decision")
             .collect();
-        for window in decisions.windows(3) {
-            let cycling = window.iter().all(|event| {
-                matches!(
-                    event.details["rule_id"].as_str(),
-                    Some("hunt_nearest_enemy" | "hunt_for_growth")
-                )
-            }) && window[0].player_state["pos"] == window[2].player_state["pos"]
+        for window in decisions.windows(12) {
+            let cycling = window
+                .iter()
+                .all(|event| event.details["action"]["type"] == "move")
+                && window
+                    .iter()
+                    .enumerate()
+                    .all(|(i, e)| e.player_state["pos"] == window[i % 2].player_state["pos"])
                 && window[0].player_state["pos"] != window[1].player_state["pos"];
             assert!(
                 !cycling,
-                "Aggressive reversed between two tiles in seed 301"
+                "Aggressive sustained a two-tile movement cycle in seed 301"
             );
         }
     }

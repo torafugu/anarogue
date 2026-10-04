@@ -59,6 +59,17 @@ export interface EnemySnapshot {
   distance_squared?: number;
 }
 
+export interface GoalSelection {
+  selected_kind: string;
+  selected_id: string;
+  target_retained: boolean;
+  draw: number | null;
+  rng_before: number;
+  rng_after: number;
+  distribution: {kind: string; id: string; mass: number; total_mass: number}[];
+  candidates: {kind: string; id: string; benefit: number; estimated_damage: number; risk: number; turns: number; revisit_penalty: number; utility: number; eligible: boolean; rejection: string}[];
+}
+
 export interface ProgressionComparison {
   stairs_steps: number;
   stairs_healing: number;
@@ -104,6 +115,7 @@ export interface DecisionDetails {
     level?: number;
     xp?: number;
     xp_to_next_level?: number;
+    goal_selection?: GoalSelection;
     progression?: ProgressionComparison;
   };
   action: {
@@ -223,7 +235,7 @@ export function parseJsonLines(source: string): ParsedLog {
     }
 
     const event = normalizeEvent(raw, index + 1);
-    if (event.schema_version !== 1 && event.schema_version !== 2 && event.schema_version !== 3 && event.schema_version !== 4 && event.schema_version !== 5 && event.schema_version !== 6 && event.schema_version !== 7) {
+    if (event.schema_version !== 1 && event.schema_version !== 2 && event.schema_version !== 3 && event.schema_version !== 4 && event.schema_version !== 5 && event.schema_version !== 6 && event.schema_version !== 7 && event.schema_version !== 8) {
       warnings.push(
         `Run ${event.run_id} contains legacy or unsupported schema data.`,
       );

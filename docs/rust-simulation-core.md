@@ -1,6 +1,6 @@
 # Rust Simulation Core
 
-`simulation-core/` is the Godot-independent implementation of AnaRogue's v7
+`simulation-core/` is the Godot-independent implementation of AnaRogue's v8
 simulation rules. Godot remains the presentation and replay client; this crate is
 the starting point for batch execution, a server API, and future machine-learning
 interfaces.
@@ -17,7 +17,7 @@ The Rust core owns deterministic state transitions:
 - floor transitions and run termination at a turn budget.
 
 It deliberately does not own rendering or UI input. The CLI supplies run metadata
-and an optional log path; the core emits the same Schema v7 event categories used
+and an optional log path; the core emits the same Schema v8 event categories used
 by the Godot replay client.
 
 ## Run
@@ -36,7 +36,7 @@ cargo run -- \
 The command prints one JSON summary. The map dimensions are independent inputs;
 they are not encoded into or substituted for the scenario seed.
 
-Add `--output PATH` to write a replayable Schema v7 JSONL log while retaining the
+Add `--output PATH` to write a replayable Schema v8 JSONL log while retaining the
 summary on standard output. On macOS, write directly to the Godot project data
 directory so the replay selector can discover it:
 
@@ -60,9 +60,26 @@ cargo test --all-targets
 ```
 
 The test suite checks the published FNV-1a/xorshift32 vectors and runs all six
-cases from `examples/reference-v7/manifest-v7.json` against the Godot event-stream and final-state
+cases from `examples/reference-v8/manifest-v8.json` against the Godot event-stream and final-state
 baseline. GitHub Actions runs these tests independently of the Godot job.
 
 The parity tests use the committed Godot reference logs and summaries.
 CI additionally generates a Rust log and validates every event against the shared
-Schema v7 contract and stream invariants.
+Schema v8 contract and stream invariants.
+
+## Goal policy overrides
+
+The CLI accepts `--enemy-weight`, `--item-weight`, `--stairs-weight` (0–1000,
+at least one positive) and `--temperature` (1–100). Unspecified values come from
+the strategy preset, regardless of option order. The Rust API exposes
+`GoalPolicy`, `new_with_policy` and `new_logged_with_policy`.
+
+```sh
+cargo run --manifest-path simulation-core/Cargo.toml -- --strategy cautious \
+  --seed 27 --width 44 --height 28 --max-turns 500 \
+  --enemy-weight 2 --item-weight 3 --stairs-weight 4 --temperature 12 \
+  --output logs/custom-goals.jsonl
+```
+
+The Godot headless runner accepts the same four policy flags. See
+[simulation v8](simulation-spec-v8.md) for exact estimates and probability masses.

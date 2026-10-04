@@ -9,7 +9,7 @@ Each action you take advances the game by one turn. Move carefully, watch your H
 ## Starting the Game
 
 1. Open `game/` in Godot 4 and run the project to open the replay client.
-2. Select a JSONL log, or use the bundled v7 reference. Pickup and healing have their own frames.
+2. Select a JSONL log, or use the bundled v8 reference. Pickup and healing have their own frames.
 3. For a live run, select `Live check` (`res://scenes/main.tscn`); it starts on Depth 1.
 4. Choose an automatic strategy on the right side of the screen.
 5. Click `Start selected strategy`, or run both strategies with
@@ -212,7 +212,7 @@ bonus unchanged. The replay and web viewer show these components separately.
 Each playable floor places one melee weapon, one bow and one armor when a free tile is available.
 Weapon bonus is depth + 1; armor bonus is floor((depth + 1) / 2). Aggressive looks
 for upgrades within eight steps; Cautious within four fully safe steps. Emergency
-healing estimates damage after armor. New runs use Schema v7; earlier logs remain readable and retain their recorded outcomes.
+healing estimates damage after armor. New runs use Schema v8; earlier logs remain readable and retain their recorded outcomes.
 
 ## Growth and descent decisions
 
@@ -229,7 +229,7 @@ XP reward, projected levels, attack count, estimated damage, revisit penalties,
 scores and reasons a fight was skipped. Comparison cards show final level and XP.
 The scores are policy preferences, not actual score rewards. Damage is a static
 estimate using current enemy positions; it does not guarantee survival. Generate
-a new v7 log to see this behavior; earlier logs retain their original decisions.
+a new v8 log to see this behavior; earlier logs retain their original decisions.
 
 ## Player bows
 
@@ -249,7 +249,7 @@ account for low bow damage and melee enemies closing the gap. Archer movement
 can still change actual costs.
 
 Godot replay draws Player arrows in yellow and updates enemy HP / removal in the
-impact frame. Both viewers show weapon kind and range. Generate a new v7 log to
+impact frame. Both viewers show weapon kind and range. Generate a new v8 log to
 see bows; historical logs keep their recorded behavior.
 
 ## Brute and strategy comparisons
@@ -269,3 +269,31 @@ For multiple seeds, use `tools/compare_strategies.py`; it writes a report, JSON
 and a per-run CSV. The [50-seed comparison](docs/strategy-comparison-v7.md) records
 44/50 clears for Aggressive and 47/50 for Cautious on a 44×28 map. These results
 describe the listed scenarios rather than guaranteeing either policy is stronger.
+
+## Weighted exploration priorities (v8)
+
+Before starting a live run, select a preset and open **Goals: enemy … / items … /
+stairs … / T …**. Adjust each priority and the temperature, then apply. Weights
+range from 0 to 1000; zero disables discretionary selection of that category.
+At least one must be positive. Temperature ranges from 1 to 100; a higher value
+gives lower-utility goals more chances. Selecting another preset resets overrides;
+**Compare both** uses the two presets on the same seed.
+
+Aggressive starts at enemy/item/stairs **4/2/1**, Cautious at **1/2/4**, both with
+temperature **8**. These are preferences, not guaranteed proportions of actions.
+Weapon preference and emergency response still follow the preset.
+
+The player weighs XP and level growth, healing and equipment improvement, and
+stairs progress against estimated HP loss, travel and revisits. It draws a goal
+when needed and keeps the same target until completion, invalidation or an HP
+change of at least 4. Efficient/urgent healing, adjacent combat and marked Brute
+strikes take precedence. When pursuing a Brute, Cautious can wait after dodging
+so the slow enemy approaches before the next attack.
+
+Select a `weighted_goal` decision in the web viewer to see benefit, estimated
+damage, risk, utility and draw chances. Godot replay shows the same decision
+summary. **Retained** means no new draw occurred; displayed probabilities describe
+a hypothetical redraw. Old logs keep their original decisions.
+
+See [v8 comparison](docs/strategy-comparison-v8.md) for 50 paired seeds and
+[exact evaluation rules](docs/simulation-spec-v8.md) for estimates and limitations.

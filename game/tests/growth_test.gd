@@ -73,15 +73,16 @@ func run_tests() -> void:
 		row.fill(game.TILE_FLOOR)
 	game.stairs_pos = Vector2i(20, 15)
 	game.player["xp"] = 5
+	game.configure_goal_policy({"enemy_weight": 1, "item_weight": 0, "stairs_weight": 0})
 	game.run_auto_player_turn()
-	check(game.growth_target_id == "growth", "executing a growth decision records the target")
+	check(game.selected_goal.get("id") == "growth", "executing a growth decision records the target")
 	game.close_log_file()
 	var replay := ReplayData.new()
 	check(replay.load_file("/tmp/anarogue-growth-test.jsonl") == OK, "growth log replays")
 	var found := false
 	for frame in replay.frames:
-		if frame["rule_id"] == "hunt_for_growth":
-			found = frame["progression"]["selected"] == "combat"
+		if frame["rule_id"] == "weighted_goal":
+			found = frame["goal_selection"]["selected_kind"] == "enemy"
 	check(found, "replay preserves growth comparison")
 	game.new_floor()
 	check(game.growth_target_id.is_empty(), "floor changes clear growth target")
