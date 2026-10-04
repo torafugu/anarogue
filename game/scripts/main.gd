@@ -18,7 +18,7 @@ const ARROW_IMPACT_DURATION := 0.12
 const TILE_WALL := 0
 const TILE_FLOOR := 1
 const DEFAULT_LOG_FILE_PATH := "user://anarogue.jsonl"
-const LOG_SCHEMA_VERSION := 3
+const LOG_SCHEMA_VERSION := 4
 const POTION_HEAL := 8
 const INVENTORY_CAPACITY := 3
 const BASE_MAX_HP := 18
@@ -58,7 +58,9 @@ var player := {
 	"pos": Vector2i.ZERO,
 	"hp": 18,
 	"max_hp": 18,
-	"attack": 5,
+	"base_attack": 5,
+	"base_defense": 0,
+	"equipment": {"weapon": null, "armor": null},
 	"gold": 0,
 	"score": 0,
 	"level": 1,
@@ -224,7 +226,9 @@ func restart_game(reuse_scenario: bool = false, auto_start: bool = false) -> voi
 
 	player["max_hp"] = BASE_MAX_HP
 	player["hp"] = BASE_MAX_HP
-	player["attack"] = BASE_ATTACK
+	player["base_attack"] = BASE_ATTACK
+	player["base_defense"] = 0
+	player["equipment"] = {"weapon": null, "armor": null}
 	player["gold"] = 0
 	player["score"] = 0
 	player["level"] = 1
@@ -411,9 +415,57 @@ func spawn_items(item_rng: PortableRandom) -> void:
 			continue
 		var pos := candidates[item_rng.randi_range(0, candidates.size() - 1)]
 		items.append({"id": "item-%d-%d" % [player["depth"], room_index + 1], "type": "health_potion", "pos": pos})
+	spawn_equipment()
+
+func attack_bonus() -> int:
+	var weapon = player["equipment"]["weapon"]
+	return int(weapon["attack_bonus"]) if weapon != null else 0
+
+func defense_bonus() -> int:
+	var armor = player["equipment"]["armor"]
+	return int(armor["defense_bonus"]) if armor != null else 0
+
+func effective_attack() -> int:
+	return int(player["base_attack"]) + attack_bonus()
+
+func effective_defense() -> int:
+	return int(player["base_defense"]) + defense_bonus()
+
+func calculate_damage(attack: int, defense: int) -> int:
+	return maxi(1, attack - defense)
+
+func wants_item(item: Dictionary) -> bool:
+	match item["type"]:
+		"health_potion": return player["inventory"]["health_potion"] < INVENTORY_CAPACITY
+		"weapon": return int(item.get("attack_bonus", 0)) > attack_bonus()
+		"armor": return int(item.get("defense_bonus", 0)) > defense_bonus()
+	return false
+
+func spawn_equipment() -> void:
+	var equipment_rng := PortableRandom.new(derived_seed("equipment", player["depth"]))
+	for kind in ["weapon", "armor"]:
+		var room_index := 0 if kind == "weapon" else mini(rooms.size(), 2) - 1
+		var room := rooms[room_index]
+		var candidates: Array[Vector2i] = []
+		for y in range(room.position.y + 1, room.end.y - 1):
+			for x in range(room.position.x + 1, room.end.x - 1):
+				var pos := Vector2i(x, y)
+				var occupied := false
+				for item in items:
+					if item["pos"] == pos:
+						occupied = true
+				if pos != player["pos"] and pos != stairs_pos and enemy_at(pos) == -1 and not occupied:
+					candidates.append(pos)
+		if candidates.is_empty():
+			continue
+		var pos := candidates[equipment_rng.randi_range(0, candidates.size() - 1)]
+		items.append({"id": "%s-%d" % [kind, player["depth"]], "type": kind, "pos": pos,
+			"attack_bonus": int(player["depth"]) + 1 if kind == "weapon" else 0,
+			"defense_bonus": (int(player["depth"]) + 1) / 2 if kind == "armor" else 0})
 
 func item_to_log(item: Dictionary) -> Dictionary:
-	return {"id": item["id"], "type": item["type"], "pos": vector_to_log(item["pos"])}
+	return {"id": item["id"], "type": item["type"], "pos": vector_to_log(item["pos"]),
+		"attack_bonus": int(item.get("attack_bonus", 0)), "defense_bonus": int(item.get("defense_bonus", 0))}
 
 func items_to_log() -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
@@ -422,20 +474,31 @@ func items_to_log() -> Array[Dictionary]:
 	return result
 
 func pick_up_items(decision_id: String = "") -> void:
-	if player["inventory"]["health_potion"] >= INVENTORY_CAPACITY:
-		return
-	for index in range(items.size()):
-		if items[index]["pos"] != player["pos"]:
-			continue
+	var index := 0
+	while index < items.size():
 		var item := items[index]
+		if item["pos"] != player["pos"] or not wants_item(item):
+			index += 1
+			continue
 		items.remove_at(index)
-		player["inventory"]["health_potion"] += 1
-		log_event("item_result", {
-			"result": "item_picked_up", "item": item_to_log(item),
-			"inventory": player["inventory"].duplicate(), "decision_id": decision_id,
-		})
-		add_message("Picked up a health potion.")
-		return
+		if item["type"] == "health_potion":
+			player["inventory"]["health_potion"] += 1
+			log_event("item_result", {"result": "item_picked_up", "item": item_to_log(item),
+				"inventory": player["inventory"].duplicate(), "decision_id": decision_id})
+			add_message("Picked up a health potion.")
+			continue
+		var slot: String = item["type"]
+		var previous = player["equipment"][slot]
+		player["equipment"][slot] = {"id": item["id"], "type": slot,
+			"attack_bonus": int(item.get("attack_bonus", 0)), "defense_bonus": int(item.get("defense_bonus", 0))}
+		if previous != null:
+			var dropped: Dictionary = previous.duplicate(true)
+			dropped["pos"] = player["pos"]
+			items.append(dropped)
+		log_event("item_result", {"result": "item_equipped", "item": item_to_log(item),
+			"previous_equipment": previous, "equipment": player["equipment"].duplicate(true),
+			"items": items_to_log(), "inventory": player["inventory"].duplicate(), "decision_id": decision_id})
+		add_message("Equipped %s." % slot)
 
 func use_health_potion(decision_id: String = "") -> void:
 	if game_over or player["inventory"]["health_potion"] == 0 or player["hp"] >= player["max_hp"]:
@@ -465,13 +528,13 @@ func choose_item_decision(decision_id: String) -> Dictionary:
 		var enemy_pos: Vector2i = enemy["pos"]
 		var delta := enemy_pos - player_pos
 		if enemy["type"] == "melee" and absi(delta.x) + absi(delta.y) == 1:
-			incoming += int(enemy["attack"])
-		elif enemy["type"] == "archer":
+			incoming += calculate_damage(int(enemy["attack"]), effective_defense())
+		elif enemy["type"] == "archer" and has_line_of_sight(enemy_pos, player_pos):
 			var distance := enemy_pos.distance_squared_to(player_pos)
 			if distance <= 2:
-				incoming += 1
+				incoming += calculate_damage(1, effective_defense())
 			elif distance <= 49:
-				incoming += int(enemy["attack"])
+				incoming += calculate_damage(int(enemy["attack"]), effective_defense())
 	if player["inventory"]["health_potion"] > 0 and player["hp"] < player["max_hp"] and (
 		player["max_hp"] - player["hp"] >= POTION_HEAL
 		or player["hp"] * threshold <= player["max_hp"] or player["hp"] <= incoming
@@ -483,13 +546,15 @@ func choose_item_decision(decision_id: String) -> Dictionary:
 			"action_type": "use_item", "target": {"kind": "inventory_item", "type": "health_potion"},
 			"selected_step_danger": danger_cost(player_pos),
 		}
-	if player["inventory"]["health_potion"] >= INVENTORY_CAPACITY or direction_to_adjacent_enemy() != Vector2i.ZERO:
+	if direction_to_adjacent_enemy() != Vector2i.ZERO:
 		return {}
 	if cautious and danger_cost(player_pos) > 0:
 		return {}
 	var limit := 4 if cautious else 8
 	var best: Dictionary = {}
 	for item in items:
+		if not wants_item(item):
+			continue
 		var route := item_route(item["pos"], limit, cautious)
 		if not route.is_empty() and (best.is_empty() or route["steps"] < best["steps"]):
 			best = route
@@ -497,10 +562,11 @@ func choose_item_decision(decision_id: String) -> Dictionary:
 	if best.is_empty():
 		return {}
 	var direction: Vector2i = best["direction"]
+	var is_potion: bool = best["item"]["type"] == "health_potion"
 	return {
 		"decision_id": decision_id, "direction": direction,
-		"rule_id": "cautious_collect_potion" if cautious else "collect_nearby_potion",
-		"reason": (
+		"rule_id": ("cautious_collect_potion" if cautious else "collect_nearby_potion") if is_potion else ("cautious_collect_equipment" if cautious else "collect_nearby_equipment"),
+		"reason": "A stronger piece of equipment is within the item detour limit." if not is_potion else (
 			"A potion is within four safe steps, so the cautious strategy makes a short detour."
 			if cautious else "A potion is within eight unobstructed steps, so the aggressive strategy gathers supplies."
 		),
@@ -616,7 +682,7 @@ func spawn_enemy_in_room(room: Rect2i, spawn_rng: PortableRandom) -> void:
 			"type": "archer",
 			"pos": pos,
 			"hp": 5 + player["depth"],
-			"attack": 1 + player["depth"] / 2,
+			"attack": 1 + player["depth"] / 2, "defense": 0,
 		})
 	else:
 		enemies.append({
@@ -624,7 +690,7 @@ func spawn_enemy_in_room(room: Rect2i, spawn_rng: PortableRandom) -> void:
 			"type": "melee",
 			"pos": pos,
 			"hp": 8 + player["depth"] * 2,
-			"attack": 2 + player["depth"],
+			"attack": 2 + player["depth"], "defense": 0,
 		})
 
 func first_free_tile_in_room(room: Rect2i) -> Vector2i:
@@ -857,6 +923,8 @@ func danger_cost(pos: Vector2i) -> int:
 		var manhattan := absi(delta.x) + absi(delta.y)
 		var distance_squared := pos.distance_squared_to(enemy_pos)
 		if enemy["type"] == "archer":
+			if not has_line_of_sight(enemy_pos, pos):
+				continue
 			if distance_squared <= 2:
 				total += 30
 			elif distance_squared <= 49:
@@ -1024,7 +1092,9 @@ func player_act(direction: Vector2i, decision_id: String = "") -> void:
 func attack_enemy(index: int) -> void:
 	var enemy := enemies[index]
 	var enemy_hp_before: int = enemy["hp"]
-	var damage: int = player["attack"]
+	var attack := effective_attack()
+	var defense := int(enemy.get("defense", 0))
+	var damage := calculate_damage(attack, defense)
 	enemy["hp"] = enemy["hp"] - damage
 	if enemy["hp"] <= 0:
 		var enemy_pos: Vector2i = enemy["pos"]
@@ -1039,7 +1109,7 @@ func attack_enemy(index: int) -> void:
 			"enemy_id": enemy["id"],
 			"enemy_type": enemy["type"],
 			"enemy_pos": vector_to_log(enemy_pos),
-			"damage": damage,
+			"damage": damage, "attack_power": attack, "defense_power": defense,
 			"enemy_hp_before": enemy_hp_before,
 			"gold_gained": gold,
 		})
@@ -1050,7 +1120,7 @@ func attack_enemy(index: int) -> void:
 			"enemy_id": enemy["id"],
 			"enemy_type": enemy["type"],
 			"enemy_pos": vector_to_log(enemy["pos"]),
-			"damage": damage,
+			"damage": damage, "attack_power": attack, "defense_power": defense,
 			"enemy_hp_before": enemy_hp_before,
 			"enemy_hp_after": enemy["hp"],
 		})
@@ -1073,7 +1143,7 @@ func check_level_up() -> void:
 		player["level"] += 1
 		player["max_hp"] += 2
 		player["hp"] = mini(player["hp"] + 2, player["max_hp"])
-		player["attack"] += 1
+		player["base_attack"] += 1
 		xp_needed = player["level"] * 8
 		add_message("Level up! Now level %d." % player["level"])
 
@@ -1093,16 +1163,17 @@ func run_enemy_turn() -> void:
 func run_melee_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i, delta: Vector2i) -> void:
 	if abs(delta.x) + abs(delta.y) == 1:
 		var hp_before: int = player["hp"]
-		player["hp"] = maxi(player["hp"] - enemy["attack"], 0)
+		var dmg := calculate_damage(int(enemy["attack"]), effective_defense())
+		player["hp"] = maxi(player["hp"] - dmg, 0)
 		log_battle_result("player_hit", {
 			"enemy_id": enemy["id"],
 			"enemy_type": enemy["type"],
 			"enemy_pos": vector_to_log(enemy_pos),
-			"damage": enemy["attack"],
+			"damage": dmg, "attack_power": enemy["attack"], "defense_power": effective_defense(),
 			"player_hp_before": hp_before,
 			"player_hp_after": player["hp"],
 		})
-		add_message("Enemy hits you for %d." % enemy["attack"])
+		add_message("Enemy hits you for %d." % dmg)
 		if player["hp"] <= 0:
 			handle_player_defeat()
 		return
@@ -1115,6 +1186,8 @@ func run_melee_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i, delta: V
 			enemies[index] = enemy
 
 func run_archer_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i) -> void:
+	if not has_line_of_sight(enemy_pos, player["pos"]):
+		return
 	var dist_sq := enemy_pos.distance_squared_to(player["pos"])
 
 	# Adjacent: try to retreat, otherwise melee for 1
@@ -1123,12 +1196,12 @@ func run_archer_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i) -> void
 			return
 		# Cornered — weak melee attack
 		var hp_before: int = player["hp"]
-		var melee_dmg := 1
+		var melee_dmg := calculate_damage(1, effective_defense())
 		player["hp"] = maxi(player["hp"] - melee_dmg, 0)
 		log_battle_result("player_hit", {
 			"enemy_id": enemy["id"],
 			"enemy_pos": vector_to_log(enemy_pos),
-			"damage": melee_dmg,
+			"damage": melee_dmg, "attack_power": 1, "defense_power": effective_defense(),
 			"player_hp_before": hp_before,
 			"player_hp_after": player["hp"],
 			"enemy_type": "archer",
@@ -1148,13 +1221,13 @@ func run_archer_turn(index: int, enemy: Dictionary, enemy_pos: Vector2i) -> void
 					"elapsed": 0.0,
 				})
 				queue_redraw()
-			var dmg: int = enemy["attack"]
+			var dmg := calculate_damage(int(enemy["attack"]), effective_defense())
 			var hp_before: int = player["hp"]
 			player["hp"] = maxi(player["hp"] - dmg, 0)
 			log_battle_result("player_hit", {
 				"enemy_id": enemy["id"],
 				"enemy_pos": vector_to_log(enemy_pos),
-				"damage": dmg,
+				"damage": dmg, "attack_power": enemy["attack"], "defense_power": effective_defense(),
 				"player_hp_before": hp_before,
 				"player_hp_after": player["hp"],
 				"enemy_type": "archer",
@@ -1189,6 +1262,35 @@ func try_archer_retreat(index: int, enemy: Dictionary, enemy_pos: Vector2i) -> b
 			enemies[index] = enemy
 			return true
 	return false
+
+func has_line_of_sight(from: Vector2i, to: Vector2i) -> bool:
+	if not is_walkable(from) or not is_walkable(to):
+		return false
+	var nx := absi(to.x - from.x)
+	var ny := absi(to.y - from.y)
+	var sx := signi(to.x - from.x)
+	var sy := signi(to.y - from.y)
+	var ix := 0
+	var iy := 0
+	var current := from
+	while ix < nx or iy < ny:
+		var crossing := (1 + 2 * ix) * ny - (1 + 2 * iy) * nx
+		if crossing == 0:
+			# Block corner grazing through either adjoining wall.
+			if not is_walkable(current + Vector2i(sx, 0)) or not is_walkable(current + Vector2i(0, sy)):
+				return false
+			current += Vector2i(sx, sy)
+			ix += 1
+			iy += 1
+		elif crossing < 0:
+			current.x += sx
+			ix += 1
+		else:
+			current.y += sy
+			iy += 1
+		if not is_walkable(current):
+			return false
+	return true
 
 func can_enemy_see_player(enemy_pos: Vector2i) -> bool:
 	return enemy_pos.distance_squared_to(player["pos"]) <= 80
@@ -1308,7 +1410,7 @@ func start_run_log() -> void:
 		"scenario_id": current_scenario_id(),
 		"scenario_seed": scenario_seed,
 		"strategy_id": strategy_id(active_strategy),
-		"simulation_version": 3,
+		"simulation_version": 4,
 		"comparison": comparison_active,
 		"comparison_phase": comparison_phase,
 	})
@@ -1403,7 +1505,10 @@ func player_state_to_log() -> Dictionary:
 		"pos": vector_to_log(player["pos"]),
 		"hp": player["hp"],
 		"max_hp": player["max_hp"],
-		"attack": player["attack"],
+		"attack": effective_attack(), "defense": effective_defense(),
+		"base_attack": player["base_attack"], "base_defense": player["base_defense"],
+		"attack_bonus": attack_bonus(), "defense_bonus": defense_bonus(),
+		"equipment": player["equipment"].duplicate(true),
 		"gold": player["gold"],
 		"score": player["score"],
 		"level": player["level"],
@@ -1417,7 +1522,7 @@ func enemy_to_log(enemy: Dictionary) -> Dictionary:
 		"type": enemy["type"],
 		"pos": vector_to_log(enemy["pos"]),
 		"hp": enemy["hp"],
-		"attack": enemy["attack"],
+		"attack": enemy["attack"], "defense": int(enemy.get("defense", 0)),
 		"distance_squared": player["pos"].distance_squared_to(enemy["pos"]),
 	}
 
@@ -1489,7 +1594,7 @@ func draw_stairs_icon() -> void:
 
 func draw_entities() -> void:
 	for item in items:
-		draw_tile_symbol(item["pos"], "+", Color("#de8fe8"))
+		draw_tile_symbol(item["pos"], "W" if item["type"] == "weapon" else ("D" if item["type"] == "armor" else "+"), Color("#de8fe8"))
 	for enemy in enemies:
 		var symbol := "A" if enemy["type"] == "archer" else "E"
 		var color := COLORS["archer"] if enemy["type"] == "archer" else COLORS["enemy"]
@@ -1525,6 +1630,7 @@ func draw_hud() -> void:
 		COLORS["muted"],
 	)
 
+	draw_string(font, Vector2(hud_x, 430), "ATK %d (%d+%d)  DEF %d (%d+%d)" % [effective_attack(), player["base_attack"], attack_bonus(), effective_defense(), player["base_defense"], defense_bonus()], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
 	draw_string(font, Vector2(hud_x, 470), "Potions %d/%d · H: use" % [player["inventory"]["health_potion"], INVENTORY_CAPACITY], HORIZONTAL_ALIGNMENT_LEFT, -1, 22, COLORS["text"])
 	draw_string(font, Vector2(hud_x, 500), "Arrows/. still work", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, COLORS["muted"])
 	draw_string(font, Vector2(hud_x, 536), "R: restart", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, COLORS["muted"])
