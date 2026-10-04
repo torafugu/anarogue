@@ -170,3 +170,7 @@ Score starts at 0. Defeating a melee enemy earns 1 point, defeating an archer ea
 - Watch your HP.
 - Find `>` and step on it to descend.
 - Survive as long as possible.
+
+Archer arrows require a clear line of sight through floor tiles. Walls, including
+corners grazed by a diagonal shot, block attacks. Cover also removes the Archer's
+contribution to automatic exploration's danger and emergency-healing estimates.
