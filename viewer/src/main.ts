@@ -590,6 +590,8 @@ function renderDetail(event?: RunEvent): void {
     <div class="state-strip">
       <span>Turn <b>${event.turn}</b></span>
       <span>Depth <b>${event.depth}</b></span>
+      <span>Lv <b>${event.player_state?.level ?? 1}</b></span>
+      <span>XP <b>${event.player_state?.xp ?? 0}/${(event.player_state?.level ?? 1) * 8}</b></span>
       <span>HP <b>${event.player_state?.hp ?? event.hp}</b></span>
       <span>ATK <b>${event.player_state?.attack ?? 0}</b> (${event.player_state?.base_attack ?? event.player_state?.attack ?? 0} + ${event.player_state?.attack_bonus ?? 0})</span>
       <span>DEF <b>${event.player_state?.defense ?? 0}</b> (${event.player_state?.base_defense ?? 0} + ${event.player_state?.defense_bonus ?? 0})</span>

@@ -1616,7 +1616,7 @@ func draw_hud() -> void:
 
 	draw_string(font, Vector2(hud_x, 48), "SimpleRogue", HORIZONTAL_ALIGNMENT_LEFT, -1, 36, COLORS["text"])
 	draw_string(font, Vector2(hud_x, 100), "Depth %d" % player["depth"], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, COLORS["text"])
-	draw_string(font, Vector2(hud_x, 138), "Lv %d" % player["level"], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, COLORS["text"])
+	draw_string(font, Vector2(hud_x, 138), "Lv %d · XP %d/%d" % [player["level"], player["xp"], player["level"] * 8], HORIZONTAL_ALIGNMENT_LEFT, -1, 22, COLORS["text"])
 	draw_string(font, Vector2(hud_x, 176), "HP %d/%d" % [player["hp"], player["max_hp"]], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, COLORS["danger"] if player["hp"] <= 6 else COLORS["text"])
 	draw_string(font, Vector2(hud_x, 214), "Gold %d" % player["gold"], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, COLORS["text"])
 	draw_string(font, Vector2(hud_x, 252), "Score %d" % player["score"], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, COLORS["text"])

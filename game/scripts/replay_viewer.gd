@@ -315,10 +315,11 @@ func update_status() -> void:
 		result_popup.show()
 		layout_result_popup()
 	var rule: String = frame["rule_id"]
-	var line := "%s  ·  frame %d/%d  ·  turn %d  ·  depth %d  ·  HP %d/%d"
+	var line := "%s  ·  frame %d/%d  ·  turn %d  ·  depth %d\nLv %d  ·  XP %d/%d  ·  HP %d/%d"
 	status_label.text = line % [
 		frame["strategy_id"], frame_index + 1, replay.frames.size(), frame["turn"],
-		frame["depth"], player.get("hp", 0), player.get("max_hp", 0)
+		frame["depth"], player.get("level", 1), player.get("xp", 0), int(player.get("level", 1)) * 8,
+		player.get("hp", 0), player.get("max_hp", 0)
 	]
 	status_label.text += "  ·  ATK %d (%d+%d)  DEF %d (%d+%d)" % [player.get("attack", 0), player.get("base_attack", player.get("attack", 0)), player.get("attack_bonus", 0), player.get("defense", 0), player.get("base_defense", 0), player.get("defense_bonus", 0)]
 	status_label.text += "  ·  Potions %d/3" % int(player.get("inventory", {}).get("health_potion", 0))
