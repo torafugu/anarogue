@@ -10,7 +10,7 @@ Each action you take advances the game by one turn. Move carefully, watch your H
 
 1. Open `game/` in Godot 4 and run the project to open the replay client.
 2. Select a JSONL log, or use the bundled v8 reference. Pickup and healing have their own frames.
-   Below the buttons, the left panel shows the current event and decision log; the right panel shows Level/XP, HP, ATK, DEF, potions, weapon (W), armor (D), and strategy. Each panel scrolls independently. Depth, frame number, and turn appear in a badge over the top of the maze.
+   Below the buttons, the left panel keeps the event and decision history up to the selected frame; the right panel shows Level/XP, HP, ATK, DEF, potions, weapon (W), armor (D), and strategy. Each panel scrolls independently. The log follows new entries when you are at the bottom; scrolling upward lets you read older entries without being pulled back down. Rewinding shows only history through that frame, and switching runs resets the history. Depth, frame number, and turn appear in a badge over the top of the maze.
 3. For a live run, select `Live check` (`res://scenes/main.tscn`); it starts on Depth 1.
 4. Choose an automatic strategy on the right side of the screen.
 5. Click `Start selected strategy`, or run both strategies with
