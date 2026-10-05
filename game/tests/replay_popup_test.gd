@@ -42,8 +42,8 @@ func run_tests() -> void:
 	if growth_frame >= 0:
 		viewer.set_frame(growth_frame)
 		var player: Dictionary = viewer.replay.frames[growth_frame]["player_state"]
-		check(viewer.status_label.text.contains("Lv %d" % player["level"]), "growth replay shows current level")
-		check(viewer.status_label.text.contains("XP %d/%d" % [player["xp"], player["level"] * 8]), "growth replay shows current XP threshold")
+		check(viewer.player_label.text.contains("Lv %d" % player["level"]), "growth replay shows current level")
+		check(viewer.player_label.text.contains("XP %d/%d" % [player["xp"], player["level"] * 8]), "growth replay shows current XP threshold")
 		check(viewer.status_label.text.contains("Growth ") and viewer.status_label.text.contains("vs stairs"), "growth replay renders the comparison")
 
 	viewer.load_replay("res://../examples/reference-v6/cautious-seed-1.jsonl")
@@ -56,7 +56,7 @@ func run_tests() -> void:
 	if shot_frame >= 0:
 		viewer.set_frame(shot_frame)
 		check(viewer.status_label.text.contains("Player bow shot"), "replay labels Player arrows")
-		check(viewer.status_label.text.contains("bow range 5"), "replay shows bow kind and range")
+		check(viewer.player_label.text.contains("bow range 5"), "replay shows bow kind and range")
 
 	viewer.load_replay("res://../examples/reference-v7/cautious-seed-27-cycle.jsonl")
 	var windup_frame := -1

@@ -2,6 +2,9 @@ extends Node2D
 
 const ReplayData := preload("res://scripts/replay_log.gd")
 const DEFAULT_REPLAY := "res://../examples/reference-v8/aggressive-seed-424242.jsonl"
+const INFO_TOP := 126.0
+const INFO_HEIGHT := 224.0
+const MAP_TOP := INFO_TOP + INFO_HEIGHT + 16.0
 const AUTO_STEP_SECONDS := 0.28
 const ARROW_FLIGHT_DURATION := 0.28
 const ARROW_IMPACT_DURATION := 0.12
@@ -25,7 +28,12 @@ var arrow_elapsed := 0.0
 var font := ThemeDB.fallback_font
 var log_selector: OptionButton
 var run_selector: OptionButton
-var status_label: Label
+var status_label: RichTextLabel
+var player_label: RichTextLabel
+var log_panel: PanelContainer
+var player_panel: PanelContainer
+var map_overlay: PanelContainer
+var map_status_label: Label
 var play_button: Button
 var result_popup: PanelContainer
 var result_title: Label
@@ -69,13 +77,31 @@ func create_controls() -> void:
 	var simulator_button := make_button("Live check", open_live_simulator)
 	simulator_button.name = "SimulatorButton"
 
-	status_label = Label.new()
-	status_label.add_theme_font_size_override("font_size", 18)
-	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	add_child(status_label)
+	log_panel = make_info_panel("LogPanel")
+	status_label = make_info_text("LogText")
+	log_panel.add_child(status_label)
+	player_panel = make_info_panel("PlayerPanel")
+	player_label = make_info_text("PlayerInfo")
+	player_panel.add_child(player_label)
+
+	map_overlay = PanelContainer.new()
+	map_overlay.name = "MapOverlay"
+	map_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	map_overlay.z_index = 1
+	var overlay_style := StyleBoxFlat.new()
+	overlay_style.bg_color = Color(0.05, 0.06, 0.08, 0.85)
+	overlay_style.set_content_margin_all(8)
+	map_overlay.add_theme_stylebox_override("panel", overlay_style)
+	map_status_label = Label.new()
+	map_status_label.add_theme_font_size_override("font_size", 18)
+	map_status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	map_overlay.add_child(map_status_label)
+	add_child(map_overlay)
+	map_overlay.hide()
 
 	result_popup = PanelContainer.new()
 	result_popup.name = "ResultPopup"
+	result_popup.z_index = 2
 	result_popup.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var panel_style := StyleBoxFlat.new()
 	panel_style.bg_color = Color(0, 0, 0, 0.85)
@@ -99,6 +125,41 @@ func create_controls() -> void:
 	contents.add_child(hint)
 	add_child(result_popup)
 	result_popup.hide()
+
+func make_info_panel(panel_name: String) -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.name = panel_name
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("#20252e")
+	style.set_content_margin_all(12)
+	panel.add_theme_stylebox_override("panel", style)
+	add_child(panel)
+	return panel
+
+func make_info_text(text_name: String) -> RichTextLabel:
+	var label := RichTextLabel.new()
+	label.name = text_name
+	label.add_theme_font_size_override("normal_font_size", 18)
+	label.scroll_active = true
+	label.selection_enabled = true
+	return label
+
+func map_rect() -> Rect2:
+	var viewport_size := get_viewport_rect().size
+	var available := Vector2(maxf(1, viewport_size.x - 32), maxf(1, viewport_size.y - MAP_TOP - 16))
+	if replay.frames.is_empty():
+		return Rect2(Vector2(16, MAP_TOP), available)
+	var rows: Array = replay.frames[frame_index]["map_rows"]
+	if rows.is_empty() or str(rows[0]).is_empty():
+		return Rect2(Vector2(16, MAP_TOP), available)
+	var tile_size := minf(available.x / str(rows[0]).length(), available.y / rows.size())
+	var map_size := Vector2(str(rows[0]).length(), rows.size()) * tile_size
+	return Rect2(Vector2((viewport_size.x - map_size.x) * 0.5, MAP_TOP), map_size)
+
+func layout_map_overlay() -> void:
+	var area := map_rect()
+	map_overlay.position = area.position + Vector2(8, 8)
+	map_overlay.size = Vector2.ZERO # Let the single-line badge fit its contents.
 
 func make_button(text: String, callback: Callable) -> Button:
 	var button := Button.new()
@@ -124,24 +185,25 @@ func layout_controls() -> void:
 		button.position = Vector2(x, 72)
 		button.size = Vector2(132, 44)
 		x += 140
-	status_label.position = Vector2(16, 126)
-	status_label.size = Vector2(width - 32, 144)
+	var available_width := width - 32
+	var player_width := clampf(available_width * 0.42, 280, 440)
+	var log_width := available_width - player_width - 16
+	log_panel.position = Vector2(16, INFO_TOP)
+	log_panel.size = Vector2(log_width, INFO_HEIGHT)
+	player_panel.position = Vector2(32 + log_width, INFO_TOP)
+	player_panel.size = Vector2(player_width, INFO_HEIGHT)
+	layout_map_overlay()
 	layout_result_popup()
 	queue_redraw()
 
 
 func layout_result_popup() -> void:
 	var viewport_size := get_viewport_rect().size
-	var map_height := maxf(0, viewport_size.y - 298)
-	if not replay.frames.is_empty():
-		var rows: Array = replay.frames[frame_index]["map_rows"]
-		if not rows.is_empty() and not str(rows[0]).is_empty():
-			var tile_size := minf((viewport_size.x - 32) / str(rows[0]).length(), map_height / rows.size())
-			map_height = tile_size * rows.size()
+	var area := map_rect()
 	result_popup.size = Vector2(maxf(0, minf(560, viewport_size.x - 32)), 190)
 	result_popup.position = Vector2(
 		(viewport_size.x - result_popup.size.x) * 0.5,
-		282 + maxf(0, (map_height - result_popup.size.y) * 0.5)
+		area.position.y + maxf(0, (area.size.y - result_popup.size.y) * 0.5)
 	)
 
 
@@ -201,6 +263,7 @@ func add_external_log_option(path: String, label: String = "") -> void:
 func load_replay(path: String) -> void:
 	var error := replay.load_file(path)
 	if error != OK:
+		update_status()
 		status_label.text = "Could not open replay: %s (error %d)" % [path, error]
 		queue_redraw()
 		return
@@ -301,6 +364,8 @@ func update_status() -> void:
 	result_popup.hide()
 	if replay.frames.is_empty():
 		status_label.text = "No replay frames."
+		player_label.text = ""
+		map_overlay.hide()
 		return
 	var frame: Dictionary = replay.frames[frame_index]
 	var player: Dictionary = frame["player_state"]
@@ -315,22 +380,23 @@ func update_status() -> void:
 		result_popup.show()
 		layout_result_popup()
 	var rule: String = frame["rule_id"]
-	var line := "%s  ·  frame %d/%d  ·  turn %d  ·  depth %d\nLv %d  ·  XP %d/%d  ·  HP %d/%d"
-	status_label.text = line % [
-		frame["strategy_id"], frame_index + 1, replay.frames.size(), frame["turn"],
-		frame["depth"], player.get("level", 1), player.get("xp", 0), int(player.get("level", 1)) * 8,
-		player.get("hp", 0), player.get("max_hp", 0)
-	]
+	map_status_label.text = "Depth %d   ·   Frame %d/%d   ·   Turn %d" % [frame["depth"], frame_index + 1, replay.frames.size(), frame["turn"]]
+	map_overlay.show()
+	layout_map_overlay()
 	var raw_attack_text := "%d+%d" % [player.get("base_attack", player.get("attack", 0)), player.get("attack_bonus", 0)]
 	if player.get("weapon_kind", "melee") == "bow":
 		raw_attack_text = "(%s)/2" % raw_attack_text
-	status_label.text += "  ·  ATK %d [%s]  DEF %d (%d+%d)" % [player.get("attack", 0), raw_attack_text, player.get("defense", 0), player.get("base_defense", 0), player.get("defense_bonus", 0)]
-	status_label.text += " · %s range %d" % [player.get("weapon_kind", "melee"), player.get("attack_range", 1)]
-	status_label.text += "  ·  Potions %d/3" % int(player.get("inventory", {}).get("health_potion", 0))
 	var equipment: Dictionary = player.get("equipment", {})
 	var weapon = equipment.get("weapon")
 	var armor = equipment.get("armor")
-	status_label.text += "  ·  W %s  D %s" % [weapon["id"] if weapon != null else "none", armor["id"] if armor != null else "none"]
+	player_label.text = "Lv %d · XP %d/%d\nHP %d/%d\nATK %d [%s] · DEF %d (%d+%d)\n%s range %d · Potions %d/3\nW %s\nD %s\nStrategy %s" % [
+		player.get("level", 1), player.get("xp", 0), int(player.get("level", 1)) * 8,
+		player.get("hp", 0), player.get("max_hp", 0), player.get("attack", 0), raw_attack_text,
+		player.get("defense", 0), player.get("base_defense", 0), player.get("defense_bonus", 0),
+		player.get("weapon_kind", "melee"), player.get("attack_range", 1), int(player.get("inventory", {}).get("health_potion", 0)),
+		weapon["id"] if weapon != null else "none", armor["id"] if armor != null else "none", frame["strategy_id"]
+	]
+	status_label.text = "Log"
 	var goal: Dictionary = frame.get("goal_selection", {})
 	if not goal.is_empty():
 		status_label.text += "\nGoal %s / %s · %s" % [goal["selected_kind"], goal["selected_id"], "retained (no draw)" if goal["target_retained"] else "drawn"]
@@ -376,12 +442,9 @@ func _draw() -> void:
 		return
 	var map_height := rows.size()
 	var map_width: int = str(rows[0]).length()
-	var available := Vector2(get_viewport_rect().size.x - 32, get_viewport_rect().size.y - 298)
-	var tile_size := minf(available.x / map_width, available.y / map_height)
-	var origin := Vector2(
-		(get_viewport_rect().size.x - map_width * tile_size) * 0.5,
-		282
-	)
+	var area := map_rect()
+	var tile_size := area.size.x / map_width
+	var origin := area.position
 	for y in range(map_height):
 		var row := str(rows[y])
 		for x in range(map_width):
