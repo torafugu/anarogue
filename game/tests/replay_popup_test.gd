@@ -17,6 +17,7 @@ func run_tests() -> void:
 	var viewer := TestViewer.new()
 	root.add_child(viewer)
 	check_camera_geometry(viewer)
+	await check_layout_sizes()
 	await check_log_history(viewer)
 	for file_name in ["aggressive-seed-1.jsonl", "cautious-seed-1.jsonl"]:
 		viewer.load_replay("res://../examples/reference-v2/" + file_name)
@@ -91,6 +92,34 @@ func run_tests() -> void:
 		for failure in failures:
 			printerr(failure)
 		quit(1)
+
+func check_layout_sizes() -> void:
+	for dimensions in [Vector2i(1080, 1920), Vector2i(1080, 1440), Vector2i(1440, 1920), Vector2i(720, 1280)]:
+		var viewport := SubViewport.new()
+		viewport.size = dimensions
+		root.add_child(viewport)
+		var viewer := TestViewer.new()
+		viewport.add_child(viewer)
+		viewer.load_replay("res://../examples/reference-v8/aggressive-seed-424242.jsonl")
+		await process_frame
+		await process_frame
+		var bounds := Rect2(Vector2.ZERO, Vector2(dimensions))
+		var controls: Array[Control] = [
+			viewer.log_selector, viewer.run_selector,
+			viewer.get_node("PreviousButton"), viewer.play_button, viewer.get_node("NextButton"),
+			viewer.get_node("RefreshButton"), viewer.get_node("SimulatorButton"),
+			viewer.log_panel, viewer.player_panel, viewer.maze_view,
+		]
+		for i in range(controls.size()):
+			check(bounds.encloses(controls[i].get_rect()), "control stays within viewport %s" % dimensions)
+			for j in range(i + 1, controls.size()):
+				check(not controls[i].get_rect().intersects(controls[j].get_rect()), "controls do not overlap at %s" % dimensions)
+		viewer.set_frame(viewer.replay.frames.size() - 1)
+		await process_frame
+		await process_frame
+		check(viewer.map_rect().encloses(viewer.result_popup.get_rect()), "result popup fits maze at %s" % dimensions)
+		check(viewer.map_rect().encloses(viewer.map_overlay.get_rect()), "depth/frame/turn badge fits maze at %s" % dimensions)
+		viewport.free()
 
 func check_camera_geometry(viewer: TestViewer) -> void:
 	var frame := {"map_rows": [], "player_state": {"pos": {"x": 22, "y": 14}}}

@@ -19,6 +19,10 @@ Controls:
 - run selector: switch runs when one JSONL file contains multiple runs
 - `Live check`: open the legacy Godot simulator for occasional visual checks
 
+The mobile replay layout uses 40 px text, full-width selectors on separate rows,
+and two rows of larger buttons. The scrollable log and Player panels take more
+vertical space, leaving a smaller maze viewport with the same large tiles.
+
 The former live simulation is retained at `game/scenes/main.tscn`, but it is no
 longer the project's default responsibility.
 

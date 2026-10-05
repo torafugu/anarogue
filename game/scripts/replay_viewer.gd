@@ -3,8 +3,11 @@ extends Node2D
 const ReplayData := preload("res://scripts/replay_log.gd")
 const DEFAULT_REPLAY := "res://../examples/reference-v8/aggressive-seed-424242.jsonl"
 const REPLAY_TILE_SIZE := 96.0
-const INFO_TOP := 126.0
-const INFO_HEIGHT := 224.0
+const UI_FONT_SIZE := 40
+const CONTROL_HEIGHT := 88.0
+const CONTROL_GAP := 12.0
+const INFO_TOP := 16.0 + (CONTROL_HEIGHT + CONTROL_GAP) * 4
+const INFO_HEIGHT := 480.0
 const MAP_TOP := INFO_TOP + INFO_HEIGHT + 16.0
 const AUTO_STEP_SECONDS := 0.28
 const ARROW_FLIGHT_DURATION := 0.28
@@ -31,6 +34,7 @@ var playing := false
 var auto_elapsed := 0.0
 var arrow_elapsed := 0.0
 var font := ThemeDB.fallback_font
+var ui_theme := Theme.new()
 var log_selector: OptionButton
 var run_selector: OptionButton
 var status_label: RichTextLabel
@@ -59,6 +63,7 @@ func _ready() -> void:
 
 
 func create_controls() -> void:
+	ui_theme.default_font_size = UI_FONT_SIZE
 	maze_view = Control.new()
 	maze_view.name = "MazeViewport"
 	maze_view.clip_contents = true
@@ -70,12 +75,16 @@ func create_controls() -> void:
 	maze_view.add_child(maze_canvas)
 	log_selector = OptionButton.new()
 	log_selector.name = "LogSelector"
+	log_selector.theme = ui_theme
+	log_selector.get_popup().theme = ui_theme
 	log_selector.tooltip_text = "JSONL files stored in user://"
 	log_selector.item_selected.connect(load_log_at)
 	add_child(log_selector)
 
 	run_selector = OptionButton.new()
 	run_selector.name = "RunSelector"
+	run_selector.theme = ui_theme
+	run_selector.get_popup().theme = ui_theme
 	run_selector.tooltip_text = "Run contained in the selected JSONL file"
 	run_selector.item_selected.connect(select_run_at)
 	add_child(run_selector)
@@ -107,7 +116,8 @@ func create_controls() -> void:
 	overlay_style.set_content_margin_all(8)
 	map_overlay.add_theme_stylebox_override("panel", overlay_style)
 	map_status_label = Label.new()
-	map_status_label.add_theme_font_size_override("font_size", 18)
+	map_status_label.add_theme_font_size_override("font_size", UI_FONT_SIZE)
+	map_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	map_status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	map_overlay.add_child(map_status_label)
 	add_child(map_overlay)
@@ -115,6 +125,7 @@ func create_controls() -> void:
 
 	result_popup = PanelContainer.new()
 	result_popup.name = "ResultPopup"
+	result_popup.theme = ui_theme
 	result_popup.z_index = 2
 	result_popup.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var panel_style := StyleBoxFlat.new()
@@ -126,16 +137,16 @@ func create_controls() -> void:
 	result_popup.add_child(contents)
 	result_title = Label.new()
 	result_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	result_title.add_theme_font_size_override("font_size", 44)
+	result_title.add_theme_font_size_override("font_size", 56)
 	contents.add_child(result_title)
 	result_stats = Label.new()
 	result_stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	result_stats.add_theme_font_size_override("font_size", 26)
+	result_stats.add_theme_font_size_override("font_size", UI_FONT_SIZE)
 	contents.add_child(result_stats)
 	var hint := Label.new()
 	hint.text = "Press Play to watch again."
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.add_theme_font_size_override("font_size", 24)
+	hint.add_theme_font_size_override("font_size", 36)
 	contents.add_child(hint)
 	add_child(result_popup)
 	result_popup.hide()
@@ -143,6 +154,7 @@ func create_controls() -> void:
 func make_info_panel(panel_name: String) -> PanelContainer:
 	var panel := PanelContainer.new()
 	panel.name = panel_name
+	panel.theme = ui_theme
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color("#20252e")
 	style.set_content_margin_all(12)
@@ -153,7 +165,7 @@ func make_info_panel(panel_name: String) -> PanelContainer:
 func make_info_text(text_name: String) -> RichTextLabel:
 	var label := RichTextLabel.new()
 	label.name = text_name
-	label.add_theme_font_size_override("normal_font_size", 18)
+	label.add_theme_font_size_override("normal_font_size", UI_FONT_SIZE)
 	label.scroll_active = true
 	label.selection_enabled = true
 	return label
@@ -184,10 +196,12 @@ func layout_map_overlay() -> void:
 	maze_view.size = area.size
 	maze_canvas.queue_redraw()
 	map_overlay.position = area.position + Vector2(8, 8)
-	map_overlay.size = Vector2.ZERO # Let the single-line badge fit its contents.
+	var badge_width := font.get_string_size(map_status_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x + 16
+	map_overlay.size = Vector2(minf(badge_width, area.size.x - 16), 0)
 
 func make_button(text: String, callback: Callable) -> Button:
 	var button := Button.new()
+	button.theme = ui_theme
 	button.text = text
 	button.pressed.connect(callback)
 	add_child(button)
@@ -196,22 +210,23 @@ func make_button(text: String, callback: Callable) -> Button:
 
 func layout_controls() -> void:
 	var width := get_viewport_rect().size.x
-	var selector_width := minf(420, (width - 40) * 0.5)
-	log_selector.position = Vector2(16, 16)
-	log_selector.size = Vector2(selector_width, 44)
-	run_selector.position = Vector2(24 + selector_width, 16)
-	run_selector.size = Vector2(minf(420, width - selector_width - 40), 44)
-	var button_names := [
-		"RefreshButton", "PreviousButton", "PlayButton", "NextButton", "SimulatorButton"
-	]
-	var x := 16.0
-	for button_name in button_names:
-		var button: Button = get_node(button_name)
-		button.position = Vector2(x, 72)
-		button.size = Vector2(132, 44)
-		x += 140
 	var available_width := width - 32
-	var player_width := clampf(available_width * 0.42, 280, 440)
+	log_selector.position = Vector2(16, 16)
+	log_selector.size = Vector2(available_width, CONTROL_HEIGHT)
+	run_selector.position = Vector2(16, 16 + CONTROL_HEIGHT + CONTROL_GAP)
+	run_selector.size = Vector2(available_width, CONTROL_HEIGHT)
+	var button_rows := [
+		["PreviousButton", "PlayButton", "NextButton"],
+		["RefreshButton", "SimulatorButton"],
+	]
+	for row_index in range(button_rows.size()):
+		var row: Array = button_rows[row_index]
+		var button_width := (available_width - CONTROL_GAP * (row.size() - 1)) / row.size()
+		for column in range(row.size()):
+			var button: Button = get_node(row[column])
+			button.position = Vector2(16 + column * (button_width + CONTROL_GAP), 16 + (row_index + 2) * (CONTROL_HEIGHT + CONTROL_GAP))
+			button.size = Vector2(button_width, CONTROL_HEIGHT)
+	var player_width := (available_width - 16) * 0.5
 	var log_width := available_width - player_width - 16
 	log_panel.position = Vector2(16, INFO_TOP)
 	log_panel.size = Vector2(log_width, INFO_HEIGHT)
@@ -225,7 +240,7 @@ func layout_controls() -> void:
 func layout_result_popup() -> void:
 	var viewport_size := get_viewport_rect().size
 	var area := map_rect()
-	result_popup.size = Vector2(maxf(0, minf(560, viewport_size.x - 32)), 190)
+	result_popup.size = Vector2(maxf(0, minf(960, viewport_size.x - 32)), 260)
 	result_popup.position = Vector2(
 		(viewport_size.x - result_popup.size.x) * 0.5,
 		area.position.y + maxf(0, (area.size.y - result_popup.size.y) * 0.5)
@@ -445,9 +460,8 @@ func update_log_history() -> void:
 		status_label.add_text(("\n\n" if displayed_log_frame >= 0 else "") + log_entries[frame_index])
 	else:
 		status_label.text = "\n\n".join(log_entries.slice(0, frame_index + 1))
-	if follow_latest:
-		status_label.scroll_to_line(maxi(0, status_label.get_line_count() - 1))
-	else:
+	# Built-in following reaches the bottom even when the last entry wraps.
+	if not follow_latest:
 		scrollbar.value = old_scroll
 	displayed_log_frame = frame_index
 
