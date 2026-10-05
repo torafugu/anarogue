@@ -15,6 +15,7 @@ Controls:
 - `Refresh logs`: rescan `user://` after generating a log
 - `Previous` / `Next` or left / right arrows: step through decision frames
 - `Play` or space: automatically advance the replay
+- The maze uses large tiles and follows Player; only the surrounding area is shown
 - run selector: switch runs when one JSONL file contains multiple runs
 - `Live check`: open the legacy Godot simulator for occasional visual checks
 

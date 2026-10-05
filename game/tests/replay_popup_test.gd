@@ -16,6 +16,7 @@ func _init() -> void:
 func run_tests() -> void:
 	var viewer := TestViewer.new()
 	root.add_child(viewer)
+	check_camera_geometry(viewer)
 	await check_log_history(viewer)
 	for file_name in ["aggressive-seed-1.jsonl", "cautious-seed-1.jsonl"]:
 		viewer.load_replay("res://../examples/reference-v2/" + file_name)
@@ -90,6 +91,27 @@ func run_tests() -> void:
 		for failure in failures:
 			printerr(failure)
 		quit(1)
+
+func check_camera_geometry(viewer: TestViewer) -> void:
+	var frame := {"map_rows": [], "player_state": {"pos": {"x": 22, "y": 14}}}
+	for _row in range(28):
+		frame["map_rows"].append(".".repeat(44))
+	var area := viewer.map_rect()
+	var tile: float = viewer.REPLAY_TILE_SIZE
+	check(tile > area.size.x / 44, "tiles stay large rather than fitting the full dungeon")
+	var center := Vector2(22.5, 14.5) * tile
+	var origin := viewer.camera_origin(frame)
+	check((origin + center).is_equal_approx(area.size * 0.5), "camera centers on Player in the dungeon interior")
+	frame["player_state"]["pos"]["x"] += 1
+	check(is_equal_approx(viewer.camera_origin(frame).x, origin.x - tile), "camera follows a one-tile Player movement")
+	frame["player_state"]["pos"] = {"x": 0, "y": 0}
+	check(viewer.camera_origin(frame) == Vector2.ZERO, "camera clamps at top-left dungeon edge")
+	frame["player_state"]["pos"] = {"x": 43, "y": 27}
+	check(viewer.camera_origin(frame).is_equal_approx(area.size - Vector2(44, 28) * tile), "camera clamps at bottom-right dungeon edge")
+	frame["map_rows"] = ["..."]
+	check(viewer.camera_origin(frame).is_equal_approx((area.size - Vector2(3, 1) * tile) * 0.5), "small maps are centered without shrinking tiles")
+	check(viewer.maze_view.clip_contents, "map drawing is clipped away from controls and information")
+	check(viewer.maze_view.get_rect() == area, "maze and overlay share the same display region")
 
 func check_log_history(viewer: TestViewer) -> void:
 	viewer.load_replay("res://../examples/reference-v8/aggressive-seed-424242.jsonl")
