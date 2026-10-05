@@ -22,6 +22,8 @@ const COLOR_TEXT := Color("#e7e1cf")
 
 var replay := ReplayData.new()
 var frame_index := 0
+var log_entries: Array[String] = []
+var displayed_log_frame := -1
 var playing := false
 var auto_elapsed := 0.0
 var arrow_elapsed := 0.0
@@ -261,6 +263,7 @@ func add_external_log_option(path: String, label: String = "") -> void:
 
 
 func load_replay(path: String) -> void:
+	reset_log_history()
 	var error := replay.load_file(path)
 	if error != OK:
 		update_status()
@@ -280,6 +283,7 @@ func load_replay(path: String) -> void:
 
 func select_run_at(index: int) -> void:
 	if replay.select_run(replay.run_ids[index]):
+		reset_log_history()
 		frame_index = 0
 		playing = false
 		play_button.text = "Play"
@@ -379,7 +383,6 @@ func update_status() -> void:
 		]
 		result_popup.show()
 		layout_result_popup()
-	var rule: String = frame["rule_id"]
 	map_status_label.text = "Depth %d   ·   Frame %d/%d   ·   Turn %d" % [frame["depth"], frame_index + 1, replay.frames.size(), frame["turn"]]
 	map_overlay.show()
 	layout_map_overlay()
@@ -396,17 +399,48 @@ func update_status() -> void:
 		player.get("weapon_kind", "melee"), player.get("attack_range", 1), int(player.get("inventory", {}).get("health_potion", 0)),
 		weapon["id"] if weapon != null else "none", armor["id"] if armor != null else "none", frame["strategy_id"]
 	]
-	status_label.text = "Log"
+	update_log_history()
+
+func reset_log_history() -> void:
+	log_entries.clear()
+	displayed_log_frame = -1
+	status_label.text = ""
+
+func update_log_history() -> void:
+	if displayed_log_frame == frame_index:
+		return
+	if log_entries.is_empty():
+		for entry in replay.frames:
+			log_entries.append(format_log_entry(entry))
+		if not replay.warnings.is_empty():
+			log_entries[0] += "\nWarning: " + replay.warnings[0]
+	var scrollbar := status_label.get_v_scroll_bar()
+	var old_scroll := scrollbar.value
+	var follow_latest := displayed_log_frame < 0 or frame_index != displayed_log_frame + 1 or old_scroll >= scrollbar.max_value - scrollbar.page - 2
+	status_label.scroll_following = follow_latest
+	if frame_index == displayed_log_frame + 1:
+		status_label.add_text(("\n\n" if displayed_log_frame >= 0 else "") + log_entries[frame_index])
+	else:
+		status_label.text = "\n\n".join(log_entries.slice(0, frame_index + 1))
+	if follow_latest:
+		status_label.scroll_to_line(maxi(0, status_label.get_line_count() - 1))
+	else:
+		scrollbar.value = old_scroll
+	displayed_log_frame = frame_index
+
+func format_log_entry(frame: Dictionary) -> String:
+	var rule: String = frame["rule_id"]
+	var text := ""
 	var goal: Dictionary = frame.get("goal_selection", {})
 	if not goal.is_empty():
-		status_label.text += "\nGoal %s / %s · %s" % [goal["selected_kind"], goal["selected_id"], "retained (no draw)" if goal["target_retained"] else "drawn"]
+		text += "\nGoal %s / %s · %s" % [goal["selected_kind"], goal["selected_id"], "retained (no draw)" if goal["target_retained"] else "drawn"]
 		for candidate in goal["candidates"]:
 			if candidate["kind"] == goal["selected_kind"] and candidate["id"] == goal["selected_id"]:
-				status_label.text += " · benefit %d − risk %d · utility %d" % [candidate["benefit"], candidate["risk"], candidate["utility"]]
+				text += " · benefit %d − risk %d · utility %d" % [candidate["benefit"], candidate["risk"], candidate["utility"]]
 		var chances: Array[String] = []
 		for entry in goal["distribution"]:
 			chances.append("%s %.1f%%" % [entry["kind"], 100.0 * entry["mass"] / entry["total_mass"]])
-		status_label.text += " · redraw: " + ", ".join(chances)
+		text += " · redraw: " + ", ".join(chances)
 	var progression: Dictionary = frame.get("progression", {})
 	if not progression.is_empty():
 		var best_score := "none"
@@ -417,19 +451,25 @@ func update_status() -> void:
 			for candidate in progression["candidates"]:
 				if candidate["enemy_id"] == progression["selected_enemy_id"]:
 					best_score = str(candidate["score"])
-		status_label.text += "\nGrowth %s vs stairs %d · %s" % [best_score, progression["stairs_score"], progression["selected"]]
+		text += "\nGrowth %s vs stairs %d · %s" % [best_score, progression["stairs_score"], progression["selected"]]
 	if frame["kind"] == "item_result":
-		status_label.text += "\n%s" % frame["reason"]
+		text += "\n%s" % frame["reason"]
 	elif not rule.is_empty():
-		status_label.text += "\n%s" % rule if not progression.is_empty() else "\n%s — %s" % [rule, frame["reason"]]
+		text += "\n%s" % rule if not progression.is_empty() else "\n%s — %s" % [rule, frame["reason"]]
 	elif frame["kind"] == "brute_result":
-		status_label.text += "\n%s" % frame["reason"]
+		text += "\n%s" % frame["reason"]
 	elif frame["kind"] == "player_ranged_hit":
-		status_label.text += "\nPlayer bow shot"
+		text += "\nPlayer bow shot"
+		if not str(frame["reason"]).is_empty():
+			text += " · " + str(frame["reason"])
 	elif frame["kind"] == "ranged_hit":
-		status_label.text += "\nArcher ranged attack"
-	elif not replay.warnings.is_empty():
-		status_label.text += "\n%s" % replay.warnings[0]
+		text += "\nArcher ranged attack"
+	elif frame["kind"] == "floor_start":
+		text += "\nFloor %d starts." % frame["depth"]
+	elif frame["kind"] == "terminal":
+		text += "\n" + ("Dungeon cleared." if frame["outcome"] == "dungeon_cleared" else "Player defeated.")
+
+	return "[Turn %d] %s" % [frame["turn"], text.strip_edges()]
 
 
 func _draw() -> void:

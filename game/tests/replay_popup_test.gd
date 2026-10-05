@@ -16,6 +16,7 @@ func _init() -> void:
 func run_tests() -> void:
 	var viewer := TestViewer.new()
 	root.add_child(viewer)
+	await check_log_history(viewer)
 	for file_name in ["aggressive-seed-1.jsonl", "cautious-seed-1.jsonl"]:
 		viewer.load_replay("res://../examples/reference-v2/" + file_name)
 		check(not viewer.result_popup.visible, "popup hidden at replay start")
@@ -89,6 +90,36 @@ func run_tests() -> void:
 		for failure in failures:
 			printerr(failure)
 		quit(1)
+
+func check_log_history(viewer: TestViewer) -> void:
+	viewer.load_replay("res://../examples/reference-v8/aggressive-seed-424242.jsonl")
+	var first := viewer.status_label.get_parsed_text()
+	check(not first.begins_with("Log"), "history has no fixed Log heading")
+	viewer.next_frame()
+	var two := viewer.status_label.get_parsed_text()
+	check(two.begins_with(first + "\n\n") and two.length() > first.length(), "advancing retains earlier entries")
+	viewer.previous_frame()
+	check(viewer.status_label.get_parsed_text() == first, "rewinding removes future entries")
+	viewer.next_frame()
+	check(viewer.status_label.get_parsed_text() == two, "revisiting a frame does not duplicate entries")
+	viewer.set_frame(30)
+	await process_frame
+	await process_frame
+	var scrollbar := viewer.status_label.get_v_scroll_bar()
+	check(scrollbar.max_value > scrollbar.page, "history is scrollable")
+	check(scrollbar.value >= scrollbar.max_value - scrollbar.page - 2, "history follows the latest entry at the bottom")
+	scrollbar.value = 0
+	viewer.next_frame()
+	await process_frame
+	await process_frame
+	check(not viewer.status_label.scroll_following and scrollbar.value == 0, "reading earlier entries preserves scroll position")
+	scrollbar.value = scrollbar.max_value - scrollbar.page
+	viewer.next_frame()
+	await process_frame
+	await process_frame
+	check(viewer.status_label.scroll_following and scrollbar.value >= scrollbar.max_value - scrollbar.page - 2, "returning to the bottom resumes following")
+	viewer.load_replay("res://../examples/reference-v8/cautious-seed-2.jsonl")
+	check(viewer.displayed_log_frame == 0 and viewer.status_label.get_parsed_text() == viewer.log_entries[0], "loading another run resets history")
 
 func check(condition: bool, message: String) -> void:
 	if not condition:
