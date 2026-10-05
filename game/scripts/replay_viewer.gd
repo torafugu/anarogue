@@ -6,7 +6,7 @@ const REPLAY_TILE_SIZE := 96.0
 const UI_FONT_SIZE := 40
 const CONTROL_HEIGHT := 88.0
 const CONTROL_GAP := 12.0
-const INFO_TOP := 16.0 + (CONTROL_HEIGHT + CONTROL_GAP) * 4
+const INFO_TOP := 16.0 + (CONTROL_HEIGHT + CONTROL_GAP) * 3
 const INFO_HEIGHT := 480.0
 const MAP_TOP := INFO_TOP + INFO_HEIGHT + 16.0
 const AUTO_STEP_SECONDS := 0.28
@@ -35,7 +35,11 @@ var auto_elapsed := 0.0
 var arrow_elapsed := 0.0
 var font := ThemeDB.fallback_font
 var ui_theme := Theme.new()
-var log_selector: OptionButton
+var catalog: Node
+var catalog_runs: Array = []
+var selected_catalog_run := ""
+var pending_catalog_run := ""
+var catalog_status: Label
 var run_selector: OptionButton
 var status_label: RichTextLabel
 var player_label: RichTextLabel
@@ -53,13 +57,18 @@ func _ready() -> void:
 	create_controls()
 	get_viewport().size_changed.connect(layout_controls)
 	layout_controls()
+	catalog = preload("res://scripts/run_catalog.gd").new()
+	add_child(catalog)
+	catalog.catalog_updated.connect(update_catalog)
+	catalog.run_loaded.connect(load_catalog_run)
+	catalog.request_failed.connect(catalog_failed)
 	var replay_path := command_line_replay_path()
 	if not replay_path.is_empty():
-		add_external_log_option(replay_path)
 		load_replay(replay_path)
-	elif not refresh_log_files():
-		add_external_log_option(DEFAULT_REPLAY, "Bundled sample")
-		load_replay(DEFAULT_REPLAY)
+		catalog_status.text = "Local replay"
+	else:
+		catalog_status.text = "Connecting…"
+		catalog.start(command_line_api_url())
 
 
 func create_controls() -> void:
@@ -73,24 +82,21 @@ func create_controls() -> void:
 	maze_canvas.name = "MazeCanvas"
 	maze_canvas.draw.connect(draw_maze)
 	maze_view.add_child(maze_canvas)
-	log_selector = OptionButton.new()
-	log_selector.name = "LogSelector"
-	log_selector.theme = ui_theme
-	log_selector.get_popup().theme = ui_theme
-	log_selector.tooltip_text = "JSONL files stored in user://"
-	log_selector.item_selected.connect(load_log_at)
-	add_child(log_selector)
 
 	run_selector = OptionButton.new()
 	run_selector.name = "RunSelector"
 	run_selector.theme = ui_theme
 	run_selector.get_popup().theme = ui_theme
-	run_selector.tooltip_text = "Run contained in the selected JSONL file"
+	run_selector.tooltip_text = "Runs stored in the database; refreshed automatically"
 	run_selector.item_selected.connect(select_run_at)
 	add_child(run_selector)
 
-	var refresh_button := make_button("Refresh logs", reload_log_files)
-	refresh_button.name = "RefreshButton"
+	catalog_status = Label.new()
+	catalog_status.name = "CatalogStatus"
+	catalog_status.theme = ui_theme
+	catalog_status.add_theme_font_size_override("font_size", 36)
+	catalog_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	add_child(catalog_status)
 	var previous_button := make_button("Previous", previous_frame)
 	previous_button.name = "PreviousButton"
 	play_button = make_button("Play", toggle_playing)
@@ -211,21 +217,23 @@ func make_button(text: String, callback: Callable) -> Button:
 func layout_controls() -> void:
 	var width := get_viewport_rect().size.x
 	var available_width := width - 32
-	log_selector.position = Vector2(16, 16)
-	log_selector.size = Vector2(available_width, CONTROL_HEIGHT)
-	run_selector.position = Vector2(16, 16 + CONTROL_HEIGHT + CONTROL_GAP)
+	run_selector.position = Vector2(16, 16)
 	run_selector.size = Vector2(available_width, CONTROL_HEIGHT)
 	var button_rows := [
 		["PreviousButton", "PlayButton", "NextButton"],
-		["RefreshButton", "SimulatorButton"],
+		["SimulatorButton"],
 	]
 	for row_index in range(button_rows.size()):
 		var row: Array = button_rows[row_index]
 		var button_width := (available_width - CONTROL_GAP * (row.size() - 1)) / row.size()
 		for column in range(row.size()):
 			var button: Button = get_node(row[column])
-			button.position = Vector2(16 + column * (button_width + CONTROL_GAP), 16 + (row_index + 2) * (CONTROL_HEIGHT + CONTROL_GAP))
+			button.position = Vector2(16 + column * (button_width + CONTROL_GAP), 16 + (row_index + 1) * (CONTROL_HEIGHT + CONTROL_GAP))
 			button.size = Vector2(button_width, CONTROL_HEIGHT)
+	var simulator_button: Button = get_node("SimulatorButton")
+	simulator_button.size.x = (available_width - CONTROL_GAP) * 0.5
+	catalog_status.position = simulator_button.position + Vector2(simulator_button.size.x + CONTROL_GAP, 0)
+	catalog_status.size = simulator_button.size
 	var player_width := (available_width - 16) * 0.5
 	var log_width := available_width - player_width - 16
 	log_panel.position = Vector2(16, INFO_TOP)
@@ -247,58 +255,64 @@ func layout_result_popup() -> void:
 	)
 
 
-func refresh_log_files(preferred_path: String = "") -> bool:
-	var logs: Array[Dictionary] = []
-	var directory := DirAccess.open("user://")
-	if directory == null:
-		return false
-	for file_name in directory.get_files():
-		if not file_name.to_lower().ends_with(".jsonl"):
-			continue
-		var path := "user://%s" % file_name
-		logs.append({
-			"name": file_name,
-			"path": path,
-			"modified": FileAccess.get_modified_time(path),
-		})
-	logs.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return int(a["modified"]) > int(b["modified"])
-	)
-	log_selector.clear()
-	for log_entry in logs:
-		log_selector.add_item(str(log_entry["name"]))
-		log_selector.set_item_metadata(log_selector.item_count - 1, log_entry["path"])
-	if logs.is_empty():
-		return false
-	var selected_index := 0
-	for index in range(log_selector.item_count):
-		if str(log_selector.get_item_metadata(index)) == preferred_path:
-			selected_index = index
-			break
-	log_selector.select(selected_index)
-	load_log_at(selected_index)
-	return true
+func command_line_api_url() -> String:
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--run-api="):
+			return argument.trim_prefix("--run-api=")
+	var configured := OS.get_environment("ANAROGUE_RUN_API")
+	return configured if not configured.is_empty() else "http://127.0.0.1:8765"
 
-
-func reload_log_files() -> void:
-	var preferred_path := replay.source_path if replay.source_path.begins_with("user://") else ""
-	if not refresh_log_files(preferred_path):
-		status_label.text = "No JSONL logs found in user://"
-		queue_redraw()
-
-
-func load_log_at(index: int) -> void:
-	if index < 0 or index >= log_selector.item_count:
+func update_catalog(runs: Array) -> void:
+	catalog_status.text = "%d Runs · online" % runs.size()
+	catalog_status.tooltip_text = "Automatically refreshed every 3 seconds. " + catalog.api_url
+	if runs.is_empty() and replay.frames.is_empty():
+		status_label.text = "No stored Runs yet. Import JSONL into the Run database."
+	if runs == catalog_runs:
 		return
-	load_replay(str(log_selector.get_item_metadata(index)))
+	catalog_runs = runs.duplicate(true)
+	run_selector.tooltip_text = "Runs stored in the database; refreshed automatically"
+	run_selector.clear()
+	var selected := -1
+	var wanted := pending_catalog_run if not pending_catalog_run.is_empty() else selected_catalog_run
+	for entry in catalog_runs:
+		run_selector.add_item("%s · %s · D%d · %s · %s" % [str(entry["strategy_id"]).trim_suffix("_v1").capitalize(), str(entry.get("scenario_seed", "?")), entry["max_depth"], entry["status"], str(entry["id"]).left(8)])
+		var index := run_selector.item_count - 1
+		run_selector.set_item_metadata(index, entry["id"])
+		run_selector.set_item_tooltip(index, "%s · %s · simulation v%s" % [entry["run_id"], entry["started_at"], entry["simulation_version"]])
+		if entry["id"] == wanted:
+			selected = index
+	if selected >= 0:
+		run_selector.select(selected)
+	elif wanted.is_empty() and not catalog_runs.is_empty():
+		run_selector.select(0)
+		select_run_at(0)
 
+func catalog_failed(kind: String, message: String) -> void:
+	if kind == "run":
+		pending_catalog_run = ""
+	catalog_status.text = "API offline" if kind == "catalog" else "Run load failed"
+	catalog_status.tooltip_text = message
+	if kind == "catalog" and replay.frames.is_empty():
+		load_replay(DEFAULT_REPLAY)
+		run_selector.tooltip_text = "Offline bundled sample. " + message
 
-func add_external_log_option(path: String, label: String = "") -> void:
-	log_selector.clear()
-	log_selector.add_item(label if not label.is_empty() else path.get_file())
-	log_selector.set_item_metadata(0, path)
-	log_selector.select(0)
+func load_catalog_run(run_key: String, events: Array) -> void:
+	var next_replay := ReplayData.new()
+	if next_replay.load_events(events) != OK:
+		catalog_failed("run", "Selected Run has no replay frames.")
+		return
+	replay = next_replay
+	selected_catalog_run = run_key
+	pending_catalog_run = ""
+	reset_playback()
 
+func reset_playback() -> void:
+	reset_log_history()
+	frame_index = 0
+	playing = false
+	play_button.text = "Play"
+	update_status()
+	queue_redraw()
 
 func load_replay(path: String) -> void:
 	reset_log_history()
@@ -311,6 +325,7 @@ func load_replay(path: String) -> void:
 	run_selector.clear()
 	for run_id in replay.run_ids:
 		run_selector.add_item(run_id)
+		run_selector.set_item_metadata(run_selector.item_count - 1, run_id)
 	run_selector.select(replay.run_ids.size() - 1)
 	frame_index = 0
 	playing = false
@@ -320,13 +335,16 @@ func load_replay(path: String) -> void:
 
 
 func select_run_at(index: int) -> void:
-	if replay.select_run(replay.run_ids[index]):
-		reset_log_history()
-		frame_index = 0
+	if index < 0 or index >= run_selector.item_count:
+		return
+	var key := str(run_selector.get_item_metadata(index))
+	if not catalog_runs.is_empty():
 		playing = false
 		play_button.text = "Play"
-		update_status()
-		queue_redraw()
+		pending_catalog_run = key
+		catalog.load_run(key)
+	elif replay.select_run(key):
+		reset_playback()
 
 
 func previous_frame() -> void:

@@ -101,13 +101,14 @@ func check_layout_sizes() -> void:
 		var viewer := TestViewer.new()
 		viewport.add_child(viewer)
 		viewer.load_replay("res://../examples/reference-v8/aggressive-seed-424242.jsonl")
+		viewer.catalog_status.text = "501 Runs · online"
 		await process_frame
 		await process_frame
 		var bounds := Rect2(Vector2.ZERO, Vector2(dimensions))
 		var controls: Array[Control] = [
-			viewer.log_selector, viewer.run_selector,
+			viewer.run_selector, viewer.catalog_status,
 			viewer.get_node("PreviousButton"), viewer.play_button, viewer.get_node("NextButton"),
-			viewer.get_node("RefreshButton"), viewer.get_node("SimulatorButton"),
+			viewer.get_node("SimulatorButton"),
 			viewer.log_panel, viewer.player_panel, viewer.maze_view,
 		]
 		for i in range(controls.size()):
