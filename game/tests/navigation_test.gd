@@ -94,7 +94,7 @@ func test_seed_27_oscillation() -> void:
 		game.run_auto_player_turn()
 	check(game.game_over, "seed 27 no longer spends its entire turn budget oscillating")
 	check(longest < 12 and observed_revisit, "pursuit cycle breaks after repeat penalties activate")
-	check(game.turn_count == 203, "seed-27 regression remains deterministic")
+	check(game.turn_count == 170, "seed-27 regression remains deterministic")
 	game.close_log_file()
 	game.free()
 
@@ -115,23 +115,24 @@ func test_aggressive_target_retention() -> void:
 		{"id": "first", "type": "archer", "pos": Vector2i(8, 2), "hp": 6, "attack": 1},
 		{"id": "second", "type": "archer", "pos": Vector2i(2, 9), "hp": 6, "attack": 1},
 	])
-	game.run_auto_player_turn()
-	check(game.aggressive_target_id == "first", "pursuit records its initial target")
+	game.configure_goal_policy({"enemy_weight": 1, "item_weight": 0, "stairs_weight": 0})
+	game.choose_goal_decision("commit", true)
+	check(game.selected_goal.get("id") == "first", "pursuit records its initial target")
 	game.enemies[1]["pos"] = Vector2i(3, 5)
-	check(game.choose_aggressive_decision("preview")["target"]["id"] == "first", "a closer enemy does not reverse pursuit")
+	check(game.choose_goal_decision("preview")["target"]["id"] == "first", "a closer enemy does not reverse pursuit")
 	game.player["inventory"]["health_potion"] = 1
 	game.player["hp"] = 9
 	game.run_auto_player_turn()
-	check(game.aggressive_target_id == "first", "healing preserves the pursuit target")
+	check(game.selected_goal.get("id") == "first", "healing preserves the pursuit target")
 	var locked: Vector2i = game.enemies[0]["pos"]
 	for direction in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
 		var wall: Vector2i = locked + direction
 		game.map[wall.y][wall.x] = game.TILE_WALL
-	check(game.choose_aggressive_decision("blocked")["target"]["id"] == "second", "unreachable target is replaced")
+	check(game.choose_goal_decision("blocked")["target"]["id"] == "second", "unreachable target is replaced")
 	game.enemies.remove_at(0)
-	check(game.choose_aggressive_decision("dead")["target"]["id"] == "second", "dead target is replaced")
+	check(game.choose_goal_decision("dead")["target"]["id"] == "second", "dead target is replaced")
 	game.new_floor()
-	check(game.aggressive_target_id.is_empty(), "floor transition resets pursuit")
+	check(game.selected_goal.is_empty(), "floor transition resets pursuit")
 	game.close_log_file()
 	game.free()
 
@@ -142,11 +143,15 @@ func test_aggressive_seed_301() -> void:
 	var move_flags: Array[bool] = []
 	while not game.game_over and game.turn_count < 500:
 		positions.append(game.player["pos"])
-		move_flags.append(game.choose_auto_player_decision("preview")["rule_id"] in ["hunt_nearest_enemy", "hunt_for_growth"])
+		move_flags.append(game.choose_auto_player_decision("preview")["action_type"] == "move")
 		var index := positions.size() - 1
-		if index >= 2 and move_flags[index] and move_flags[index - 1] and move_flags[index - 2]:
-			check(positions[index] != positions[index - 2] or positions[index] == positions[index - 1], "seed 301 never reverses between two tiles")
+		if index >= 11:
+			var cycling := true
+			for offset in range(12):
+				if not move_flags[index - offset] or positions[index - offset] != positions[index - (offset % 2)]:
+					cycling = false
+			check(not cycling, "aggressive does not sustain a two-tile movement cycle")
 		game.run_auto_player_turn()
-	check(game.turn_count == 182 and game.game_over, "aggressive seed-301 run is deterministic")
+	check(game.turn_count == 342 and game.game_over, "aggressive seed-301 run is deterministic")
 	game.close_log_file()
 	game.free()

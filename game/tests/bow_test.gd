@@ -66,8 +66,9 @@ func run_tests() -> void:
 	check(not game.can_player_shoot_from(Vector2i(2, 2), Vector2i(3, 3)), "diagonal corner blocks player arrows")
 	game.map[2][3] = game.TILE_FLOOR
 	check(not game.player_shoot("missing") and game.turn_count == turn_before, "missing target consumes no turn")
+	game.configure_goal_policy({"enemy_weight": 1, "item_weight": 0, "stairs_weight": 0})
 	var decision := game.choose_auto_player_decision("bow")
-	check(decision["rule_id"] == "shoot_in_range" and decision["action_type"] == "ranged_attack", "automatic bow decision fires in place")
+	check(decision["rule_id"] == "weighted_goal" and decision["action_type"] == "ranged_attack", "automatic bow decision fires in place")
 	check(game.player_shoot("target", "test-shot"), "valid shot fires")
 	check(game.turn_count == turn_before + 1 and game.player["pos"] == Vector2i(2, 2), "shot costs one turn without moving")
 	check(game.enemies[0]["hp"] == 7 and game.enemies[0]["pos"] == Vector2i(6, 2), "lower bow damage applies before enemy movement")

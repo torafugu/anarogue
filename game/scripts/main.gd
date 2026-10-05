@@ -18,7 +18,7 @@ const ARROW_IMPACT_DURATION := 0.12
 const TILE_WALL := 0
 const TILE_FLOOR := 1
 const DEFAULT_LOG_FILE_PATH := "user://anarogue.jsonl"
-const LOG_SCHEMA_VERSION := 7
+const LOG_SCHEMA_VERSION := 8
 const BOW_RANGE := 5
 const POTION_HEAL := 8
 const INVENTORY_CAPACITY := 3
@@ -56,6 +56,34 @@ var items: Array[Dictionary] = []
 var navigation_visits: Dictionary = {}
 var aggressive_target_id := ""
 var growth_target_id := ""
+var goal_policy_overrides: Dictionary = {}
+var policy_rng: PortableRandom
+var selected_goal: Dictionary = {}
+
+func goal_policy() -> Dictionary:
+	var cautious := active_strategy == StrategyType.CAUTIOUS
+	var policy := {"enemy_weight": 1 if cautious else 4, "item_weight": 2, "stairs_weight": 4 if cautious else 1, "temperature": 8}
+	policy.merge(goal_policy_overrides, true)
+	return policy
+
+func configure_goal_policy(overrides: Dictionary) -> bool:
+	var previous := goal_policy_overrides
+	goal_policy_overrides = overrides.duplicate()
+	var policy := goal_policy()
+	for key in overrides:
+		if key not in ["enemy_weight", "item_weight", "stairs_weight", "temperature"]:
+			goal_policy_overrides = previous
+			return false
+	for key in ["enemy_weight", "item_weight", "stairs_weight"]:
+		if typeof(policy[key]) != TYPE_INT or policy[key] < 0 or policy[key] > 1000:
+			goal_policy_overrides = previous
+			return false
+	if typeof(policy["temperature"]) != TYPE_INT or policy["temperature"] < 1 or policy["temperature"] > 100 or policy["enemy_weight"] + policy["item_weight"] + policy["stairs_weight"] == 0:
+		goal_policy_overrides = previous
+		return false
+	selected_goal.clear()
+	return true
+
 var player := {
 	"pos": Vector2i.ZERO,
 	"hp": 18,
@@ -90,6 +118,9 @@ var comparison_phase := 0
 var comparison_transition_elapsed := 0.0
 var start_button: Button
 var compare_button: Button
+var goal_button: Button
+var goal_dialog: ConfirmationDialog
+var goal_inputs: Dictionary = {}
 var strategy_option: OptionButton
 var arrows: Array[Dictionary] = []
 var headless_mode := false
@@ -262,13 +293,44 @@ func restart_game(reuse_scenario: bool = false, auto_start: bool = false) -> voi
 
 func create_controls() -> void:
 	strategy_option = OptionButton.new()
-	strategy_option.add_item("Aggressive — hunt every enemy", StrategyType.AGGRESSIVE)
-	strategy_option.add_item("Cautious — avoid danger", StrategyType.CAUTIOUS)
+	strategy_option.add_item("Aggressive — enemy priority", StrategyType.AGGRESSIVE)
+	strategy_option.add_item("Cautious — stairs priority", StrategyType.CAUTIOUS)
 	strategy_option.select(StrategyType.AGGRESSIVE)
 	strategy_option.size = Vector2(HUD_WIDTH - 32, 48)
 	strategy_option.add_theme_font_size_override("font_size", 18)
 	strategy_option.item_selected.connect(_on_strategy_selected)
 	add_child(strategy_option)
+
+	goal_button = Button.new()
+	goal_button.size = Vector2(HUD_WIDTH - 32, 48)
+	goal_button.pressed.connect(open_goal_dialog)
+	add_child(goal_button)
+	goal_dialog = ConfirmationDialog.new()
+	goal_dialog.title = "Exploration priorities"
+	goal_dialog.min_size = Vector2i(390, 300)
+	var rows := VBoxContainer.new()
+	goal_dialog.add_child(rows)
+	for key in ["enemy_weight", "item_weight", "stairs_weight", "temperature"]:
+		var row := HBoxContainer.new()
+		var label := Label.new()
+		label.text = {"enemy_weight": "Enemies", "item_weight": "Items", "stairs_weight": "Stairs", "temperature": "Randomness (temperature)"}[key]
+		label.custom_minimum_size.x = 240
+		row.add_child(label)
+		var input := SpinBox.new()
+		input.min_value = 1 if key == "temperature" else 0
+		input.max_value = 100 if key == "temperature" else 1000
+		input.step = 1
+		input.value_changed.connect(func(_value):
+			goal_dialog.get_ok_button().disabled = goal_inputs["enemy_weight"].value + goal_inputs["item_weight"].value + goal_inputs["stairs_weight"].value == 0)
+		row.add_child(input)
+		goal_inputs[key] = input
+		rows.add_child(row)
+	var hint := Label.new()
+	hint.text = "0 disables a goal. At least one weight must be positive.\nHigher temperature gives weaker goals more chances."
+	hint.add_theme_font_size_override("font_size", 14)
+	rows.add_child(hint)
+	goal_dialog.confirmed.connect(apply_goal_dialog)
+	add_child(goal_dialog)
 
 	start_button = Button.new()
 	start_button.text = "Start selected strategy"
@@ -288,9 +350,23 @@ func create_controls() -> void:
 	compare_button.pressed.connect(_on_compare_button_pressed)
 	add_child(compare_button)
 
+func open_goal_dialog() -> void:
+	var policy := goal_policy()
+	for key in goal_inputs:
+		goal_inputs[key].value = policy[key]
+	goal_dialog.popup_centered()
+
+func apply_goal_dialog() -> void:
+	var overrides: Dictionary = {}
+	for key in goal_inputs:
+		overrides[key] = int(goal_inputs[key].value)
+	if configure_goal_policy(overrides):
+		restart_game(true, false)
+
 func _on_strategy_selected(index: int) -> void:
 	if auto_exploration_started or comparison_active:
 		return
+	goal_policy_overrides.clear()
 	active_strategy = index
 	comparison_phase = 0
 	log_battle_result("restart", {
@@ -304,6 +380,7 @@ func _on_start_button_pressed() -> void:
 func _on_compare_button_pressed() -> void:
 	if auto_exploration_started:
 		return
+	goal_policy_overrides.clear()
 	comparison_active = true
 	comparison_phase = 0
 	comparison_transition_elapsed = 0.0
@@ -324,6 +401,10 @@ func update_controls_state() -> void:
 		return
 
 	var controls_available := not auto_exploration_started and not comparison_active
+	goal_button.visible = controls_available
+	goal_button.disabled = not controls_available or game_over
+	var policy := goal_policy()
+	goal_button.text = "Goals: enemy %d · items %d · stairs %d · T %d" % [policy["enemy_weight"], policy["item_weight"], policy["stairs_weight"], policy["temperature"]]
 	start_button.visible = controls_available
 	start_button.disabled = not controls_available or game_over
 	compare_button.visible = controls_available
@@ -353,8 +434,9 @@ func update_layout() -> void:
 	map_offset = (available - grid_size * map_scale) * 0.5
 	if strategy_option and start_button and compare_button:
 		strategy_option.position = Vector2(available.x + 16, 292)
-		start_button.position = Vector2(available.x + 16, 350)
-		compare_button.position = Vector2(available.x + 16, 412)
+		goal_button.position = Vector2(available.x + 16, 350)
+		start_button.position = Vector2(available.x + 16, 410)
+		compare_button.position = Vector2(available.x + 16, 472)
 	queue_redraw()
 
 func new_floor() -> void:
@@ -388,6 +470,7 @@ func new_floor() -> void:
 	navigation_visits.clear()
 	aggressive_target_id = ""
 	growth_target_id = ""
+	selected_goal.clear()
 	navigation_visits[player["pos"]] = 1
 	stairs_pos = rooms[rooms.size() - 1].get_center()
 	if stairs_pos == player["pos"]:
@@ -777,8 +860,8 @@ func farthest_walkable_tile_from(origin: Vector2i) -> Vector2i:
 func run_auto_player_turn() -> void:
 	decision_sequence += 1
 	var decision_id := "%s-decision-%d" % [run_id, decision_sequence]
-	var decision := choose_auto_player_decision(decision_id)
-	if decision["rule_id"] == "hunt_nearest_enemy":
+	var decision := choose_auto_player_decision(decision_id, true)
+	if decision["rule_id"] in ["hunt_nearest_enemy", "seek_blocking_enemy"]:
 		aggressive_target_id = decision["target"]["id"]
 	if decision["rule_id"] == "hunt_for_growth":
 		growth_target_id = decision["target"]["id"]
@@ -804,18 +887,17 @@ func run_auto_player_turn() -> void:
 
 	player_act(direction, decision["decision_id"])
 
-func choose_auto_player_decision(decision_id: String) -> Dictionary:
+func choose_auto_player_decision(decision_id: String, commit: bool = false) -> Dictionary:
 	var item_decision := choose_item_decision(decision_id)
 	if not item_decision.is_empty() and item_decision["action_type"] == "use_item":
 		return item_decision
 	var windup_escape := choose_windup_response(decision_id)
 	if not windup_escape.is_empty():
 		return windup_escape
-	var bow_decision := choose_bow_decision(decision_id)
-	if not bow_decision.is_empty():
-		return bow_decision
-	if not item_decision.is_empty():
-		return item_decision
+	if direction_to_adjacent_enemy() == Vector2i.ZERO:
+		var goal := choose_goal_decision(decision_id, commit)
+		if not goal.is_empty():
+			return goal
 	if active_strategy == StrategyType.CAUTIOUS:
 		return choose_cautious_decision(decision_id)
 	return choose_aggressive_decision(decision_id)
@@ -1013,6 +1095,12 @@ func choose_cautious_decision(decision_id: String) -> Dictionary:
 			"target": enemy_to_log(blocking_enemy),
 		}
 
+	if not enemies.is_empty():
+		var pursuit := aggressive_pursuit()
+		if pursuit["direction"] != Vector2i.ZERO:
+			return {"decision_id": decision_id, "direction": pursuit["direction"], "rule_id": "seek_blocking_enemy",
+				"reason": "The stairs route is blocked; approach a reachable enemy to reopen it.", "action_type": "move",
+				"target": enemy_to_log(pursuit["enemy"]), "selected_step_danger": danger_cost(player["pos"] + pursuit["direction"])}
 	return {
 		"decision_id": decision_id,
 		"rule_id": "wait_no_safe_path",
@@ -1071,6 +1159,162 @@ func incoming_damage_at(pos: Vector2i, excluded_id: String = "") -> int:
 			elif distance <= 49:
 				total += calculate_damage(int(enemy["attack"]), effective_defense())
 	return total
+
+func goal_evaluation(kind: String, id: String, benefit: int, damage: int, turns: int, repeated: int) -> Dictionary:
+	var remaining: int = player["hp"] - damage
+	var risk := int(damage * 20 / maxi(1, player["hp"])) + maxi(0, 6 - remaining) * 4
+	var weight: int = goal_policy()[kind + "_weight"]
+	return {"kind": kind, "id": id, "benefit": benefit, "estimated_damage": damage,
+		"risk": risk, "turns": turns, "revisit_penalty": repeated, "utility": benefit - risk - turns - repeated,
+		"eligible": remaining > 0 and weight > 0,
+		"rejection": "estimated_lethal" if remaining <= 0 else ("disabled" if weight == 0 else "")}
+
+func goal_candidates() -> Array[Dictionary]:
+	var candidates: Array[Dictionary] = []
+	for enemy in enemies:
+		var route := progression_route(enemy["pos"], 12)
+		if route.is_empty():
+			continue
+		var hit_damage := calculate_damage(effective_attack(), int(enemy.get("defense", 0)))
+		var attack_turns := int((int(enemy["hp"]) + hit_damage - 1) / hit_damage)
+		var xp_gain := 5 if enemy["type"] != "melee" else 3
+		var projected_xp: int = player["xp"] + xp_gain
+		var projected_level: int = player["level"]
+		while projected_xp >= projected_level * 8:
+			projected_xp -= projected_level * 8
+			projected_level += 1
+		var levels_gained: int = projected_level - player["level"]
+		var approach: Array[Vector2i] = []
+		if not can_player_shoot_from(player["pos"], enemy["pos"]):
+			for index in range(route.size() - 1):
+				approach.append(route[index])
+				if can_player_shoot_from(route[index], enemy["pos"]):
+					break
+		var attack_pos: Vector2i = player["pos"] if approach.is_empty() else approach.back()
+		var gap: Vector2i = enemy["pos"] - attack_pos
+		var retaliation_turns := maxi(0, attack_turns - (absi(gap.x) + absi(gap.y))) if enemy["type"] == "melee" else attack_turns - 1
+		if enemy["type"] == "brute":
+			var contact_turns := maxi(0, attack_turns - 1 - 2 * maxi(0, absi(gap.x) + absi(gap.y) - 1))
+			retaliation_turns = int((contact_turns + int(enemy.get("windup_target") == attack_pos)) / 2)
+		var target_attack: int = int(enemy["attack"]) if enemy["type"] != "archer" or attack_pos.distance_squared_to(enemy["pos"]) > 2 else 1
+		var damage := retaliation_turns * calculate_damage(target_attack, effective_defense())
+		damage += attack_turns * incoming_damage_at(attack_pos, enemy["id"])
+		var repeated_cost := 0
+		for pos in approach:
+			damage += incoming_damage_at(pos)
+			repeated_cost += revisit_cost(pos)
+		var benefit: int = xp_gain * 2 + 2 + levels_gained * (8 + (MAX_DEPTH - 1 - player["depth"]) * 6)
+		var can_shoot := can_player_shoot_from(player["pos"], enemy["pos"])
+		var direction := Vector2i.ZERO if can_shoot else find_weighted_step_toward(enemy["pos"], active_strategy == StrategyType.CAUTIOUS, true)
+		if direction == Vector2i.ZERO and not can_shoot:
+			continue
+		var delta: Vector2i = player["pos"] - enemy["pos"]
+		if active_strategy == StrategyType.CAUTIOUS and enemy["type"] == "brute" and not can_shoot and absi(delta.x) + absi(delta.y) == 2 and can_enemy_see_player(enemy["pos"]):
+			var next: Vector2i = enemy["pos"] + choose_enemy_step(enemy["pos"], delta)
+			var closing_gap: Vector2i = player["pos"] - next
+			if next != enemy["pos"] and enemy_at(next) == -1 and absi(closing_gap.x) + absi(closing_gap.y) == 1:
+				direction = Vector2i.ZERO
+		candidates.append({"kind": "enemy", "id": enemy["id"], "direction": direction, "target": enemy_to_log(enemy), "ranged": can_shoot,
+			"evaluation": goal_evaluation("enemy", enemy["id"], benefit, damage, approach.size() + attack_turns, repeated_cost)})
+	for item in items:
+		if not wants_item(item):
+			continue
+		var route := progression_route(item["pos"], 12)
+		if route.is_empty():
+			continue
+		var direction := find_weighted_step_toward(item["pos"], active_strategy == StrategyType.CAUTIOUS, true)
+		if direction == Vector2i.ZERO:
+			continue
+		var damage := 0
+		var repeated := 0
+		for pos in route:
+			damage += incoming_damage_at(pos)
+			repeated += revisit_cost(pos)
+		var benefit := 0
+		match item["type"]:
+			"health_potion": benefit = mini(POTION_HEAL, player["max_hp"] - player["hp"]) * 2 + (INVENTORY_CAPACITY - player["inventory"]["health_potion"]) * 4
+			"armor": benefit = maxi(0, int(item.get("defense_bonus", 0)) - defense_bonus()) * 8
+			_:
+				var raw: int = player["base_attack"] + int(item.get("attack_bonus", 0))
+				var attack := maxi(1, int(raw / 2)) if item.get("weapon_kind") == "bow" else raw
+				benefit = maxi(0, attack - effective_attack()) * 6 + item_priority(item) * 8
+		candidates.append({"kind": "item", "id": item["id"], "direction": direction, "target": item_to_log(item), "ranged": false,
+			"evaluation": goal_evaluation("item", item["id"], benefit, damage, route.size(), repeated)})
+	var route := progression_route(stairs_pos, map_width * map_height)
+	if not route.is_empty():
+		var direction := find_low_risk_step_toward(stairs_pos)
+		if direction != Vector2i.ZERO:
+			var damage := 0
+			var repeated := 0
+			for pos in route:
+				damage += incoming_damage_at(pos)
+				repeated += revisit_cost(pos)
+			var benefit: int = 8 + mini(4, player["max_hp"] - player["hp"]) * 2 + (20 if player["depth"] == MAX_DEPTH - 1 else 0)
+			candidates.append({"kind": "stairs", "id": "stairs", "direction": direction, "target": {"kind": "stairs", "pos": vector_to_log(stairs_pos)}, "ranged": false,
+				"evaluation": goal_evaluation("stairs", "stairs", benefit, damage, mini(route.size(), 8), repeated)})
+	return candidates
+
+func goal_mass(weight: int, gap: int, temperature: int) -> int:
+	return weight * [1000, 368, 135, 50, 18, 7, 2, 1, 1][mini(8, int(maxi(0, gap) / temperature))]
+
+func choose_goal_decision(decision_id: String, commit: bool = false) -> Dictionary:
+	var candidates := goal_candidates()
+	var retained: Dictionary = {}
+	if not selected_goal.is_empty() and absi(int(player["hp"]) - int(selected_goal["hp"])) < 4:
+		for candidate in candidates:
+			if candidate["kind"] == selected_goal["kind"] and candidate["id"] == selected_goal["id"] and candidate["evaluation"]["eligible"]:
+				retained = candidate
+				break
+	var lottery: Array[Dictionary] = []
+	for kind in ["enemy", "item", "stairs"]:
+		var best: Dictionary = {}
+		for candidate in candidates:
+			if candidate["kind"] != kind or not candidate["evaluation"]["eligible"]:
+				continue
+			if best.is_empty() or candidate["evaluation"]["utility"] > best["evaluation"]["utility"]:
+				best = candidate
+		if not best.is_empty():
+			lottery.append(best)
+	if lottery.is_empty():
+		if commit:
+			selected_goal.clear()
+		return {}
+	var max_utility: int = lottery[0]["evaluation"]["utility"]
+	for candidate in lottery:
+		max_utility = maxi(max_utility, candidate["evaluation"]["utility"])
+	var policy := goal_policy()
+	var masses: Array[int] = []
+	var total := 0
+	for candidate in lottery:
+		var mass := goal_mass(policy[candidate["kind"] + "_weight"], max_utility - int(candidate["evaluation"]["utility"]), policy["temperature"])
+		masses.append(mass)
+		total += mass
+	var rng := PortableRandom.new(policy_rng.state if policy_rng != null else derived_seed("policy", 0))
+	var before := rng.state
+	var draw: Variant = null if not retained.is_empty() else rng.randi_range(0, total - 1)
+	var selected := retained
+	if selected.is_empty():
+		var cursor: int = draw
+		for index in range(lottery.size()):
+			if cursor < masses[index]:
+				selected = lottery[index]
+				break
+			cursor -= masses[index]
+	if commit:
+		policy_rng = rng
+		if retained.is_empty():
+			selected_goal = {"kind": selected["kind"], "id": selected["id"], "hp": player["hp"]}
+	var distribution: Array[Dictionary] = []
+	for index in range(lottery.size()):
+		distribution.append({"kind": lottery[index]["kind"], "id": lottery[index]["id"], "mass": masses[index], "total_mass": total})
+	var evaluations: Array[Dictionary] = []
+	for candidate in candidates:
+		evaluations.append(candidate["evaluation"])
+	return {"decision_id": decision_id, "direction": selected["direction"], "rule_id": "weighted_goal",
+		"reason": "Select a goal using category preferences and benefit minus risk; retain a viable target until completion or a material HP change.",
+		"action_type": "ranged_attack" if selected["ranged"] else ("wait" if selected["direction"] == Vector2i.ZERO else "move"), "target": selected["target"], "selected_step_danger": danger_cost(player["pos"] + selected["direction"]),
+		"goal_selection": {"selected_kind": selected["kind"], "selected_id": selected["id"], "target_retained": not retained.is_empty(),
+			"draw": draw, "rng_before": before, "rng_after": rng.state, "distribution": distribution, "candidates": evaluations}}
 
 func choose_progression_decision(decision_id: String) -> Dictionary:
 	var cautious := active_strategy == StrategyType.CAUTIOUS
@@ -1162,7 +1406,7 @@ func revisit_cost(pos: Vector2i) -> int:
 func find_low_risk_step_toward(destination: Vector2i) -> Vector2i:
 	return find_weighted_step_toward(destination, true)
 
-func find_weighted_step_toward(destination: Vector2i, use_danger: bool) -> Vector2i:
+func find_weighted_step_toward(destination: Vector2i, use_danger: bool, avoid_stairs: bool = false) -> Vector2i:
 	var start: Vector2i = player["pos"]
 	var frontier: Array[Vector2i] = [start]
 	var came_from := {start: start}
@@ -1180,7 +1424,7 @@ func find_weighted_step_toward(destination: Vector2i, use_danger: bool) -> Vecto
 
 		for direction in directions:
 			var next: Vector2i = current + direction
-			if not is_cautious_path_walkable(next, destination):
+			if not is_cautious_path_walkable(next, destination) or (avoid_stairs and next == stairs_pos):
 				continue
 			var danger := danger_cost(next) if use_danger else 0
 			var new_cost: int = cost_so_far[current] + 1 + danger + revisit_cost(next)
@@ -1722,6 +1966,8 @@ func open_log_file() -> void:
 		push_warning("Could not open log file: %s" % log_file_path)
 
 func start_run_log() -> void:
+	policy_rng = PortableRandom.new(derived_seed("policy", 0))
+	selected_goal.clear()
 	run_id = (
 		fixed_run_id
 		if not fixed_run_id.is_empty()
@@ -1735,7 +1981,9 @@ func start_run_log() -> void:
 		"scenario_id": current_scenario_id(),
 		"scenario_seed": scenario_seed,
 		"strategy_id": strategy_id(active_strategy),
-		"simulation_version": 7,
+		"simulation_version": 8,
+		"goal_policy": goal_policy(),
+		"policy_seed": derived_seed("policy", 0),
 		"comparison": comparison_active,
 		"comparison_phase": comparison_phase,
 	})
@@ -1747,6 +1995,8 @@ func log_auto_decision(decision: Dictionary) -> void:
 		"target": decision["target"],
 	}
 	var observation := build_decision_observation()
+	if decision.has("goal_selection"):
+		observation["goal_selection"] = decision["goal_selection"].duplicate(true)
 	if decision.has("progression"):
 		observation["progression"] = decision["progression"].duplicate(true)
 	if decision["action_type"] == "move":
@@ -1964,14 +2214,15 @@ func draw_hud() -> void:
 		COLORS["muted"],
 	)
 
-	draw_string(font, Vector2(hud_x, 430), "ATK %d [%s]  DEF %d (%d+%d)" % [effective_attack(), ("(%d+%d)/2" if weapon_kind() == "bow" else "%d+%d") % [player["base_attack"], attack_bonus()], effective_defense(), player["base_defense"], defense_bonus()], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
-	draw_string(font, Vector2(hud_x, 450), "%s · range %d%s" % [weapon_kind(), attack_range(), " · F: shoot" if weapon_kind() == "bow" else ""], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["muted"])
-	draw_string(font, Vector2(hud_x, 470), "Potions %d/%d · H: use" % [player["inventory"]["health_potion"], INVENTORY_CAPACITY], HORIZONTAL_ALIGNMENT_LEFT, -1, 22, COLORS["text"])
-	draw_string(font, Vector2(hud_x, 500), "Arrows/. still work", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, COLORS["muted"])
-	draw_string(font, Vector2(hud_x, 536), "R: restart", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, COLORS["muted"])
+	var setup_offset := 120 if goal_button != null and goal_button.visible else 0
+	draw_string(font, Vector2(hud_x, 430 + setup_offset), "ATK %d [%s]  DEF %d (%d+%d)" % [effective_attack(), ("(%d+%d)/2" if weapon_kind() == "bow" else "%d+%d") % [player["base_attack"], attack_bonus()], effective_defense(), player["base_defense"], defense_bonus()], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["text"])
+	draw_string(font, Vector2(hud_x, 450 + setup_offset), "%s · range %d%s" % [weapon_kind(), attack_range(), " · F: shoot" if weapon_kind() == "bow" else ""], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLORS["muted"])
+	draw_string(font, Vector2(hud_x, 470 + setup_offset), "Potions %d/%d · H: use" % [player["inventory"]["health_potion"], INVENTORY_CAPACITY], HORIZONTAL_ALIGNMENT_LEFT, -1, 22, COLORS["text"])
+	draw_string(font, Vector2(hud_x, 500 + setup_offset), "Arrows/. still work", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, COLORS["muted"])
+	draw_string(font, Vector2(hud_x, 536 + setup_offset), "R: restart", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, COLORS["muted"])
 
-	draw_string(font, Vector2(hud_x, 584), "Log", HORIZONTAL_ALIGNMENT_LEFT, -1, 28, COLORS["text"])
-	var log_y := 620.0
+	draw_string(font, Vector2(hud_x, 584 + setup_offset), "Log", HORIZONTAL_ALIGNMENT_LEFT, -1, 28, COLORS["text"])
+	var log_y := 620.0 + setup_offset
 	for message in messages:
 		var message_size := font.get_multiline_string_size(message, HORIZONTAL_ALIGNMENT_LEFT, HUD_WIDTH - 32, 22)
 		if log_y + message_size.y > viewport_size.y:

@@ -12,6 +12,7 @@ var scenario_seed := DEFAULT_SEED
 var max_turns := DEFAULT_MAX_TURNS
 var output_path := DEFAULT_OUTPUT
 var should_run := true
+var goal_overrides: Dictionary = {}
 
 
 func _init() -> void:
@@ -39,6 +40,11 @@ func run() -> void:
 	)
 	var game := MainGame.new()
 	game.configure_headless(scenario_seed, strategy, resolved_output)
+	if not game.configure_goal_policy(goal_overrides):
+		printerr("Invalid goal policy: weights 0..1000, at least one positive; temperature 1..100")
+		game.free()
+		quit(2)
+		return
 	root.add_child(game)
 	if game.log_file == null:
 		printerr("Could not open log output: %s" % resolved_output)
@@ -84,7 +90,7 @@ func parse_arguments(args: PackedStringArray) -> int:
 			print_usage()
 			should_run = false
 			return OK
-		if argument not in ["--strategy", "--seed", "--max-turns", "--output"]:
+		if argument not in ["--strategy", "--seed", "--max-turns", "--output", "--enemy-weight", "--item-weight", "--stairs-weight", "--temperature"]:
 			printerr("Unknown argument: %s" % argument)
 			print_usage()
 			return 2
@@ -95,6 +101,11 @@ func parse_arguments(args: PackedStringArray) -> int:
 
 		var value := inline_value if has_inline_value else args[index + 1]
 		match argument:
+			"--enemy-weight", "--item-weight", "--stairs-weight", "--temperature":
+				if not value.is_valid_int():
+					printerr("%s requires an integer" % argument)
+					return 2
+				goal_overrides[argument.trim_prefix("--").replace("-", "_")] = value.to_int()
 			"--strategy":
 				if value not in ["aggressive", "cautious"]:
 					printerr("--strategy must be aggressive or cautious")
@@ -126,7 +137,7 @@ func parse_arguments(args: PackedStringArray) -> int:
 func collect_runner_arguments() -> PackedStringArray:
 	var result := PackedStringArray()
 	var engine_args := OS.get_cmdline_args()
-	var runner_options := ["--strategy", "--seed", "--max-turns", "--output", "--help"]
+	var runner_options := ["--strategy", "--seed", "--max-turns", "--output", "--enemy-weight", "--item-weight", "--stairs-weight", "--temperature", "--help"]
 	var index := 0
 	var found_before_separator := false
 	while index < engine_args.size():
@@ -166,7 +177,7 @@ func print_usage() -> void:
 	print(
 		"Usage: godot --headless --path game --script res://tools/headless_run.gd -- "
 		+ "[--strategy aggressive|cautious] [--seed INTEGER] "
-		+ "[--max-turns INTEGER] [--output PATH]\n"
+		+ "[--max-turns INTEGER] [--output PATH] [--enemy-weight N] [--item-weight N] [--stairs-weight N] [--temperature N]\n"
 		+ "Runner arguments normally belong after the standalone -- separator. "
 		+ "Both --output PATH and --output=PATH are accepted."
 	)

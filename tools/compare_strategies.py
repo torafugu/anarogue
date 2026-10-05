@@ -34,11 +34,16 @@ def parse_seeds(value):
 def metrics(summary, events):
     row = dict(summary)
     row.update(damage_taken=0, potions_used=0, bow_shots=0, brute_windups=0,
-               brute_hits=0, brute_misses=0, brute_interrupted=0, brute_left_on_descent=0)
+               brute_hits=0, brute_misses=0, brute_interrupted=0, brute_left_on_descent=0,
+               goal_enemy_draws=0, goal_item_draws=0, goal_stairs_draws=0, goal_retained=0)
     row.update({f'kills_{kind}': 0 for kind in ENEMIES})
     pending = set()
     for event in events:
         d = event['details']
+        if event['event'] == 'decision':
+            goal = d.get('observation', {}).get('goal_selection')
+            if goal:
+                row['goal_retained' if goal['target_retained'] else 'goal_' + goal['selected_kind'] + '_draws'] += 1
         if event['event'] in ('floor_start', 'floor_descend'):
             row['brute_left_on_descent'] += len(pending)
             pending.clear()
@@ -89,7 +94,7 @@ def aggregate(rows):
                 'bow_shots', 'potions_used', 'kills_melee', 'kills_archer', 'kills_brute')},
             **{'total_' + key: sum(r[key] for r in runs) for key in (
                 'brute_windups', 'brute_hits', 'brute_misses', 'brute_interrupted',
-                'brute_left_on_descent', 'brute_unresolved')},
+                'brute_left_on_descent', 'brute_unresolved', 'goal_enemy_draws', 'goal_item_draws', 'goal_stairs_draws', 'goal_retained')},
         }
     by_seed = {}
     for row in rows:
@@ -113,7 +118,7 @@ def aggregate(rows):
 
 def write_report(output, parameters, rows):
     aggregates, paired = aggregate(rows)
-    report = dict(simulation_version=7, randomness_version=1, parameters=parameters,
+    report = dict(simulation_version=8, randomness_version=1, parameters=parameters,
                   aggregates=aggregates, paired=paired, runs=rows)
     output.mkdir(parents=True, exist_ok=True)
     (output / 'comparison.json').write_text(json.dumps(report, indent=2) + '\n')
@@ -122,7 +127,8 @@ def write_report(output, parameters, rows):
         writer.writeheader(); writer.writerows(rows)
     def fmt(v):
         return '—' if v is None else str(v) if isinstance(v, int) else f'{v:.2f}'
-    lines = ['# Strategy comparison: simulation v7', '',
+    lines = ['# Strategy comparison: simulation v8', '',
+             'Presets (enemy / item / stairs): Aggressive 4 / 2 / 1, Cautious 1 / 2 / 4; temperature 8.', '',
              f"Seeds: {', '.join(map(str, parameters['seeds']))}. Map: {parameters['width']}×{parameters['height']}. Budget: {parameters['max_turns']} turns.", '',
              '| Metric | Aggressive | Cautious |', '| --- | ---: | ---: |']
     fields = [('Clears / runs', None), ('Clear rate', 'clear_rate'),
@@ -187,8 +193,8 @@ def main():
                     '--output', str(log)], check=True, text=True, capture_output=True)
                 summary = json.loads(run.stdout)
                 events = [json.loads(line) for line in log.read_text().splitlines()]
-                if not events or any(e['schema_version'] != 7 for e in events):
-                    raise ValueError('comparison requires a simulation v7 binary')
+                if not events or any(e['schema_version'] != 8 for e in events):
+                    raise ValueError('comparison requires a simulation v8 binary')
                 rows.append(metrics(summary, events))
             print(f'Compared seed {seed} ({len(rows)} runs)', flush=True)
     stats, paired = write_report(args.output_dir, parameters, rows)

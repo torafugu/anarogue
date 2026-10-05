@@ -585,6 +585,16 @@ function renderDetail(event?: RunEvent): void {
       </table></div>
       <p class="detail-description">Damage uses current enemy positions and equipment. Enemy movement is not predicted; the scores are policy estimates.</p>
     </div>` : "";
+  const goal = decision?.observation.goal_selection;
+  const goalMarkup = goal ? `<div class="growth-comparison">
+    <h4>Goal: ${escapeHtml(goal.selected_kind)} · ${escapeHtml(goal.selected_id)}${goal.target_retained ? " · Retained" : " · Drawn"}</h4>
+    <p>${goal.target_retained ? "Target retained; no new draw. Redraw weights shown below." : `Draw ${goal.draw} · policy RNG ${goal.rng_before} → ${goal.rng_after}`}</p>
+    <div class="growth-table-scroll"><table><thead><tr><th>Category</th><th>Target</th><th>Benefit</th><th>Est. damage</th><th>Risk</th><th>Time</th><th>Revisits</th><th>Utility</th><th>Draw chance</th></tr></thead>
+    <tbody>${goal.candidates.map(c => {
+      const entry = goal.distribution.find(d => d.kind === c.kind && d.id === c.id);
+      return `<tr><td>${escapeHtml(c.kind)}</td><td>${escapeHtml(c.id)}</td><td>${c.benefit}</td><td>${c.estimated_damage}</td><td>${c.risk}</td><td>${c.turns}</td><td>${c.revisit_penalty}</td><td>${c.utility}</td><td>${entry ? `${(100 * entry.mass / entry.total_mass).toFixed(1)}%` : c.eligible ? "Other target" : escapeHtml(c.rejection)}</td></tr>`;
+    }).join("")}</tbody></table></div>
+    <p>Damage is an estimate using current positions. It does not predict all enemy movement.</p></div>` : "";
   const decisionMarkup = decision
     ? `
       <div class="decision-rule">
@@ -619,6 +629,7 @@ function renderDetail(event?: RunEvent): void {
     </div>
     ${decisionMarkup}
     ${growthMarkup}
+    ${goalMarkup}
     <div class="state-strip">
       <span>Turn <b>${event.turn}</b></span>
       <span>Depth <b>${event.depth}</b></span>
