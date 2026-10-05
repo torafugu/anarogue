@@ -2,6 +2,7 @@ extends Node2D
 
 const ReplayData := preload("res://scripts/replay_log.gd")
 const DEFAULT_REPLAY := "res://../examples/reference-v8/aggressive-seed-424242.jsonl"
+const REPLAY_TILE_SIZE := 96.0
 const INFO_TOP := 126.0
 const INFO_HEIGHT := 224.0
 const MAP_TOP := INFO_TOP + INFO_HEIGHT + 16.0
@@ -20,6 +21,8 @@ const COLOR_ARCHER := Color("#6ecbff")
 const COLOR_STAIRS := Color("#79c7a6")
 const COLOR_TEXT := Color("#e7e1cf")
 
+var maze_view: Control
+var maze_canvas: Node2D
 var replay := ReplayData.new()
 var frame_index := 0
 var log_entries: Array[String] = []
@@ -56,6 +59,15 @@ func _ready() -> void:
 
 
 func create_controls() -> void:
+	maze_view = Control.new()
+	maze_view.name = "MazeViewport"
+	maze_view.clip_contents = true
+	maze_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(maze_view)
+	maze_canvas = Node2D.new()
+	maze_canvas.name = "MazeCanvas"
+	maze_canvas.draw.connect(draw_maze)
+	maze_view.add_child(maze_canvas)
 	log_selector = OptionButton.new()
 	log_selector.name = "LogSelector"
 	log_selector.tooltip_text = "JSONL files stored in user://"
@@ -148,18 +160,29 @@ func make_info_text(text_name: String) -> RichTextLabel:
 
 func map_rect() -> Rect2:
 	var viewport_size := get_viewport_rect().size
-	var available := Vector2(maxf(1, viewport_size.x - 32), maxf(1, viewport_size.y - MAP_TOP - 16))
-	if replay.frames.is_empty():
-		return Rect2(Vector2(16, MAP_TOP), available)
-	var rows: Array = replay.frames[frame_index]["map_rows"]
+	return Rect2(Vector2(16, MAP_TOP), Vector2(maxf(1, viewport_size.x - 32), maxf(1, viewport_size.y - MAP_TOP - 16)))
+
+func camera_origin(frame: Dictionary) -> Vector2:
+	var area := map_rect()
+	var rows: Array = frame["map_rows"]
 	if rows.is_empty() or str(rows[0]).is_empty():
-		return Rect2(Vector2(16, MAP_TOP), available)
-	var tile_size := minf(available.x / str(rows[0]).length(), available.y / rows.size())
-	var map_size := Vector2(str(rows[0]).length(), rows.size()) * tile_size
-	return Rect2(Vector2((viewport_size.x - map_size.x) * 0.5, MAP_TOP), map_size)
+		return Vector2.ZERO
+	var world_size := Vector2(str(rows[0]).length(), rows.size()) * REPLAY_TILE_SIZE
+	var position: Dictionary = frame["player_state"].get("pos", {})
+	var player_center := Vector2(position.get("x", 0) + 0.5, position.get("y", 0) + 0.5) * REPLAY_TILE_SIZE
+	var origin := Vector2.ZERO
+	for axis in [0, 1]:
+		if world_size[axis] <= area.size[axis]:
+			origin[axis] = (area.size[axis] - world_size[axis]) * 0.5
+		else:
+			origin[axis] = -clampf(player_center[axis] - area.size[axis] * 0.5, 0, world_size[axis] - area.size[axis])
+	return origin
 
 func layout_map_overlay() -> void:
 	var area := map_rect()
+	maze_view.position = area.position
+	maze_view.size = area.size
+	maze_canvas.queue_redraw()
 	map_overlay.position = area.position + Vector2(8, 8)
 	map_overlay.size = Vector2.ZERO # Let the single-line badge fit its contents.
 
@@ -474,6 +497,11 @@ func format_log_entry(frame: Dictionary) -> String:
 
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, get_viewport_rect().size), COLOR_BG)
+	if maze_canvas != null:
+		maze_canvas.queue_redraw()
+
+func draw_maze() -> void:
+	maze_canvas.draw_rect(Rect2(Vector2.ZERO, maze_view.size), COLOR_BG)
 	if replay.frames.is_empty():
 		return
 	var frame: Dictionary = replay.frames[frame_index]
@@ -483,18 +511,22 @@ func _draw() -> void:
 	var map_height := rows.size()
 	var map_width: int = str(rows[0]).length()
 	var area := map_rect()
-	var tile_size := area.size.x / map_width
-	var origin := area.position
-	for y in range(map_height):
+	var tile_size := REPLAY_TILE_SIZE
+	var origin := camera_origin(frame)
+	var first_x := clampi(int(floor(-origin.x / tile_size)), 0, map_width)
+	var first_y := clampi(int(floor(-origin.y / tile_size)), 0, map_height)
+	var last_x := clampi(int(ceil((area.size.x - origin.x) / tile_size)), 0, map_width)
+	var last_y := clampi(int(ceil((area.size.y - origin.y) / tile_size)), 0, map_height)
+	for y in range(first_y, last_y):
 		var row := str(rows[y])
-		for x in range(map_width):
+		for x in range(first_x, last_x):
 			var rect := Rect2(origin + Vector2(x, y) * tile_size, Vector2.ONE * tile_size)
 			if row.substr(x, 1) == ".":
 				var floor_color := COLOR_FLOOR if (x + y) % 2 == 0 else COLOR_FLOOR_ALT
-				draw_rect(rect, floor_color)
+				maze_canvas.draw_rect(rect, floor_color)
 			else:
-				draw_rect(rect, COLOR_WALL)
-				draw_rect(rect.grow(-tile_size * 0.2), COLOR_WALL_EDGE)
+				maze_canvas.draw_rect(rect, COLOR_WALL)
+				maze_canvas.draw_rect(rect.grow(-tile_size * 0.2), COLOR_WALL_EDGE)
 
 	draw_stairs_icon(frame["stairs_pos"], origin, tile_size)
 	for item_value in frame.get("items", []):
@@ -506,7 +538,7 @@ func _draw() -> void:
 		var symbol := "O" if enemy.get("type", "") == "brute" else ("A" if enemy.get("type", "") == "archer" else "E")
 		if enemy.get("windup_target") != null:
 			var mark: Dictionary = enemy["windup_target"]
-			draw_rect(Rect2(origin + Vector2(mark["x"], mark["y"]) * tile_size, Vector2.ONE * tile_size).grow(-1), Color("#e76767"), false, 2.0)
+			maze_canvas.draw_rect(Rect2(origin + Vector2(mark["x"], mark["y"]) * tile_size, Vector2.ONE * tile_size).grow(-1), Color("#e76767"), false, 2.0)
 		draw_actor(enemy.get("pos", {}), origin, tile_size, Color("#ce8e4c") if enemy.get("type", "") == "brute" else color, symbol)
 	var player: Dictionary = frame["player_state"]
 	draw_actor(player.get("pos", {}), origin, tile_size, COLOR_PLAYER, "@")
@@ -523,12 +555,12 @@ func draw_actor(
 	if not position_value.has("x") or not position_value.has("y"):
 		return
 	var center := origin + Vector2(position_value["x"] + 0.5, position_value["y"] + 0.5) * tile_size
-	draw_circle(center, tile_size * 0.42, color)
+	maze_canvas.draw_circle(center, tile_size * 0.42, color)
 	var symbol_size := int(tile_size * 0.75)
 	var text_size := font.get_string_size(
 		symbol, HORIZONTAL_ALIGNMENT_CENTER, -1, symbol_size
 	)
-	draw_string(
+	maze_canvas.draw_string(
 		font,
 		center - text_size * 0.5 + Vector2(0, tile_size * 0.55),
 		symbol,
@@ -545,8 +577,8 @@ func draw_stairs_icon(position_value: Dictionary, origin: Vector2, tile_size: fl
 	var tile_origin := origin + Vector2(position_value["x"], position_value["y"]) * tile_size
 	var scale := tile_size / 40.0
 	var badge := Rect2(tile_origin + Vector2.ONE * 4.0 * scale, Vector2.ONE * 32.0 * scale)
-	draw_rect(badge, COLOR_BG)
-	draw_rect(badge, COLOR_STAIRS, false, 2.0 * scale)
+	maze_canvas.draw_rect(badge, COLOR_BG)
+	maze_canvas.draw_rect(badge, COLOR_STAIRS, false, 2.0 * scale)
 	var steps := PackedVector2Array([
 		tile_origin + Vector2(9, 12) * scale,
 		tile_origin + Vector2(16, 12) * scale,
@@ -555,8 +587,8 @@ func draw_stairs_icon(position_value: Dictionary, origin: Vector2, tile_size: fl
 		tile_origin + Vector2(23, 26) * scale,
 		tile_origin + Vector2(30, 26) * scale,
 	])
-	draw_polyline(steps, COLOR_STAIRS, 3.0 * scale, true)
-	draw_line(
+	maze_canvas.draw_polyline(steps, COLOR_STAIRS, 3.0 * scale, true)
+	maze_canvas.draw_line(
 		tile_origin + Vector2(9, 31) * scale,
 		tile_origin + Vector2(30, 31) * scale,
 		COLOR_STAIRS,
@@ -589,15 +621,15 @@ func draw_arrow(arrow: Dictionary, origin: Vector2, tile_size: float) -> void:
 		var perpendicular := Vector2(-direction.y, direction.x)
 		var tip := arrow_origin.lerp(target, arrow_elapsed / ARROW_FLIGHT_DURATION)
 		var tail := tip - direction * tile_size * 0.55
-		draw_line(
+		maze_canvas.draw_line(
 			tail - direction * tile_size * 0.3,
 			tip,
 			Color(0.43, 0.8, 1.0, 0.3),
 			maxf(2.0, tile_size * 0.15),
 			true
 		)
-		draw_line(tail, tip, COLOR_PLAYER if arrow.get("player_shot", false) else COLOR_ARCHER, maxf(1.0, tile_size * 0.075), true)
-		draw_colored_polygon(PackedVector2Array([
+		maze_canvas.draw_line(tail, tip, COLOR_PLAYER if arrow.get("player_shot", false) else COLOR_ARCHER, maxf(1.0, tile_size * 0.075), true)
+		maze_canvas.draw_colored_polygon(PackedVector2Array([
 			tip,
 			tip - direction * tile_size * 0.225 + perpendicular * tile_size * 0.125,
 			tip - direction * tile_size * 0.225 - perpendicular * tile_size * 0.125,
@@ -606,7 +638,7 @@ func draw_arrow(arrow: Dictionary, origin: Vector2, tile_size: float) -> void:
 		var progress := (arrow_elapsed - ARROW_FLIGHT_DURATION) / ARROW_IMPACT_DURATION
 		var color := COLOR_PLAYER if arrow.get("player_shot", false) else COLOR_ARCHER
 		color.a = 1.0 - progress
-		draw_arc(
+		maze_canvas.draw_arc(
 			target,
 			tile_size * (0.25 + progress * 0.4),
 			0.0,
