@@ -16,6 +16,13 @@ Each action you take advances the game by one turn. Move carefully, watch your H
 5. Click `Start selected strategy`, or run both strategies with
    `Compare both — same seed`.
 
+The replay uses 40 px text for selectors, buttons, logs, Player information,
+and the depth/frame/turn badge. The log and run selectors each occupy a full
+row. `Previous`, `Play`, and `Next` share the next row, followed by `Refresh logs`
+and `Live check`. The information panels are taller so larger text can be read
+without crowding the controls. The maze viewport is smaller, while its tile
+size and Player-following behavior stay the same.
+
 ## Goal
 
 Your goal is to reach Depth 5. Floors 1–4 are playable; descending from Depth 4 completes the dungeon.
