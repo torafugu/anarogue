@@ -7,6 +7,13 @@ use `schema_version: 8` and `run_start.details.simulation_version: 8`.
 stairs_weight, temperature) and `policy_seed`. This records effective preset or
 custom settings, so a seed alone is not mistaken for the complete configuration.
 
+`run_start.details.code_revision` is an optional nonempty producer revision
+string. The Rust CLI adds it with `--revision`; it is preserved in JSONL exports
+and used to separate catalogue statistics. Its absence means revision unknown.
+This optional metadata does not change simulation rules or RNG draws. When
+Rust saves to SQLite without JSONL output, the legacy `log_file` field contains
+`sqlite:<database-path>` as the log destination.
+
 A `weighted_goal` decision requires `observation.goal_selection`:
 
 - `selected_kind`, `selected_id`: chosen enemy / item / stairs target.

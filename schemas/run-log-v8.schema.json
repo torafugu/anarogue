@@ -508,6 +508,10 @@
         "simulation_version": {
           "const": 8
         },
+        "code_revision": {
+          "type": "string",
+          "minLength": 1
+        },
         "goal_policy": {
           "$ref": "#/$defs/goal_policy"
         },

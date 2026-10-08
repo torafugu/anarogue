@@ -17,7 +17,7 @@ The Rust core owns deterministic state transitions:
 - floor transitions and run termination at a turn budget.
 
 It deliberately does not own rendering or UI input. The CLI supplies run metadata
-and an optional log path; the core emits the same Schema v8 event categories used
+and optional JSONL/database destinations; the core emits the same Schema v8 event categories used
 by the Godot replay client.
 
 ## Run
@@ -36,22 +36,29 @@ cargo run -- \
 The command prints one JSON summary. The map dimensions are independent inputs;
 they are not encoded into or substituted for the scenario seed.
 
-Add `--output PATH` to write a replayable Schema v8 JSONL log while retaining the
-summary on standard output. On macOS, write directly to the Godot project data
-directory so the replay selector can discover it:
+To persist Runs directly, run from the repository root:
 
 ```bash
-cargo run --release -- \
-  --strategy aggressive \
-  --seed 424242 \
-  --max-turns 5000 \
-  --output "$HOME/Library/Application Support/Godot/app_userdata/anarogue/rust-aggressive-424242.jsonl"
+cargo run --release --manifest-path simulation-core/Cargo.toml -- \
+  --strategy aggressive --seed 424242 --max-turns 5000 \
+  --db logs/runs.sqlite3
 ```
 
-The CLI accepts a normal operating-system path rather than the Godot-only
-`user://` URI. It creates missing parent directories and replaces an existing
-file at the selected path. Use `Refresh logs` in the Godot replay client after a
-run completes.
+Start `python3 tools/run_store.py serve` against that database for Godot/Web
+selection and analysis. Saving does not require the API to be running. Completed
+writes appear through automatic catalogue refresh; no Refresh logs button or
+JSONL import is needed.
+
+`--db` and `--output PATH` can be combined to save SQLite and export a replayable
+Schema v8 JSONL. `--revision REV` optionally records the producer revision in both
+outputs. CLI executions use unique Run IDs; replay events and outcomes remain
+seed-reproducible. The library exposes `run_store::save_run(path, events)`.
+
+Paths are normal OS paths, not Godot `user://` URIs. Relative paths are resolved
+against the process working directory. SQLite persistence occurs once at the end
+of `run_logged`; no per-turn live DB streaming is currently implemented. The
+original JSON summary remains on stdout. See [Run store guide](run-store.md) for
+transactions, duplicate/conflict handling, optional JSONL and API configuration.
 
 ## Compatibility tests
 

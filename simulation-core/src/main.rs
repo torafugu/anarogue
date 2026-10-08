@@ -1,3 +1,4 @@
+use anarogue_simulation::run_store::save_run;
 use anarogue_simulation::{GoalPolicy, RunLogEvent, Simulation, SimulationConfig, Strategy};
 use std::fs::{create_dir_all, File};
 use std::io::{BufWriter, Write};
@@ -11,7 +12,7 @@ fn main() -> ExitCode {
             eprintln!("error: {message}");
             eprintln!(
                 "usage: anarogue-sim [--strategy aggressive|cautious] [--seed N] \
-                 [--width N] [--height N] [--max-turns N] [--output PATH] [--enemy-weight N] [--item-weight N] [--stairs-weight N] [--temperature N]"
+                 [--width N] [--height N] [--max-turns N] [--output PATH] [--enemy-weight N] [--item-weight N] [--stairs-weight N] [--temperature N] [--db PATH] [--revision REV]"
             );
             ExitCode::FAILURE
         }
@@ -21,17 +22,35 @@ fn main() -> ExitCode {
 struct CliOptions {
     config: SimulationConfig,
     output: Option<PathBuf>,
+    database: Option<PathBuf>,
+    revision: Option<String>,
     policy: GoalPolicy,
 }
 
 fn run() -> Result<(), String> {
     let options = parse_options()?;
-    if let Some(output) = options.output {
-        let display_path = output.to_string_lossy().into_owned();
-        let logged_run =
-            Simulation::new_logged_with_policy(options.config, display_path, options.policy)?
+    if let (Some(output), Some(database)) = (&options.output, &options.database) {
+        validate_destinations(output, database)?;
+    }
+    if options.output.is_some() || options.database.is_some() {
+        let destination = options
+            .output
+            .as_ref()
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|| format!("sqlite:{}", options.database.as_ref().unwrap().display()));
+        let mut logged_run =
+            Simulation::new_logged_with_policy(options.config, destination, options.policy)?
                 .run_logged();
-        write_jsonl(&output, &logged_run.events)?;
+        if let Some(revision) = options.revision {
+            logged_run.events[0].details["code_revision"] = revision.into();
+        }
+        if let Some(database) = options.database {
+            let key = save_run(&database, &logged_run.events)?;
+            eprintln!("saved Run {key} to {}", database.display());
+        }
+        if let Some(output) = options.output {
+            write_jsonl(&output, &logged_run.events)?;
+        }
         println!(
             "{}",
             serde_json::to_string(&logged_run.summary).expect("summary is serializable")
@@ -42,6 +61,40 @@ fn run() -> Result<(), String> {
             "{}",
             serde_json::to_string(&summary).expect("summary is serializable")
         );
+    }
+    Ok(())
+}
+
+fn validate_destinations(output: &Path, database: &Path) -> Result<(), String> {
+    // Resolve directory/symlink aliases before either destination is written.
+    fn resolved(path: &Path) -> Result<PathBuf, String> {
+        if path.exists() || path.symlink_metadata().is_ok() {
+            return path.canonicalize().map_err(|error| error.to_string());
+        }
+        let parent = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        create_dir_all(parent).map_err(|error| error.to_string())?;
+        Ok(parent
+            .canonicalize()
+            .map_err(|error| error.to_string())?
+            .join(path.file_name().ok_or("invalid output path")?))
+    }
+    let output_resolved = resolved(output)?;
+    for base in [database.to_path_buf(), resolved(database)?] {
+        for suffix in ["", "-wal", "-shm"] {
+            let mut protected = base.as_os_str().to_os_string();
+            protected.push(suffix);
+            let protected = PathBuf::from(protected);
+            if output_resolved == resolved(&protected)?
+                || (output.exists()
+                    && protected.exists()
+                    && same_file::is_same_file(output, &protected).map_err(|e| e.to_string())?)
+            {
+                return Err("--output must not overwrite the database or its WAL/SHM files".into());
+            }
+        }
     }
     Ok(())
 }
@@ -78,6 +131,8 @@ fn parse_options() -> Result<CliOptions, String> {
         max_turns: 120,
     };
     let mut output = None;
+    let mut database = None;
+    let mut revision = None;
     let mut weights = [None; 4];
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
@@ -95,6 +150,8 @@ fn parse_options() -> Result<CliOptions, String> {
             "--stairs-weight" => weights[2] = Some(parse_number(&argument, &value)?),
             "--temperature" => weights[3] = Some(parse_number(&argument, &value)?),
             "--output" => output = Some(PathBuf::from(value)),
+            "--db" => database = Some(PathBuf::from(value)),
+            "--revision" => revision = Some(value),
             _ => return Err(format!("unknown argument: {argument}")),
         }
     }
@@ -103,10 +160,29 @@ fn parse_options() -> Result<CliOptions, String> {
     policy.item_weight = weights[1].unwrap_or(policy.item_weight);
     policy.stairs_weight = weights[2].unwrap_or(policy.stairs_weight);
     policy.temperature = weights[3].unwrap_or(policy.temperature);
+    if revision
+        .as_ref()
+        .is_some_and(|value| value.trim().is_empty())
+    {
+        return Err("--revision must not be empty".into());
+    }
+    if revision.is_some() && output.is_none() && database.is_none() {
+        return Err("--revision requires --db or --output".into());
+    }
+    for path in [output.as_ref(), database.as_ref()].into_iter().flatten() {
+        if path.as_os_str().is_empty() {
+            return Err("output/database path must not be empty".into());
+        }
+    }
+    if output.is_some() && output == database {
+        return Err("--db and --output must use different paths".into());
+    }
     Ok(CliOptions {
         config: config.validate()?,
         policy: policy.validate()?,
         output,
+        database,
+        revision,
     })
 }
 

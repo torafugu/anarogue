@@ -1,8 +1,13 @@
+pub mod run_store;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static RUN_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 const MIN_ROOM_SIZE: i32 = 5;
 const MAX_ROOM_SIZE: i32 = 11;
@@ -143,7 +148,7 @@ pub struct RunSummary {
     pub final_xp: u32,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RunLogEvent {
     pub schema_version: u32,
     pub time: String,
@@ -485,12 +490,17 @@ impl Simulation {
         if log_file.is_empty() {
             return Err("log output path must not be empty".to_owned());
         }
-        let timestamp_seconds = SystemTime::now()
+        let elapsed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|error| format!("system clock is before Unix epoch: {error}"))?
-            .as_secs();
-        let timestamp = format_utc_timestamp(timestamp_seconds);
-        let run_id = format!("rust-{}-{timestamp_seconds}", config.scenario_seed);
+            .map_err(|error| format!("system clock is before Unix epoch: {error}"))?;
+        let timestamp = format_utc_timestamp(elapsed.as_secs());
+        let run_id = format!(
+            "rust-{}-{}-{}-{}",
+            config.scenario_seed,
+            elapsed.as_nanos(),
+            std::process::id(),
+            RUN_COUNTER.fetch_add(1, Ordering::Relaxed)
+        );
         let scenario_id = format!("scenario-{}", config.scenario_seed);
         Self::create(
             config,

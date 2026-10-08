@@ -2,8 +2,8 @@
 
 The replay UI selects Runs, rather than files. A local Python 3 service imports
 existing JSONL into SQLite, watches new/changed logs, and serves Godot and the Web
-viewer. This first migration keeps JSONL as the producer/output and export format;
-the Rust simulator does not yet write SQLite directly.
+viewer. The Rust simulator can also save directly to the same SQLite database;
+JSONL remains available as an optional output and exchange format.
 
 ## Start
 
@@ -23,13 +23,54 @@ path corresponding to Godot's `user://` directory. `--watch` accepts multiple
 files/directories and discovers JSONL recursively, including files created later.
 The service scans every three seconds; `--interval` changes this interval.
 
-Write new Rust or Godot simulation outputs into a watched directory, for example:
+## Direct Rust persistence
+
+From the repository root:
 
 ```bash
-cargo run --manifest-path simulation-core/Cargo.toml -- \
+cargo run --release --manifest-path simulation-core/Cargo.toml -- \
   --strategy cautious --seed 424242 --max-turns 5000 \
-  --output logs/cautious-424242.jsonl
+  --db logs/runs.sqlite3
 ```
+
+`--db` creates the database if needed and saves the complete Run and events in a
+single transaction after simulation finishes. It uses the same v1 schema,
+canonical event JSON, SHA-256 identity and summary fields as the Python importer.
+The schema is shared in `schemas/run-store-v1.sql`. The Rust library API is
+`anarogue_simulation::run_store::save_run(path, events)`; saving the same event
+snapshot again is idempotent and an older snapshot cannot truncate history.
+New CLI executions receive distinct Run IDs even for the same seed and timestamp.
+The seed still reproduces the same simulation outcome.
+
+Run the API against the same database to browse direct writes:
+
+```bash
+python3 tools/run_store.py serve
+```
+
+The API and producer are independent processes. The API need not be running to
+save Runs; once running, Godot/Web discover completed writes through their normal
+automatic catalogue refresh. No JSONL watcher or import step is required for
+Rust's direct writes. Live incremental per-turn persistence is not implemented;
+a crash before the final transaction leaves no partial Run from that execution.
+Turn-limited executions without a terminal event retain `unfinished` status.
+
+Add `--output logs/run.jsonl` to also export JSONL, and optionally
+`--revision <producer-commit>` to record the source revision in `run_start` and
+catalogue metadata. Importing that JSONL into the same DB does not duplicate it.
+`--revision` requires `--db` or `--output` and must be nonempty. The CLI keeps the
+original JSON summary on stdout and reports the saved catalogue ID on stderr.
+SQLite is bundled with the Rust dependency; no system SQLite installation or
+Python subprocess is needed for persistence.
+
+Database and JSONL files are separate outputs: the DB is committed first. If the
+subsequent JSONL write fails, the CLI exits with an error and the saved DB Run
+remains. `--output` cannot point to the DB or its WAL/SHM sidecars, including file
+aliases. Unknown DB schema versions and conflicting event history return errors.
+WAL and a ten-second busy timeout permit API reads and serialize concurrent writers.
+
+For Godot or other JSONL producers, continue writing into watched directories or
+watch the actual Godot `user://` directory as described above.
 
 Use a new producer Run ID for each distinct trial. The catalogue retains all
 imported Runs even if their source files are moved or removed.
@@ -132,13 +173,15 @@ HTTP 400 indicates invalid import/pagination, 404 a missing Run/endpoint.
 ```bash
 python3 -m unittest discover -s tools -p test_run_store.py -v
 GODOT=/path/to/godot python3 tools/test_run_api.py
+cargo test --manifest-path simulation-core/Cargo.toml --all-targets
+python3 -m unittest discover -s tools -p test_rust_run_store.py -v
 ```
 
 The integration test uses a temporary database and ephemeral local port and
 exercises Godot catalogue pagination (>500 Runs), event loading, selection,
 playback reset, and background-update preservation. It does not modify user data.
 
-Next extensions can add direct Rust writes, incremental event ingestion,
+Next extensions can add incremental event ingestion,
 parameter sweeps, and benefit/risk or death-path aggregates using the stored
 events. The current watcher rereads a changed file; for very large continuous
 logs, rotating outputs per Run limits that cost.

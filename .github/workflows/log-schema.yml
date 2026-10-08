@@ -59,6 +59,8 @@ jobs:
           --seed 424242
           --max-turns 120
           --output /tmp/anarogue-rust.jsonl
+          --db /tmp/anarogue-runs.sqlite3
+          --revision ${{ github.sha }}
 
       - name: Validate Rust JSONL run log
         run: npm run validate:logs -- /tmp/anarogue-rust.jsonl
