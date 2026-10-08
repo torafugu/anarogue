@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import logging
+import os
 import sqlite3
 import threading
 from collections import defaultdict
@@ -12,6 +13,8 @@ from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
+
+from run_jobs import QueueFull, RunJobs
 
 LOG = logging.getLogger(__name__)
 TERMINAL = {"player_defeated": "defeated", "dungeon_cleared": "cleared", "restart": "restarted"}
@@ -245,7 +248,7 @@ def log_paths(paths):
     return sorted(files)
 
 
-def make_server(store, host="127.0.0.1", port=8765):
+def make_server(store, host="127.0.0.1", port=8765, jobs=None):
     class Handler(BaseHTTPRequestHandler):
         def reply(self, status, value, content_type="application/json"):
             payload = (canonical(value) if content_type == "application/json" else value).encode()
@@ -265,6 +268,8 @@ def make_server(store, host="127.0.0.1", port=8765):
                     if not 1 <= limit <= 500 or offset < 0:
                         raise ValueError("Invalid pagination")
                     self.reply(200, store.list_runs(query, limit, offset))
+                elif url.path.startswith("/api/jobs/") and jobs is not None:
+                    self.reply(200, jobs.get(url.path[len("/api/jobs/"):]))
                 elif url.path == "/api/stats":
                     self.reply(200, store.stats(query))
                 elif url.path.startswith("/api/runs/"):
@@ -288,6 +293,28 @@ def make_server(store, host="127.0.0.1", port=8765):
 
         def do_POST(self):
             # Import is same-origin only. Vite proxies /api to this local server.
+            if self.path == "/api/jobs":
+                if jobs is None:
+                    self.reply(503, {"error": "Run execution is unavailable on this server"})
+                    return
+                origin = self.headers.get("Origin")
+                if origin and urlsplit(origin).netloc != self.headers.get("Host"):
+                    self.reply(403, {"error": "Run execution requires a same-origin request"})
+                    return
+                if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
+                    self.reply(415, {"error": "Use application/json"})
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if not 0 < length <= 4096:
+                        raise ValueError("Run settings must be 1 byte to 4 KB")
+                    settings = json.loads(self.rfile.read(length).decode("utf-8"))
+                    self.reply(202, jobs.submit(settings))
+                except QueueFull as exc:
+                    self.reply(429, {"error": str(exc)})
+                except (ValueError, TypeError) as exc:
+                    self.reply(400, {"error": str(exc)})
+                return
             if self.path != "/api/import":
                 self.reply(404, {"error": "Unknown endpoint"})
                 return
@@ -319,6 +346,10 @@ def main():
     importer = commands.add_parser("import", help="Import existing JSONL files/directories")
     importer.add_argument("paths", nargs="+")
     serve = commands.add_parser("serve", help="Serve the Run API and watch append-only JSONL")
+    default_binary = Path(__file__).resolve().parents[1] / "simulation-core/target/release" / (
+        "anarogue-sim.exe" if os.name == "nt" else "anarogue-sim")
+    serve.add_argument("--simulator", default=os.environ.get("ANAROGUE_RUST_BINARY", str(default_binary)),
+                       help="Rust executable for UI Run execution (build with cargo build --release)")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--watch", nargs="*", default=[])
@@ -345,7 +376,8 @@ def main():
 
     worker = threading.Thread(target=watch, daemon=True)
     worker.start()
-    server = make_server(store, args.host, args.port)
+    jobs = RunJobs(store, args.simulator, args.revision)
+    server = make_server(store, args.host, args.port, jobs)
     LOG.info("Run API: http://%s:%s/api/runs", *server.server_address)
     try:
         server.serve_forever()
@@ -354,6 +386,7 @@ def main():
     finally:
         stop.set()
         server.server_close()
+        jobs.close()
 
 
 if __name__ == "__main__":

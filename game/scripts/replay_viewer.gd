@@ -68,7 +68,13 @@ func _ready() -> void:
 		catalog_status.text = "Local replay"
 	else:
 		catalog_status.text = "Connecting…"
+		var session = get_node_or_null("/root/RunSession")
+		if session != null and not session.replay_run_key.is_empty():
+			pending_catalog_run = session.replay_run_key
+			session.replay_run_key = ""
 		catalog.start(command_line_api_url())
+		if not pending_catalog_run.is_empty():
+			catalog.load_run(pending_catalog_run)
 
 
 func create_controls() -> void:
@@ -103,7 +109,7 @@ func create_controls() -> void:
 	play_button.name = "PlayButton"
 	var next_button := make_button("Next", next_frame)
 	next_button.name = "NextButton"
-	var simulator_button := make_button("Live check", open_live_simulator)
+	var simulator_button := make_button("Home", open_home)
 	simulator_button.name = "SimulatorButton"
 
 	log_panel = make_info_panel("LogPanel")
@@ -266,7 +272,7 @@ func update_catalog(runs: Array) -> void:
 	catalog_status.text = "%d Runs · online" % runs.size()
 	catalog_status.tooltip_text = "Automatically refreshed every 3 seconds. " + catalog.api_url
 	if runs.is_empty() and replay.frames.is_empty():
-		status_label.text = "No stored Runs yet. Import JSONL into the Run database."
+		status_label.text = "No stored Runs yet. Choose Home → Run to create one."
 	if runs == catalog_runs:
 		return
 	catalog_runs = runs.duplicate(true)
@@ -404,6 +410,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		next_frame()
 	elif key_event.keycode == KEY_SPACE:
 		toggle_playing()
+
+
+func open_home() -> void:
+	get_tree().change_scene_to_file("res://scenes/home.tscn")
 
 
 func open_live_simulator() -> void:

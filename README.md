@@ -2,17 +2,23 @@
 
 A tiny Godot 4 roguelike starter.
 
-## Replay in Godot
+## Run and Replay in Godot
 
 The replay client selects Runs from a persistent SQLite catalogue. From the
-repository root, start the local API first:
+repository root, build the Rust simulator and start the local API:
 
 ```bash
-python3 tools/run_store.py import examples/reference-v8
-python3 tools/run_store.py serve --watch logs
+cargo build --release --manifest-path simulation-core/Cargo.toml
+python3 tools/run_store.py serve
 ```
 
-Open `game/` in Godot 4 and run the project. Select a Run by strategy, seed,
+Open `game/` in Godot 4 and run the project. The main screen offers **Run**
+and **Replay**. Run opens settings for seed, strategy, enemy/treasure/stairs
+weights and maximum turns. Start a Run to execute Rust through the API; the
+result is saved to SQLite and opens in Replay when complete. Strategy changes
+restore its preset weights, which can then be adjusted individually.
+
+Replay lets you select a saved Run by strategy, seed,
 result and short ID. The list updates automatically; there is no file selector
 or Refresh logs button. API failures fall back to the bundled sample and retry.
 The original JSONL events remain available for export and offline replay.
@@ -23,7 +29,7 @@ Controls:
 - `Previous` / `Next` or left / right arrows: step through decision frames
 - `Play` or space: automatically advance the replay
 - The maze uses large tiles and follows Player; only the surrounding area is shown
-- `Live check`: open the legacy Godot simulator for occasional visual checks
+- `Home`: return to the main screen
 
 The mobile replay layout uses 40 px text and large buttons. The scrollable log
 and Player panels take more vertical space, leaving a smaller maze viewport with
