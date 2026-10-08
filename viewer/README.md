@@ -1,18 +1,28 @@
 # AnaRogue Run Viewer
 
-A local, browser-based viewer for AnaRogue JSON Lines run logs.
+A browser-based Run catalogue and analysis client backed by the local SQLite API.
 
 ## Development
 
+From the repository root, start the data service:
+
+```bash
+python3 tools/run_store.py import examples/reference-v8
+python3 tools/run_store.py serve --watch logs
+```
+
+Then, in another terminal:
+
 ```bash
 cd viewer
-npm install
+npm ci
 npm run dev
 ```
 
-Open the URL printed by Vite, then drop
-`anarogue.jsonl` onto the page. The viewer keeps the log in the
-browser and does not upload it.
+Vite proxies `/api` to `http://127.0.0.1:8765`. Choose a stored Run directly;
+the list and aggregate results refresh automatically every three seconds.
+Import JSONL by file picker or drag/drop to save existing logs in SQLite. Offline
+imports are explicitly browser-local and are not automatically uploaded later.
 
 ## Production build
 
@@ -21,14 +31,19 @@ npm run build
 npm run preview
 ```
 
-The static build is written to `viewer/dist/`.
+The static build is written to `viewer/dist/`. Vite preview also proxies the API;
+a static host needs its own same-origin `/api` reverse proxy.
 
 ## Current scope
 
-- Load JSONL using drag and drop or the file picker.
-- Select one run when Godot's append-only log contains multiple runs.
-- Compare Aggressive and Cautious runs automatically when they share a scenario ID.
-- View summary metrics, HP history, and movement by dungeon depth.
-- Filter and search the event stream.
-- Inspect decision rule, reason, observation, action, and raw event JSON.
-- Read legacy events without `schema_version` with a compatibility warning.
+- Persistent Run selection with strategy/result/seed filters and pagination.
+- Aggregates grouped by policy weights, strategy, simulation/schema versions and
+  code revision. Means and clear rate exclude unfinished Runs.
+- Cross-file same-seed comparison for compatible versions/revisions.
+- Summary metrics, HP history, route maps and searchable event streams.
+- Decision rules, observations, benefit/risk, probabilities and raw event JSON.
+- Background catalogue updates preserve the current detail view.
+- Legacy/offline JSONL reading and sample import remain available.
+
+See [Run store guide](../docs/run-store.md) for import identity, unfinished status,
+API routes, known revision limits and operational details.

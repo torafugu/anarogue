@@ -10,44 +10,44 @@ var source_path := ""
 
 
 func load_file(path: String) -> Error:
+	load_events([])
+	source_path = path
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return FileAccess.get_open_error()
+
+	var events: Array = []
+	while not file.eof_reached():
+		var line := file.get_line()
+		if not line.strip_edges().is_empty():
+			events.append(JSON.parse_string(line))
+	file.close()
+	return load_events(events)
+
+func load_events(events: Array) -> Error:
 	events_by_run.clear()
 	run_ids.clear()
 	frames.clear()
 	warnings.clear()
 	selected_run_id = ""
-	source_path = path
-
-	var file := FileAccess.open(path, FileAccess.READ)
-	if file == null:
-		return FileAccess.get_open_error()
-
-	var line_number := 0
-	while not file.eof_reached():
-		var line := file.get_line()
-		line_number += 1
-		if line.strip_edges().is_empty():
-			continue
-		var value = JSON.parse_string(line)
+	for index in range(events.size()):
+		var value = events[index]
 		if typeof(value) != TYPE_DICTIONARY:
-			warnings.append("Line %d is not a JSON object." % line_number)
+			warnings.append("Line %d is not a JSON object." % (index + 1))
 			continue
 		var event: Dictionary = value
 		var run_id: String = str(event.get("run_id", ""))
 		if run_id.is_empty():
-			warnings.append("Line %d has no run_id." % line_number)
+			warnings.append("Line %d has no run_id." % (index + 1))
 			continue
 		if not events_by_run.has(run_id):
 			events_by_run[run_id] = []
 			run_ids.append(run_id)
-		var run_events: Array = events_by_run[run_id]
-		run_events.append(event)
-		events_by_run[run_id] = run_events
-	file.close()
-
+		events_by_run[run_id].append(event)
 	if run_ids.is_empty():
 		return ERR_FILE_CORRUPT
 	select_run(run_ids.back())
-	return OK
+	return OK if not frames.is_empty() else ERR_FILE_CORRUPT
 
 
 func select_run(run_id: String) -> bool:

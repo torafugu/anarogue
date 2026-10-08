@@ -8,8 +8,8 @@ Each action you take advances the game by one turn. Move carefully, watch your H
 
 ## Starting the Game
 
-1. Open `game/` in Godot 4 and run the project to open the replay client.
-2. Select a JSONL log, or use the bundled v8 reference. Pickup and healing have their own frames.
+1. Start the Run API (`python3 tools/run_store.py serve --watch logs`) after importing existing logs (`python3 tools/run_store.py import examples/reference-v8`). Open `game/` in Godot 4 and run the project.
+2. Select a stored Run. The list updates automatically; there is no file selector or Refresh logs button. If the API is unavailable, the bundled v8 reference is playable while the client retries. Pickup and healing have their own frames.
    Below the buttons, the left panel keeps the event and decision history up to the selected frame; the right panel shows Level/XP, HP, ATK, DEF, potions, weapon (W), armor (D), and strategy. Each panel scrolls independently. The log follows new entries when you are at the bottom; scrolling upward lets you read older entries without being pulled back down. Rewinding shows only history through that frame, and switching runs resets the history. Depth, frame number, and turn appear in a badge over the top of the maze. The maze uses large fixed-size tiles and follows Player, showing the nearby area instead of shrinking the entire dungeon onto the screen. At dungeon edges the view stops scrolling; maps smaller than the view are centered.
 3. For a live run, select `Live check` (`res://scenes/main.tscn`); it starts on Depth 1.
 4. Choose an automatic strategy on the right side of the screen.
@@ -17,11 +17,14 @@ Each action you take advances the game by one turn. Move carefully, watch your H
    `Compare both — same seed`.
 
 The replay uses 40 px text for selectors, buttons, logs, Player information,
-and the depth/frame/turn badge. The log and run selectors each occupy a full
-row. `Previous`, `Play`, and `Next` share the next row, followed by `Refresh logs`
-and `Live check`. The information panels are taller so larger text can be read
+and the depth/frame/turn badge. The Run selector occupies a full
+row. `Previous`, `Play`, and `Next` share the next row, followed by `Live check`
+and the database connection status. The information panels are taller so larger text can be read
 without crowding the controls. The maze viewport is smaller, while its tile
 size and Player-following behavior stay the same.
+
+The [Run store guide](docs/run-store.md) explains watching Godot/Rust output,
+connecting a mobile client, JSONL export, and Web catalogue analysis.
 
 ## Goal
 

@@ -1,4 +1,5 @@
 import "./style.css";
+import { api, type StoredRun, type RunGroup } from "./catalog.ts";
 import sampleLog from "../../examples/sample-run-v1.jsonl?raw";
 import {
   decisionDetails,
@@ -51,22 +52,36 @@ app.innerHTML = `
       </div>
     </div>
     <div class="file-actions">
-      <button class="button button-ghost" id="sample-button" type="button">Load sample</button>
-      <label class="button button-primary" for="file-input">Open JSONL</label>
+      <button class="button button-ghost" id="sample-button" type="button">Import sample</button>
+      <label class="button button-primary" for="file-input">Import JSONL</label>
       <input id="file-input" type="file" accept=".jsonl,.json,text/plain,application/json" />
     </div>
   </header>
   <main>
+    <section class="panel catalogue" aria-label="Stored Runs">
+      <div class="panel-heading">
+        <div><p class="eyebrow">RUN DATABASE</p><h2>Stored Runs</h2></div>
+        <span id="catalog-status" role="status">Connecting…</span>
+      </div>
+      <div class="catalog-controls">
+        <label class="select-label">Strategy<select id="catalog-strategy"><option value="">All strategies</option><option value="aggressive_v1">Aggressive</option><option value="cautious_v1">Cautious</option></select></label>
+        <label class="select-label">Result<select id="catalog-result"><option value="">All results</option><option value="cleared">Cleared</option><option value="defeated">Defeated</option><option value="unfinished">Unfinished</option><option value="restarted">Restarted</option></select></label>
+        <label class="select-label">Seed<input id="catalog-seed" type="number" min="0" placeholder="All seeds" /></label>
+        <label class="select-label catalog-run-label">Run<select id="catalog-run"><option value="">No Runs yet</option></select></label>
+      </div>
+      <div class="catalog-pagination"><button id="catalog-previous" class="button button-ghost" type="button">Previous page</button><span id="catalog-page"></span><button id="catalog-next" class="button button-ghost" type="button">Next page</button></div>
+      <div id="catalog-stats" class="catalog-stats"></div>
+    </section>
     <section class="drop-zone" id="drop-zone" aria-label="JSONL file drop zone">
       <div class="drop-icon" aria-hidden="true">↧</div>
-      <p class="eyebrow">DROP RUN LOG</p>
-      <h2>Turn raw events into a readable story.</h2>
-      <p>Open <code>anarogue.jsonl</code> or try the bundled sample.</p>
+      <p class="eyebrow">RUN CATALOGUE</p>
+      <h2>Select a stored Run to inspect its decisions.</h2>
+      <p>Runs accumulate in SQLite. Import existing JSONL or watch your simulation logs.</p>
       <div class="drop-actions">
-        <label class="button button-primary" for="file-input">Choose a file</label>
-        <button class="button button-ghost" id="empty-sample-button" type="button">Use sample data</button>
+        <label class="button button-primary" for="file-input">Import a file</label>
+        <button class="button button-ghost" id="empty-sample-button" type="button">Import sample data</button>
       </div>
-      <p class="privacy-note">Analysis stays in this browser. No log is uploaded.</p>
+      <p class="privacy-note">Imported logs are saved by your local Run API. The list updates automatically.</p>
     </section>
     <section class="viewer" id="viewer" hidden>
       <div class="run-bar">
@@ -182,6 +197,7 @@ const strategyLabel = (strategy: string): string => {
 };
 
 function loadSource(source: string, sourceName: string): void {
+  activeStoredRun = null;
   try {
     const parsed = parseJsonLines(source);
     const runIds = [...parsed.runs.keys()];
@@ -238,7 +254,8 @@ function render(): void {
 
   renderRunSelect();
   renderWarnings();
-  renderComparison(events);
+  if (activeStoredRun) renderStoredComparison();
+  else renderComparison(events);
   renderMetrics(events);
   renderHpChart(events);
   renderDepthSelect(events);
@@ -251,7 +268,7 @@ function renderRunSelect(): void {
   const select = getElement<HTMLSelectElement>("#run-select");
   const label = getElement<HTMLElement>("#run-select-label");
   const runIds = [...(state.parsed?.runs.keys() ?? [])];
-  label.hidden = runIds.length < 2;
+  label.hidden = Boolean(activeStoredRun) || runIds.length < 2;
   select.innerHTML = runIds
     .map(
       (id) => {
@@ -656,7 +673,7 @@ async function loadFile(file: File): Promise<void> {
     showToast("This MVP accepts log files up to 25 MB.");
     return;
   }
-  loadSource(await file.text(), file.name);
+  await importSource(await file.text(), file.name);
 }
 
 getElement<HTMLInputElement>("#file-input").addEventListener("change", (event) => {
@@ -666,7 +683,7 @@ getElement<HTMLInputElement>("#file-input").addEventListener("change", (event) =
 
 for (const selector of ["#sample-button", "#empty-sample-button"]) {
   getElement<HTMLButtonElement>(selector).addEventListener("click", () => {
-    loadSource(sampleLog, "bundled sample");
+    void importSource(sampleLog, "bundled sample");
   });
 }
 
@@ -713,3 +730,154 @@ document.addEventListener("drop", (event) => {
   const file = event.dataTransfer?.files[0];
   if (file) void loadFile(file);
 });
+
+
+let catalogue: StoredRun[] = [];
+let activeStoredRun: StoredRun | null = null;
+let catalogueOffset = 0;
+let catalogueTotal = 0;
+let catalogueGeneration = 0;
+let detailGeneration = 0;
+let catalogueBusy = false;
+let databaseOnline = false;
+
+function catalogueQuery(): URLSearchParams {
+  const query = new URLSearchParams();
+  for (const [selector, key] of [["#catalog-strategy", "strategy_id"], ["#catalog-result", "status"], ["#catalog-seed", "scenario_seed"]]) {
+    const value = getElement<HTMLInputElement | HTMLSelectElement>(selector).value;
+    if (value) query.set(key, value);
+  }
+  return query;
+}
+
+async function refreshCatalogue(): Promise<void> {
+  if (catalogueBusy) return;
+  catalogueBusy = true;
+  const generation = catalogueGeneration;
+  const query = catalogueQuery();
+  const statsQuery = new URLSearchParams(query);
+  query.set("limit", "100");
+  query.set("offset", String(catalogueOffset));
+  try {
+    const [data, stats] = await Promise.all([
+      api<{runs: StoredRun[]; total: number}>(`/api/runs?${query}`),
+      api<{groups: RunGroup[]}>(`/api/stats?${statsQuery}`),
+    ]);
+    if (generation !== catalogueGeneration) return;
+    databaseOnline = true;
+    catalogue = data.runs;
+    catalogueTotal = data.total;
+    getElement("#catalog-status").textContent = `${data.total} Runs · auto-updated`;
+    renderCatalogueSelect();
+    getElement("#catalog-page").textContent = `${data.total ? catalogueOffset + 1 : 0}–${Math.min(catalogueOffset + 100, data.total)} / ${data.total}`;
+    getElement<HTMLButtonElement>("#catalog-previous").disabled = catalogueOffset === 0;
+    getElement<HTMLButtonElement>("#catalog-next").disabled = catalogueOffset + 100 >= data.total;
+    renderStoredStats(stats.groups);
+    if (!state.parsed && catalogue[0]) await selectStoredRun(catalogue[0]);
+  } catch {
+    databaseOnline = false;
+    getElement("#catalog-status").textContent = "Run API offline — start tools/run_store.py serve";
+  } finally {
+    catalogueBusy = false;
+    if (generation !== catalogueGeneration) void refreshCatalogue();
+  }
+}
+
+function renderCatalogueSelect(): void {
+  const select = getElement<HTMLSelectElement>("#catalog-run");
+  const selected = activeStoredRun?.id ?? select.value;
+  const options = [...catalogue];
+  if (activeStoredRun && !options.some(run => run.id === activeStoredRun?.id)) options.unshift(activeStoredRun);
+  const markup = options.map(run => `<option value="${escapeHtml(run.id)}">${escapeHtml(`${strategyLabel(run.strategy_id)} · seed ${run.scenario_seed ?? "?"} · D${run.max_depth} · ${run.status} · ${run.started_at} · ${run.id.slice(0, 8)}`)}</option>`).join("") || '<option value="">No Runs yet</option>';
+  if (select.innerHTML !== markup) select.innerHTML = markup;
+  if (options.some(run => run.id === selected)) select.value = selected;
+}
+
+async function selectStoredRun(run: StoredRun): Promise<void> {
+  const generation = ++detailGeneration;
+  try {
+    const data = await api<{events: RunEvent[]}>(`/api/runs/${encodeURIComponent(run.id)}/events`);
+    if (generation !== detailGeneration) return;
+    const parsed = parseJsonLines(data.events.map(event => JSON.stringify(event)).join("\n"));
+    state.parsed = parsed;
+    state.runId = run.run_id;
+    activeStoredRun = run;
+    state.sourceName = "Run database";
+    state.error = "";
+    selectInitialEvent();
+    render();
+    renderCatalogueSelect();
+  } catch (error) {
+    if (generation === detailGeneration) showToast(error instanceof Error ? error.message : "Could not load Run.");
+  }
+}
+
+async function importSource(source: string, sourceName: string): Promise<void> {
+  if (!databaseOnline) {
+    detailGeneration++;
+    loadSource(source, `${sourceName} · offline, not saved`);
+    showToast("Run API offline. Reading locally; this log has not been saved to the database.");
+    return;
+  }
+  try {
+    const result = await api<{run_ids: string[]}>("/api/import", {method: "POST", headers: {"Content-Type": "application/x-ndjson"}, body: source});
+    catalogueOffset = 0;
+    catalogueGeneration++;
+    await refreshCatalogue();
+    const key = result.run_ids.at(-1);
+    if (key) await selectStoredRun(await api<StoredRun>(`/api/runs/${encodeURIComponent(key)}`));
+    void refreshCatalogue();
+    showToast(`Saved ${result.run_ids.length} Run(s) to the database.`);
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "Import failed.");
+  }
+}
+
+function renderStoredStats(groups: RunGroup[]): void {
+  const display = (value: number | null) => value === null ? "—" : value.toFixed(1);
+  getElement("#catalog-stats").innerHTML = `<p class="panel-note">Completed Runs only for averages and clear rate. Groups keep simulation/schema versions, code revision and policy weights separate.</p><div class="table-scroll"><table><thead><tr><th>Strategy / policy</th><th>Version / revision</th><th>Runs / finished</th><th>Clear rate</th><th>Mean depth</th><th>Mean score</th><th>Mean turns</th></tr></thead><tbody>${groups.map(group => `<tr><td>${escapeHtml(strategyLabel(group.strategy_id))}<br><small>${escapeHtml(JSON.stringify(group.goal_policy))}</small></td><td>sim ${group.simulation_version} / schema ${group.schema_version}<br>${escapeHtml(group.code_revision || "revision unknown")}</td><td>${group.runs} / ${group.finished}</td><td>${group.clear_rate === null ? "—" : `${(group.clear_rate * 100).toFixed(1)}%`}</td><td>${display(group.mean_depth)}</td><td>${display(group.mean_score)}</td><td>${display(group.mean_turns)}</td></tr>`).join("")}</tbody></table></div>`;
+}
+
+function renderStoredComparison(): void {
+  const panel = getElement<HTMLElement>("#comparison-panel");
+  const run = activeStoredRun;
+  panel.hidden = !run || run.scenario_seed === null;
+  if (!run || run.scenario_seed === null) return;
+  const generation = detailGeneration;
+  panel.innerHTML = '<p class="panel-note">Loading same-seed Runs…</p>';
+  const query = new URLSearchParams({scenario_seed: String(run.scenario_seed), simulation_version: String(run.simulation_version), schema_version: String(run.schema_version), code_revision: run.code_revision, limit: "100"});
+  void api<{runs: StoredRun[]; total: number}>(`/api/runs?${query}`).then(data => {
+    if (generation !== detailGeneration || activeStoredRun?.id !== run.id) return;
+    const peers = data.runs.filter(peer => peer.code_revision === run.code_revision);
+    panel.hidden = peers.length < 2;
+    panel.innerHTML = `<div class="comparison-heading"><h3>Same-seed comparison</h3><span>seed ${run.scenario_seed} · sim ${run.simulation_version}${data.total > 100 ? " · latest 100 Runs" : ""}</span></div><div class="comparison-cards">${peers.map(peer => `<button class="comparison-card ${peer.id === run.id ? "active" : ""}" data-stored-run="${escapeHtml(peer.id)}"><span class="comparison-name">${escapeHtml(strategyLabel(peer.strategy_id))}</span><span>${escapeHtml(JSON.stringify(peer.goal_policy))}</span><span>Score ${peer.score} · D${peer.max_depth} · Lv ${peer.level}</span><span>${peer.turns} turns · ${escapeHtml(peer.status)}</span></button>`).join("")}</div>`;
+    panel.querySelectorAll<HTMLButtonElement>("[data-stored-run]").forEach(button => button.addEventListener("click", () => {
+      const peer = peers.find(candidate => candidate.id === button.dataset.storedRun);
+      if (peer) void selectStoredRun(peer);
+    }));
+  }).catch(() => {
+    if (generation === detailGeneration) panel.innerHTML = '<p class="panel-note">Comparison unavailable while API is offline.</p>';
+  });
+}
+
+for (const selector of ["#catalog-strategy", "#catalog-result", "#catalog-seed"]) {
+  getElement(selector).addEventListener("change", () => {
+    catalogueOffset = 0;
+    catalogueGeneration++;
+    void refreshCatalogue();
+  });
+}
+getElement<HTMLSelectElement>("#catalog-run").addEventListener("change", event => {
+  const id = (event.currentTarget as HTMLSelectElement).value;
+  const run = catalogue.find(candidate => candidate.id === id);
+  if (run) void selectStoredRun(run);
+});
+for (const [selector, step] of [["#catalog-previous", -100], ["#catalog-next", 100]] as const) {
+  getElement(selector).addEventListener("click", () => {
+    catalogueOffset = Math.max(0, Math.min(catalogueTotal - 1, catalogueOffset + step));
+    catalogueGeneration++;
+    void refreshCatalogue();
+  });
+}
+void refreshCatalogue();
+window.setInterval(() => { if (!document.hidden) void refreshCatalogue(); }, 3000);

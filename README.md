@@ -4,24 +4,32 @@ A tiny Godot 4 roguelike starter.
 
 ## Replay in Godot
 
-Open `game/` in Godot 4 and run the project. The default scene is a replay client,
-not the simulator. It lists JSONL files in `user://`, selects the most recently
-modified log, and falls back to the committed Aggressive seed-424242 v8 reference run when
-no user log exists.
+The replay client selects Runs from a persistent SQLite catalogue. From the
+repository root, start the local API first:
+
+```bash
+python3 tools/run_store.py import examples/reference-v8
+python3 tools/run_store.py serve --watch logs
+```
+
+Open `game/` in Godot 4 and run the project. Select a Run by strategy, seed,
+result and short ID. The list updates automatically; there is no file selector
+or Refresh logs button. API failures fall back to the bundled sample and retry.
+The original JSONL events remain available for export and offline replay.
 
 Controls:
 
-- log selector: choose a JSONL file stored directly in `user://`
-- `Refresh logs`: rescan `user://` after generating a log
+- Run selector: choose a stored Run; changing it restarts playback
 - `Previous` / `Next` or left / right arrows: step through decision frames
 - `Play` or space: automatically advance the replay
 - The maze uses large tiles and follows Player; only the surrounding area is shown
-- run selector: switch runs when one JSONL file contains multiple runs
 - `Live check`: open the legacy Godot simulator for occasional visual checks
 
-The mobile replay layout uses 40 px text, full-width selectors on separate rows,
-and two rows of larger buttons. The scrollable log and Player panels take more
-vertical space, leaving a smaller maze viewport with the same large tiles.
+The mobile replay layout uses 40 px text and large buttons. The scrollable log
+and Player panels take more vertical space, leaving a smaller maze viewport with
+the same large tiles. The catalogue updates without interrupting playback.
+See [Persistent Run store](docs/run-store.md) for import, watch, endpoint,
+mobile connection and database/API details.
 
 The former live simulation is retained at `game/scenes/main.tscn`, but it is no
 longer the project's default responsibility.
@@ -73,9 +81,11 @@ the Godot-independent batch implementation, and
 
 ## Run viewer
 
-The Vite + TypeScript viewer in [`viewer/`](viewer/) turns a run into a summary,
+The Vite + TypeScript viewer in [`viewer/`](viewer/) lists the stored Runs and
+provides strategy/seed/result filtering and policy/version-separated aggregates.
+It turns a selected Run into a summary,
 HP chart, route map, searchable event stream, and decision inspector. Runs with
-the same scenario ID are grouped into an Aggressive vs. Cautious comparison.
+the same seed and compatible versions can be compared across source files.
 
 ```bash
 cd viewer

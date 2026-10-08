@@ -1041,3 +1041,14 @@ blockquote {
 
 .map-enemy.brute circle, .map-legend .legend-brute { fill: #ce8e4c; background: #ce8e4c; }
 .windup-mark { fill: #e7676766; stroke: #e76767; stroke-width: .09; }
+
+.catalogue { margin-bottom: 24px; }
+.catalog-controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: end; }
+.catalog-run-label { flex: 1; min-width: 240px; }
+.catalog-run-label select { width: 100%; }
+.catalog-controls input { background: var(--surface); color: inherit; border: 1px solid var(--border); border-radius: 8px; padding: 10px; width: 130px; }
+.catalog-pagination { display: flex; align-items: center; gap: 16px; margin: 16px 0; }
+.table-scroll { overflow-x: auto; }
+.catalog-stats table { width: 100%; border-collapse: collapse; text-align: left; }
+.catalog-stats th, .catalog-stats td { padding: 12px; border-bottom: 1px solid var(--border); }
+.catalog-stats small { overflow-wrap: anywhere; }

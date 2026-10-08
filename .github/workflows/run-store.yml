@@ -1,0 +1,33 @@
+name: Run store and viewer
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  run-store:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify SQLite import and HTTP API
+        run: python -m unittest discover -s tools -p test_run_store.py -v
+      - name: Install Godot 4.5 for API integration
+        run: |
+          curl --fail --location --output /tmp/godot.zip https://github.com/godotengine/godot/releases/download/4.5-stable/Godot_v4.5-stable_linux.x86_64.zip
+          unzip /tmp/godot.zip -d /tmp/godot
+      - name: Verify Godot Run catalogue against SQLite API
+        env:
+          GODOT: /tmp/godot/Godot_v4.5-stable_linux.x86_64
+        run: python tools/test_run_api.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: viewer/package-lock.json
+      - run: npm ci
+        working-directory: viewer
+      - run: npm run build
+        working-directory: viewer
