@@ -25,8 +25,12 @@ jobs:
       - name: Run tests
         run: cargo test --all-targets
 
-      - name: Test comparison metrics and pairing
-        run: python3 -m unittest discover -s ../tools -p 'test_*.py'
+      - name: Test comparison metrics, SQLite API and Rust persistence
+        env:
+          ANAROGUE_RUST_BINARY: ${{ github.workspace }}/simulation-core/target/debug/anarogue-sim
+        run: |
+          test -x target/debug/anarogue-sim
+          python3 -m unittest discover -s ../tools -p 'test_*.py'
 
       - name: Reproduce 50-seed strategy comparison
         run: |

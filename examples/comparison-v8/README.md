@@ -32,4 +32,4 @@ HP lost includes armor mitigation and clamps a lethal hit to remaining HP; heali
 All-run damage and level averages include short defeated runs. Clear-only turns can compare different subsets of seeds.
 Raw per-run data and paired completion counts are supplied to make these differences visible.
 
-Source fingerprint (core + policy): `5d1f60ceb4f999150d36a22cdc72abd7c39f862911e8bbc84dbc8ecb4a671f34`.
+Source fingerprint (core + policy): `421a6d80bd6bb8e2f8b54e2836413d6f6ace21232ec21e2bbf0fe7588a480d9d`.

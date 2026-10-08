@@ -194,19 +194,20 @@ cargo test --all-targets
 The Rust tests execute six fixed-seed full-run cases and compare every event
 and final state with the Godot reference baseline.
 
-The Rust CLI can also write a replayable Schema v8 log directly into Godot's
-macOS application-data folder:
+The Rust CLI can save Runs directly into the catalogue without a JSONL import.
+From the repository root:
 
 ```bash
-cd simulation-core
-cargo run --release -- \
-  --strategy aggressive \
-  --seed 424242 \
-  --max-turns 5000 \
-  --output "$HOME/Library/Application Support/Godot/app_userdata/anarogue/rust-aggressive-424242.jsonl"
+cargo run --release --manifest-path simulation-core/Cargo.toml -- \
+  --strategy aggressive --seed 424242 --max-turns 5000 \
+  --db logs/runs.sqlite3
 ```
 
-Return to the Godot replay client and select `Refresh logs` after the run.
+The API (`python3 tools/run_store.py serve`) reads this same database; Godot and
+Web refresh their Run lists automatically. Add `--output logs/run.jsonl` to also
+export JSONL and `--revision <producer-commit>` to record the source revision.
+Direct persistence commits the complete Run after simulation finishes. See
+[Run store guide](docs/run-store.md) for details.
 
 Regenerate the deterministic full-run reference logs with:
 
