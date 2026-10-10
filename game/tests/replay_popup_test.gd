@@ -101,12 +101,11 @@ func check_layout_sizes() -> void:
 		var viewer := TestViewer.new()
 		viewport.add_child(viewer)
 		viewer.load_replay("res://../examples/reference-v8/aggressive-seed-424242.jsonl")
-		viewer.catalog_status.text = "501 Runs · online"
 		await process_frame
 		await process_frame
 		var bounds := Rect2(Vector2.ZERO, Vector2(dimensions))
 		var controls: Array[Control] = [
-			viewer.run_selector, viewer.catalog_status,
+			viewer.run_selector,
 			viewer.get_node("PreviousButton"), viewer.play_button, viewer.get_node("NextButton"),
 			viewer.get_node("SimulatorButton"),
 			viewer.log_panel, viewer.player_panel, viewer.maze_view,
@@ -115,9 +114,25 @@ func check_layout_sizes() -> void:
 			check(bounds.encloses(controls[i].get_rect()), "control stays within viewport %s" % dimensions)
 			for j in range(i + 1, controls.size()):
 				check(not controls[i].get_rect().intersects(controls[j].get_rect()), "controls do not overlap at %s" % dimensions)
-		viewer.set_frame(viewer.replay.frames.size() - 1)
-		await process_frame
-		await process_frame
+		check(viewer.get_node_or_null("CatalogStatus") == null, "catalog count is removed")
+		check(not viewer.player_label.text.contains("Strategy"), "player status omits strategy")
+		var button_y: float = viewer.play_button.position.y
+		for name in ["PreviousButton", "NextButton", "SimulatorButton"]:
+			check(is_equal_approx(viewer.get_node(name).position.y, button_y), "all playback buttons share one row")
+		check(viewer.get_node("PreviousButton").text == "<" and viewer.get_node("NextButton").text == ">", "step controls use symbols")
+		check(viewer.play_button.text == ">", "paused playback shows play symbol")
+		viewer.toggle_playing()
+		check(viewer.play_button.text == "||", "playing shows pause symbol")
+		viewer.toggle_playing()
+		var badge_size := viewer.map_overlay.size
+		# Include digit-count boundaries and the terminal frame after container layout settles.
+		for index in [8, 9, 98, 99, viewer.replay.frames.size() - 1]:
+			viewer.set_frame(index)
+			await process_frame
+			await process_frame
+			check(viewer.map_overlay.size.is_equal_approx(badge_size), "badge size stays fixed at frame %d / %s" % [index, dimensions])
+			check(viewer.map_status_label.get_line_count() == 1, "badge remains a single line")
+		check(viewer.play_button.text == ">", "terminal frame restores play symbol")
 		check(viewer.map_rect().encloses(viewer.result_popup.get_rect()), "result popup fits maze at %s" % dimensions)
 		check(viewer.map_rect().encloses(viewer.map_overlay.get_rect()), "depth/frame/turn badge fits maze at %s" % dimensions)
 		viewport.free()

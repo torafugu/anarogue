@@ -6,7 +6,7 @@ const REPLAY_TILE_SIZE := 96.0
 const UI_FONT_SIZE := 40
 const CONTROL_HEIGHT := 88.0
 const CONTROL_GAP := 12.0
-const INFO_TOP := 16.0 + (CONTROL_HEIGHT + CONTROL_GAP) * 3
+const INFO_TOP := 16.0 + (CONTROL_HEIGHT + CONTROL_GAP) * 2
 const INFO_HEIGHT := 480.0
 const MAP_TOP := INFO_TOP + INFO_HEIGHT + 16.0
 const AUTO_STEP_SECONDS := 0.28
@@ -39,7 +39,6 @@ var catalog: Node
 var catalog_runs: Array = []
 var selected_catalog_run := ""
 var pending_catalog_run := ""
-var catalog_status: Label
 var run_selector: OptionButton
 var status_label: RichTextLabel
 var player_label: RichTextLabel
@@ -65,9 +64,7 @@ func _ready() -> void:
 	var replay_path := command_line_replay_path()
 	if not replay_path.is_empty():
 		load_replay(replay_path)
-		catalog_status.text = "Local replay"
 	else:
-		catalog_status.text = "Connecting…"
 		var session = get_node_or_null("/root/RunSession")
 		if session != null and not session.replay_run_key.is_empty():
 			pending_catalog_run = session.replay_run_key
@@ -97,18 +94,15 @@ func create_controls() -> void:
 	run_selector.item_selected.connect(select_run_at)
 	add_child(run_selector)
 
-	catalog_status = Label.new()
-	catalog_status.name = "CatalogStatus"
-	catalog_status.theme = ui_theme
-	catalog_status.add_theme_font_size_override("font_size", 36)
-	catalog_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	add_child(catalog_status)
-	var previous_button := make_button("Previous", previous_frame)
+	var previous_button := make_button("<", previous_frame)
 	previous_button.name = "PreviousButton"
-	play_button = make_button("Play", toggle_playing)
+	previous_button.tooltip_text = "Previous frame (Left arrow)"
+	play_button = make_button(">", toggle_playing)
 	play_button.name = "PlayButton"
-	var next_button := make_button("Next", next_frame)
+	play_button.tooltip_text = "Play / Pause (Space)"
+	var next_button := make_button(">", next_frame)
 	next_button.name = "NextButton"
+	next_button.tooltip_text = "Next frame (Right arrow)"
 	var simulator_button := make_button("Home", open_home)
 	simulator_button.name = "SimulatorButton"
 
@@ -129,7 +123,9 @@ func create_controls() -> void:
 	map_overlay.add_theme_stylebox_override("panel", overlay_style)
 	map_status_label = Label.new()
 	map_status_label.add_theme_font_size_override("font_size", UI_FONT_SIZE)
-	map_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	map_status_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	map_status_label.clip_text = true
+	map_status_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	map_status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	map_overlay.add_child(map_status_label)
 	add_child(map_overlay)
@@ -208,8 +204,12 @@ func layout_map_overlay() -> void:
 	maze_view.size = area.size
 	maze_canvas.queue_redraw()
 	map_overlay.position = area.position + Vector2(8, 8)
-	var badge_width := font.get_string_size(map_status_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x + 16
-	map_overlay.size = Vector2(minf(badge_width, area.size.x - 16), 0)
+	# Keep the badge geometry fixed as frame/turn digit counts change.
+	var badge_width := maxf(1, area.size.x - 16)
+	var text_width := font.get_string_size(map_status_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x
+	var text_size := mini(UI_FONT_SIZE, maxi(1, int(UI_FONT_SIZE * maxf(1, badge_width - 16) / maxf(1, text_width))))
+	map_status_label.add_theme_font_size_override("font_size", text_size)
+	map_overlay.size = Vector2(badge_width, font.get_height(UI_FONT_SIZE) + 16)
 
 func make_button(text: String, callback: Callable) -> Button:
 	var button := Button.new()
@@ -225,21 +225,12 @@ func layout_controls() -> void:
 	var available_width := width - 32
 	run_selector.position = Vector2(16, 16)
 	run_selector.size = Vector2(available_width, CONTROL_HEIGHT)
-	var button_rows := [
-		["PreviousButton", "PlayButton", "NextButton"],
-		["SimulatorButton"],
-	]
-	for row_index in range(button_rows.size()):
-		var row: Array = button_rows[row_index]
-		var button_width := (available_width - CONTROL_GAP * (row.size() - 1)) / row.size()
-		for column in range(row.size()):
-			var button: Button = get_node(row[column])
-			button.position = Vector2(16 + column * (button_width + CONTROL_GAP), 16 + (row_index + 1) * (CONTROL_HEIGHT + CONTROL_GAP))
-			button.size = Vector2(button_width, CONTROL_HEIGHT)
-	var simulator_button: Button = get_node("SimulatorButton")
-	simulator_button.size.x = (available_width - CONTROL_GAP) * 0.5
-	catalog_status.position = simulator_button.position + Vector2(simulator_button.size.x + CONTROL_GAP, 0)
-	catalog_status.size = simulator_button.size
+	var buttons := ["PreviousButton", "PlayButton", "NextButton", "SimulatorButton"]
+	var button_width := (available_width - CONTROL_GAP * (buttons.size() - 1)) / buttons.size()
+	for column in range(buttons.size()):
+		var button: Button = get_node(buttons[column])
+		button.position = Vector2(16 + column * (button_width + CONTROL_GAP), 16 + CONTROL_HEIGHT + CONTROL_GAP)
+		button.size = Vector2(button_width, CONTROL_HEIGHT)
 	var player_width := (available_width - 16) * 0.5
 	var log_width := available_width - player_width - 16
 	log_panel.position = Vector2(16, INFO_TOP)
@@ -269,8 +260,6 @@ func command_line_api_url() -> String:
 	return configured if not configured.is_empty() else "http://127.0.0.1:8765"
 
 func update_catalog(runs: Array) -> void:
-	catalog_status.text = "%d Runs · online" % runs.size()
-	catalog_status.tooltip_text = "Automatically refreshed every 3 seconds. " + catalog.api_url
 	if runs.is_empty() and replay.frames.is_empty():
 		status_label.text = "No stored Runs yet. Choose Home → Run to create one."
 	if runs == catalog_runs:
@@ -296,8 +285,7 @@ func update_catalog(runs: Array) -> void:
 func catalog_failed(kind: String, message: String) -> void:
 	if kind == "run":
 		pending_catalog_run = ""
-	catalog_status.text = "API offline" if kind == "catalog" else "Run load failed"
-	catalog_status.tooltip_text = message
+	run_selector.tooltip_text = ("API offline. " if kind == "catalog" else "Run load failed. ") + message
 	if kind == "catalog" and replay.frames.is_empty():
 		load_replay(DEFAULT_REPLAY)
 		run_selector.tooltip_text = "Offline bundled sample. " + message
@@ -316,7 +304,7 @@ func reset_playback() -> void:
 	reset_log_history()
 	frame_index = 0
 	playing = false
-	play_button.text = "Play"
+	play_button.text = ">"
 	update_status()
 	queue_redraw()
 
@@ -335,7 +323,7 @@ func load_replay(path: String) -> void:
 	run_selector.select(replay.run_ids.size() - 1)
 	frame_index = 0
 	playing = false
-	play_button.text = "Play"
+	play_button.text = ">"
 	update_status()
 	queue_redraw()
 
@@ -346,7 +334,7 @@ func select_run_at(index: int) -> void:
 	var key := str(run_selector.get_item_metadata(index))
 	if not catalog_runs.is_empty():
 		playing = false
-		play_button.text = "Play"
+		play_button.text = ">"
 		pending_catalog_run = key
 		catalog.load_run(key)
 	elif replay.select_run(key):
@@ -368,7 +356,7 @@ func set_frame(index: int) -> void:
 	arrow_elapsed = 0.0
 	if frame_index == replay.frames.size() - 1:
 		playing = false
-		play_button.text = "Play"
+		play_button.text = ">"
 	update_status()
 	queue_redraw()
 
@@ -379,7 +367,7 @@ func toggle_playing() -> void:
 	if frame_index == replay.frames.size() - 1:
 		frame_index = 0
 	playing = not playing
-	play_button.text = "Pause" if playing else "Play"
+	play_button.text = "||" if playing else ">"
 	auto_elapsed = 0.0
 	update_status()
 	queue_redraw()
@@ -458,12 +446,12 @@ func update_status() -> void:
 	var equipment: Dictionary = player.get("equipment", {})
 	var weapon = equipment.get("weapon")
 	var armor = equipment.get("armor")
-	player_label.text = "Lv %d · XP %d/%d\nHP %d/%d\nATK %d [%s] · DEF %d (%d+%d)\n%s range %d · Potions %d/3\nW %s\nD %s\nStrategy %s" % [
+	player_label.text = "Lv %d · XP %d/%d\nHP %d/%d\nATK %d [%s] · DEF %d (%d+%d)\n%s range %d · Potions %d/3\nW %s\nD %s" % [
 		player.get("level", 1), player.get("xp", 0), int(player.get("level", 1)) * 8,
 		player.get("hp", 0), player.get("max_hp", 0), player.get("attack", 0), raw_attack_text,
 		player.get("defense", 0), player.get("base_defense", 0), player.get("defense_bonus", 0),
 		player.get("weapon_kind", "melee"), player.get("attack_range", 1), int(player.get("inventory", {}).get("health_potion", 0)),
-		weapon["id"] if weapon != null else "none", armor["id"] if armor != null else "none", frame["strategy_id"]
+		weapon["id"] if weapon != null else "none", armor["id"] if armor != null else "none"
 	]
 	update_log_history()
 
