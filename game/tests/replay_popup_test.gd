@@ -45,8 +45,8 @@ func run_tests() -> void:
 	if growth_frame >= 0:
 		viewer.set_frame(growth_frame)
 		var player: Dictionary = viewer.replay.frames[growth_frame]["player_state"]
-		check(viewer.player_label.text.contains("Lv %d" % player["level"]), "growth replay shows current level")
-		check(viewer.player_label.text.contains("XP %d/%d" % [player["xp"], player["level"] * 8]), "growth replay shows current XP threshold")
+		check(viewer.player_labels["level"].text == "Lv %d" % player["level"], "growth replay shows current level")
+		check(viewer.player_labels["xp"].text == "XP %d/%d" % [player["xp"], player["level"] * 8], "growth replay shows current XP threshold")
 		check(viewer.status_label.text.contains("Growth ") and viewer.status_label.text.contains("vs stairs"), "growth replay renders the comparison")
 
 	viewer.load_replay("res://../examples/reference-v6/cautious-seed-1.jsonl")
@@ -59,7 +59,7 @@ func run_tests() -> void:
 	if shot_frame >= 0:
 		viewer.set_frame(shot_frame)
 		check(viewer.status_label.text.contains("Player bow shot"), "replay labels Player arrows")
-		check(viewer.player_label.text.contains("bow range 5"), "replay shows bow kind and range")
+		check(viewer.player_labels["weapon_kind"].text == "Weapon type bow" and viewer.player_labels["range"].text == "Range 5", "replay shows bow kind and range")
 
 	viewer.load_replay("res://../examples/reference-v7/cautious-seed-27-cycle.jsonl")
 	var windup_frame := -1
@@ -115,14 +115,19 @@ func check_layout_sizes() -> void:
 			for j in range(i + 1, controls.size()):
 				check(not controls[i].get_rect().intersects(controls[j].get_rect()), "controls do not overlap at %s" % dimensions)
 		check(viewer.get_node_or_null("CatalogStatus") == null, "catalog count is removed")
-		check(not viewer.player_label.text.contains("Strategy"), "player status omits strategy")
+		check(not viewer.player_labels.has("strategy"), "player status omits strategy")
+		check(viewer.player_labels.size() == 10, "each player stat has a dedicated Label")
+		var player_scroll: ScrollContainer = viewer.player_panel.get_node("PlayerScroll")
+		check(player_scroll.get_v_scroll_bar().max_value > player_scroll.get_v_scroll_bar().page, "individual status labels remain scrollable")
+		for label in viewer.player_labels.values():
+			check(label.size.x <= player_scroll.size.x, "status labels fit panel width")
 		var button_y: float = viewer.play_button.position.y
 		for name in ["PreviousButton", "NextButton", "SimulatorButton"]:
 			check(is_equal_approx(viewer.get_node(name).position.y, button_y), "all playback buttons share one row")
-		check(viewer.get_node("PreviousButton").text == "<" and viewer.get_node("NextButton").text == ">", "step controls use symbols")
-		check(viewer.play_button.text == ">", "paused playback shows play symbol")
+		check(viewer.get_node("PreviousButton").text == "|◀" and viewer.get_node("NextButton").text == "▶|", "step controls use symbols")
+		check(viewer.play_button.text == "▶", "paused playback shows play symbol")
 		viewer.toggle_playing()
-		check(viewer.play_button.text == "||", "playing shows pause symbol")
+		check(viewer.play_button.text == "⏸", "playing shows pause symbol")
 		viewer.toggle_playing()
 		var badge_size := viewer.map_overlay.size
 		# Include digit-count boundaries and the terminal frame after container layout settles.
@@ -132,7 +137,7 @@ func check_layout_sizes() -> void:
 			await process_frame
 			check(viewer.map_overlay.size.is_equal_approx(badge_size), "badge size stays fixed at frame %d / %s" % [index, dimensions])
 			check(viewer.map_status_label.get_line_count() == 1, "badge remains a single line")
-		check(viewer.play_button.text == ">", "terminal frame restores play symbol")
+		check(viewer.play_button.text == "▶", "terminal frame restores play symbol")
 		check(viewer.map_rect().encloses(viewer.result_popup.get_rect()), "result popup fits maze at %s" % dimensions)
 		check(viewer.map_rect().encloses(viewer.map_overlay.get_rect()), "depth/frame/turn badge fits maze at %s" % dimensions)
 		viewport.free()
