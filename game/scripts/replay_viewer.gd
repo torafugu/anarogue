@@ -41,7 +41,7 @@ var selected_catalog_run := ""
 var pending_catalog_run := ""
 var run_selector: OptionButton
 var status_label: RichTextLabel
-var player_label: RichTextLabel
+var player_labels: Dictionary[String, Label] = {}
 var log_panel: PanelContainer
 var player_panel: PanelContainer
 var map_overlay: PanelContainer
@@ -94,13 +94,13 @@ func create_controls() -> void:
 	run_selector.item_selected.connect(select_run_at)
 	add_child(run_selector)
 
-	var previous_button := make_button("<", previous_frame)
+	var previous_button := make_button("|◀", previous_frame)
 	previous_button.name = "PreviousButton"
 	previous_button.tooltip_text = "Previous frame (Left arrow)"
-	play_button = make_button(">", toggle_playing)
+	play_button = make_button("▶", toggle_playing)
 	play_button.name = "PlayButton"
 	play_button.tooltip_text = "Play / Pause (Space)"
-	var next_button := make_button(">", next_frame)
+	var next_button := make_button("▶|", next_frame)
 	next_button.name = "NextButton"
 	next_button.tooltip_text = "Next frame (Right arrow)"
 	var simulator_button := make_button("Home", open_home)
@@ -110,8 +110,22 @@ func create_controls() -> void:
 	status_label = make_info_text("LogText")
 	log_panel.add_child(status_label)
 	player_panel = make_info_panel("PlayerPanel")
-	player_label = make_info_text("PlayerInfo")
-	player_panel.add_child(player_label)
+	var player_scroll := ScrollContainer.new()
+	player_scroll.name = "PlayerScroll"
+	player_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	player_panel.add_child(player_scroll)
+	var player_info := VBoxContainer.new()
+	player_info.name = "PlayerInfo"
+	player_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	player_info.add_theme_constant_override("separation", 8)
+	player_scroll.add_child(player_info)
+	for key in ["level", "xp", "hp", "attack", "defense", "weapon_kind", "range", "potions", "weapon", "armor"]:
+		var label := Label.new()
+		label.name = key.to_pascal_case() + "Label"
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		player_info.add_child(label)
+		player_labels[key] = label
 
 	map_overlay = PanelContainer.new()
 	map_overlay.name = "MapOverlay"
@@ -304,7 +318,7 @@ func reset_playback() -> void:
 	reset_log_history()
 	frame_index = 0
 	playing = false
-	play_button.text = ">"
+	play_button.text = "▶"
 	update_status()
 	queue_redraw()
 
@@ -323,7 +337,7 @@ func load_replay(path: String) -> void:
 	run_selector.select(replay.run_ids.size() - 1)
 	frame_index = 0
 	playing = false
-	play_button.text = ">"
+	play_button.text = "▶"
 	update_status()
 	queue_redraw()
 
@@ -334,7 +348,7 @@ func select_run_at(index: int) -> void:
 	var key := str(run_selector.get_item_metadata(index))
 	if not catalog_runs.is_empty():
 		playing = false
-		play_button.text = ">"
+		play_button.text = "▶"
 		pending_catalog_run = key
 		catalog.load_run(key)
 	elif replay.select_run(key):
@@ -356,7 +370,7 @@ func set_frame(index: int) -> void:
 	arrow_elapsed = 0.0
 	if frame_index == replay.frames.size() - 1:
 		playing = false
-		play_button.text = ">"
+		play_button.text = "▶"
 	update_status()
 	queue_redraw()
 
@@ -367,7 +381,7 @@ func toggle_playing() -> void:
 	if frame_index == replay.frames.size() - 1:
 		frame_index = 0
 	playing = not playing
-	play_button.text = "||" if playing else ">"
+	play_button.text = "⏸" if playing else "▶"
 	auto_elapsed = 0.0
 	update_status()
 	queue_redraw()
@@ -422,7 +436,8 @@ func update_status() -> void:
 	result_popup.hide()
 	if replay.frames.is_empty():
 		status_label.text = "No replay frames."
-		player_label.text = ""
+		for label in player_labels.values():
+			label.text = ""
 		map_overlay.hide()
 		return
 	var frame: Dictionary = replay.frames[frame_index]
@@ -446,13 +461,16 @@ func update_status() -> void:
 	var equipment: Dictionary = player.get("equipment", {})
 	var weapon = equipment.get("weapon")
 	var armor = equipment.get("armor")
-	player_label.text = "Lv %d · XP %d/%d\nHP %d/%d\nATK %d [%s] · DEF %d (%d+%d)\n%s range %d · Potions %d/3\nW %s\nD %s" % [
-		player.get("level", 1), player.get("xp", 0), int(player.get("level", 1)) * 8,
-		player.get("hp", 0), player.get("max_hp", 0), player.get("attack", 0), raw_attack_text,
-		player.get("defense", 0), player.get("base_defense", 0), player.get("defense_bonus", 0),
-		player.get("weapon_kind", "melee"), player.get("attack_range", 1), int(player.get("inventory", {}).get("health_potion", 0)),
-		weapon["id"] if weapon != null else "none", armor["id"] if armor != null else "none"
-	]
+	player_labels["level"].text = "Lv %d" % player.get("level", 1)
+	player_labels["xp"].text = "XP %d/%d" % [player.get("xp", 0), int(player.get("level", 1)) * 8]
+	player_labels["hp"].text = "HP %d/%d" % [player.get("hp", 0), player.get("max_hp", 0)]
+	player_labels["attack"].text = "ATK %d [%s]" % [player.get("attack", 0), raw_attack_text]
+	player_labels["defense"].text = "DEF %d (%d+%d)" % [player.get("defense", 0), player.get("base_defense", 0), player.get("defense_bonus", 0)]
+	player_labels["weapon_kind"].text = "Weapon type %s" % player.get("weapon_kind", "melee")
+	player_labels["range"].text = "Range %d" % player.get("attack_range", 1)
+	player_labels["potions"].text = "Potions %d/3" % int(player.get("inventory", {}).get("health_potion", 0))
+	player_labels["weapon"].text = "W %s" % (weapon["id"] if weapon != null else "none")
+	player_labels["armor"].text = "D %s" % (armor["id"] if armor != null else "none")
 	update_log_history()
 
 func reset_log_history() -> void:
