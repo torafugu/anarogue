@@ -26,8 +26,8 @@ The original JSONL events remain available for export and offline replay.
 Controls:
 
 - Run selector: choose a stored Run; changing it restarts playback
-- `Previous` / `Next` or left / right arrows: step through decision frames
-- `Play` or space: automatically advance the replay
+- `|◀` / `▶|` or left / right arrows: step through complete Turns
+- `▶` / `⏸` or space: play / pause Turn-by-Turn replay
 - The maze uses large tiles and follows Player; only the surrounding area is shown
 - `Home`: return to the main screen
 
@@ -59,7 +59,7 @@ longer the project's default responsibility.
 - Melee weapons favor damage; bows reach five tiles with clear line of sight and half attack
 - Aggressive prefers melee equipment; Cautious prefers bows; `F` fires manually
 - Damage = max(1, effective attack - effective defense)
-- Item pickup/use/equipment frames in Godot replay and resource totals in the web viewer
+- Item pickup/use/equipment events grouped by Turn in Godot replay and resource totals in the web viewer
 - Turn-based player and enemy actions
 - Three enemy types:
   - **Melee** — charges and attacks up close

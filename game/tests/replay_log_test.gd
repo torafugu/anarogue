@@ -53,5 +53,43 @@ func _init() -> void:
 		printerr("FAIL: Replay must preserve Archer ranged attacks.")
 		quit(1)
 		return
+	check_turns()
 	print("Replay log test passed (%d frames)." % replay.frames.size())
 	quit(0)
+
+
+func check_turns() -> void:
+	var replay := ReplayData.new()
+	var events := [
+		{"event": "floor_start", "turn": 0, "depth": 1, "player_state": {"pos": {"x": 0, "y": 0}, "hp": 18}, "details": {"map_rows": ["..."], "enemies": [{"id": "e", "hp": 10, "pos": {"x": 2, "y": 0}}]}},
+		{"event": "decision", "turn": 0, "depth": 1, "details": {"action_turn": 1, "action": {"type": "move"}}},
+		{"event": "user_action", "turn": 1, "depth": 1, "player_state": {"pos": {"x": 1, "y": 0}, "hp": 18}, "details": {"result": "moved"}},
+		{"event": "battle_result", "turn": 1, "depth": 1, "player_state": {"pos": {"x": 1, "y": 0}, "hp": 15}, "details": {"result": "enemy_hit", "enemy_id": "e", "enemy_hp_after": 7}},
+		{"event": "decision", "turn": 1, "depth": 1, "player_state": {"pos": {"x": 1, "y": 0}, "hp": 15}, "details": {"action_turn": 2, "observation": {"enemies": [{"id": "e", "hp": 7, "pos": {"x": 1, "y": 1}}]}}},
+		{"event": "floor_descend", "turn": 2, "depth": 2, "details": {}},
+		{"event": "floor_start", "turn": 2, "depth": 2, "player_state": {"hp": 18}, "details": {"map_rows": ["...."], "enemies": []}},
+		{"event": "battle_result", "turn": 3, "depth": 2, "player_state": {"hp": 0}, "details": {"result": "player_defeated"}},
+		{"event": "run_end", "turn": 3, "depth": 2, "player_state": {"hp": 0}, "details": {}},
+	]
+	var turns := replay.build_turns(events)
+	assert(turns.size() == 4, "one snapshot per Turn, including initialization")
+	assert(turns[0]["log_frames"].size() == 1, "executed decisions leave initialization")
+	assert(turns[1]["log_frames"].size() == 3, "decision, movement and melee result share a Turn")
+	assert(turns[1]["log_frames"][0]["action_turn"] == 1, "decision attaches to executed Turn")
+	assert(turns[1]["player_state"]["pos"]["x"] == 1 and turns[1]["player_state"]["hp"] == 15, "final player state includes movement and damage")
+	assert(turns[1]["enemies"][0]["pos"]["y"] == 1, "next decision completes enemy movement state")
+	assert(turns[2]["depth"] == 2 and turns[2]["map_rows"] == ["...."], "floor transition displays destination in one Turn")
+	assert(turns[2]["log_frames"].size() == 3, "transition preserves decision, descent and floor-start logs")
+	assert(turns[3]["kind"] == "terminal" and turns[3]["outcome"] == "player_defeated", "run-end event preserves terminal result")
+	var truncated := replay.build_turns(events.slice(0, 5))
+	assert(truncated.size() == 2 and truncated[1]["log_frames"].size() == 4, "unexecuted decision stays visible without a phantom Turn")
+	var melee := replay.build_turns(events.slice(0, 4))
+	assert(melee[1]["enemies"][0]["hp"] == 7, "melee updates HP even without a following decision")
+	assert(melee[0]["enemies"][0]["hp"] == 10, "earlier states remain immutable")
+	assert(replay.load_file("res://../examples/reference-v8/aggressive-seed-424242.jsonl") == OK)
+	assert(replay.turns.size() == 109 and replay.turns.back()["turn"] == 108, "v8 has 108 executed Turns plus initialization")
+	var event_count := 0
+	for i in range(replay.turns.size()):
+		assert(replay.turns[i]["turn"] == i, "no duplicate or skipped Turn in reference")
+		event_count += replay.turns[i]["log_frames"].size()
+	assert(event_count == replay.events_by_run[replay.selected_run_id].size(), "all recorded events appear exactly once")
