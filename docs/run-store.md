@@ -77,7 +77,8 @@ imported Runs even if their source files are moved or removed.
 
 ## Godot replay
 
-Run `game/` after starting the API. The Run selector displays strategy, seed,
+Run `game/` after starting the API. The main screen offers Run and Replay;
+choose Replay to open the existing viewer. The Run selector displays strategy, seed,
 depth, result and a short database ID. Hovering shows the original Run ID,
 start time and simulation version. There is no file selector or Refresh logs
 button. The list updates every three seconds and keeps the selected Run and
@@ -86,8 +87,8 @@ its beginning; background catalogue changes never replace that snapshot.
 
 If the API is unavailable, the bundled sample remains playable and the status
 shows `API offline`. The client retries automatically and switches to the
-catalogue when it becomes available. An empty online database shows an import
-hint. JSONL remains available for offline tools/tests through
+catalogue when it becomes available. An empty online database points to
+Home → Run. JSONL remains available for offline tools/tests through
 `--replay=/absolute/path/run.jsonl`.
 
 Configure another endpoint with `ANAROGUE_RUN_API` or `--run-api=http://host:8765`.
@@ -95,6 +96,54 @@ For a mobile client, the API must be reachable on the development computer's
 network address; `127.0.0.1` on the phone points to the phone. The service can be
 bound to that computer's LAN address with `serve --host <LAN-address>`. This is a
 local development service without authentication; use it on a trusted network.
+
+## Run execution from Godot
+
+Build the Rust binary, then start the service (from the repository root):
+
+```bash
+cargo build --release --manifest-path simulation-core/Cargo.toml
+python3 tools/run_store.py serve
+```
+
+`serve --simulator /absolute/path/anarogue-sim` selects another executable;
+`ANAROGUE_RUST_BINARY` also overrides the default release binary. The global
+`--db` chooses the database and `--revision` attributes new Runs to the configured
+producer revision. Request bodies cannot override executable, database or revision.
+A missing/outdated binary fails the job with a message; existing Replay is available.
+
+Godot starts on a main screen. Run opens a scrolling settings form; Replay opens
+the existing catalogue/replay screen. The form accepts seed (u32), strategy
+(`aggressive` or `cautious`), three integer goal weights (0–1000, at least one
+positive), and maximum turns (1–100000). Strategy changes reset weights to 4/2/1
+or 1/2/4; custom weights can then override them. Map size remains 24×18 and policy
+temperature remains 8, matching the Rust defaults.
+
+- `POST /api/jobs` with `Content-Type: application/json` accepts the settings and
+  returns HTTP 202 with `{id, status, settings, run_id, error}`. Status starts
+  `queued`. Example body: `{"seed":42,"strategy":"cautious","enemy_weight":1,"item_weight":2,"stairs_weight":4,"max_turns":5000}`.
+- `GET /api/jobs/<id>` reports `queued`, `running`, `completed`, or `failed`.
+  Completion includes `run_id` (the SQLite catalogue key) and the Rust summary.
+  Failure includes an error. Unknown or expired IDs return 404.
+- HTTP 400 rejects invalid/unknown settings; 415 rejects wrong content type;
+  429 rejects a full queue; 503 indicates execution is unavailable on that server.
+  Browser requests with an Origin header must match the request Host.
+
+One worker executes jobs sequentially, with at most 16 outstanding jobs and a
+120-second limit per process. The service retains the latest 64 job records in
+memory; restarting it loses job tracking, while committed Runs remain in SQLite.
+Queued jobs are cancelled during shutdown; an already running process is allowed
+to finish within its execution limit. A timeout or interrupted process can occur
+after SQLite commit; check Replay for a saved Run before retrying.
+
+The UI polls the job each second, disables duplicate submission while pending,
+and opens the completed Run at frame zero. Navigation is held only until the
+start request is acknowledged, so it cannot discard the job ID. Afterwards users
+can browse Replay and return to Run to resume polling. Temporary polling failures
+retry without restarting the simulation. The form/settings and job ID survive
+scene changes within the app session, but are not saved across app restarts.
+No events stream during execution; Replay loads the completed snapshot.
+Explicit `--replay=/absolute/path/run.jsonl` still bypasses the home screen.
 
 ## Web viewer
 
@@ -173,6 +222,7 @@ HTTP 400 indicates invalid import/pagination, 404 a missing Run/endpoint.
 ```bash
 python3 -m unittest discover -s tools -p test_run_store.py -v
 GODOT=/path/to/godot python3 tools/test_run_api.py
+GODOT=/path/to/godot python3 tools/test_run_launcher_api.py
 cargo test --manifest-path simulation-core/Cargo.toml --all-targets
 python3 -m unittest discover -s tools -p test_rust_run_store.py -v
 ```

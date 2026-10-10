@@ -15,9 +15,13 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 [application]
 
 config/name="anarogue"
-run/main_scene="res://scenes/replay.tscn"
+run/main_scene="res://scenes/home.tscn"
 config/features=PackedStringArray("4.5")
 config/icon="res://icon.svg"
+
+[autoload]
+
+RunSession="*res://scripts/run_session.gd"
 
 [display]
 
