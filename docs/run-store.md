@@ -99,6 +99,28 @@ local development service without authentication; use it on a trusted network.
 
 ## Run execution from Godot
 
+AutoRun on the Godot Run form submits `POST /api/batches`, sharing the same
+single Rust worker as individual Runs. Defaults cover both Strategies and
+weights 0–4, excluding `(0,0,0)`: 248 Runs. Each execution is committed to the
+ordinary Runs/events tables, and normal Viewer polling discovers results.
+
+Example batch request:
+
+```json
+{"seed":424242,"max_turns":5000,"strategies":["aggressive","cautious"],"enemy_weights":[0,1,2,3,4],"item_weights":[0,1,2,3,4],"stairs_weights":[0,1,2,3,4]}
+```
+
+Each list contains integers in 0–1000; duplicate values/Strategies are removed.
+A request is limited to 4 KB and 1–2,000 valid combinations. A batch occupies
+one queue slot, generates combinations lazily and executes them sequentially.
+Poll `GET /api/jobs/<id>` for `kind: batch`, `total`, `completed`, `failed`,
+`current_settings`, the latest saved `run_id`, and status. Submit an empty JSON
+object to `POST /api/jobs/<id>/cancel` to stop after the current Run. Queued
+batches cancel before execution. Execution failure stops the batch immediately;
+already saved results remain readable. Job progress is ephemeral across API
+restarts, while all committed Runs persist. Starting the same batch again makes
+new trials rather than skipping prior results.
+
 Build the Rust binary, then start the service (from the repository root):
 
 ```bash

@@ -18,9 +18,10 @@ def main():
         raise SystemExit("Set GODOT and ANAROGUE_RUST_BINARY to built executables")
     for failure in (False, True):
         exercise(root, godot, binary, failure)
+    exercise(root, godot, binary, False, "res://tests/autorun_test.gd")
 
 
-def exercise(root, godot, binary, failure):
+def exercise(root, godot, binary, failure, script="res://tests/run_launcher_test.gd"):
     with tempfile.TemporaryDirectory() as directory:
         store = RunStore(Path(directory) / "runs.sqlite3")
         store.import_file(root / "examples/reference-v8/aggressive-seed-424242.jsonl")
@@ -30,7 +31,7 @@ def exercise(root, godot, binary, failure):
         try:
             env = {**os.environ, "ANAROGUE_TEST_API": f"http://127.0.0.1:{server.server_port}", "ANAROGUE_EXPECT_FAILURE": "1" if failure else "0"}
             subprocess.run([godot, "--headless", "--path", str(root / "game"), "--script",
-                            "res://tests/run_launcher_test.gd"], env=env, check=True, timeout=45)
+                            script], env=env, check=True, timeout=45)
         finally:
             server.shutdown()
             server.server_close()
