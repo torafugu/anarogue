@@ -759,11 +759,13 @@ async function refreshCatalogue(): Promise<void> {
   query.set("limit", "100");
   query.set("offset", String(catalogueOffset));
   try {
-    const [data, stats] = await Promise.all([
+    const [runsResult, statsResult] = await Promise.allSettled([
       api<{runs: StoredRun[]; total: number}>(`/api/runs?${query}`),
       api<{groups: RunGroup[]}>(`/api/stats?${statsQuery}`),
     ]);
     if (generation !== catalogueGeneration) return;
+    if (runsResult.status === "rejected") throw runsResult.reason;
+    const data = runsResult.value;
     databaseOnline = true;
     catalogue = data.runs;
     catalogueTotal = data.total;
@@ -772,11 +774,17 @@ async function refreshCatalogue(): Promise<void> {
     getElement("#catalog-page").textContent = `${data.total ? catalogueOffset + 1 : 0}–${Math.min(catalogueOffset + 100, data.total)} / ${data.total}`;
     getElement<HTMLButtonElement>("#catalog-previous").disabled = catalogueOffset === 0;
     getElement<HTMLButtonElement>("#catalog-next").disabled = catalogueOffset + 100 >= data.total;
-    renderStoredStats(stats.groups);
+    try {
+      if (statsResult.status === "rejected") throw statsResult.reason;
+      renderStoredStats(statsResult.value.groups);
+    } catch (error) {
+      getElement("#catalog-stats").textContent = `Statistics unavailable: ${error instanceof Error ? error.message : String(error)}`;
+    }
     if (!state.parsed && catalogue[0]) await selectStoredRun(catalogue[0]);
-  } catch {
+  } catch (error) {
+    if (generation !== catalogueGeneration) return;
     databaseOnline = false;
-    getElement("#catalog-status").textContent = "Run API offline — start tools/run_store.py serve";
+    getElement("#catalog-status").textContent = `Stored Runs unavailable: ${error instanceof Error ? error.message : String(error)}`;
   } finally {
     catalogueBusy = false;
     if (generation !== catalogueGeneration) void refreshCatalogue();
@@ -850,7 +858,7 @@ function renderStoredComparison(): void {
     if (generation !== detailGeneration || activeStoredRun?.id !== run.id) return;
     const peers = data.runs.filter(peer => peer.code_revision === run.code_revision);
     panel.hidden = peers.length < 2;
-    panel.innerHTML = `<div class="comparison-heading"><h3>Same-seed comparison</h3><span>seed ${run.scenario_seed} · sim ${run.simulation_version}${data.total > 100 ? " · latest 100 Runs" : ""}</span></div><div class="comparison-cards">${peers.map(peer => `<button class="comparison-card ${peer.id === run.id ? "active" : ""}" data-stored-run="${escapeHtml(peer.id)}"><span class="comparison-name">${escapeHtml(strategyLabel(peer.strategy_id))}</span><span>${escapeHtml(JSON.stringify(peer.goal_policy))}</span><span>Score ${peer.score} · D${peer.max_depth} · Lv ${peer.level}</span><span>${peer.turns} turns · ${escapeHtml(peer.status)}</span></button>`).join("")}</div>`;
+    panel.innerHTML = `<div class="comparison-heading"><h3>Same-seed comparison</h3><span>seed ${run.scenario_seed} · sim ${run.simulation_version}${data.total > 100 ? " · latest 100 Runs" : ""}</span></div><div class="comparison-cards">${peers.map(peer => `<button type="button" class="comparison-card comparison-card-stored ${peer.id === run.id ? "active" : ""}" data-stored-run="${escapeHtml(peer.id)}"><span class="comparison-name">${escapeHtml(strategyLabel(peer.strategy_id))}</span><span class="comparison-policy">${escapeHtml(JSON.stringify(peer.goal_policy))}</span><span>Score ${peer.score} · D${peer.max_depth} · Lv ${peer.level}</span><span>${peer.turns} turns · ${escapeHtml(peer.status)}</span></button>`).join("")}</div>`;
     panel.querySelectorAll<HTMLButtonElement>("[data-stored-run]").forEach(button => button.addEventListener("click", () => {
       const peer = peers.find(candidate => candidate.id === button.dataset.storedRun);
       if (peer) void selectStoredRun(peer);

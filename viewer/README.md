@@ -24,6 +24,28 @@ the list and aggregate results refresh automatically every three seconds.
 Import JSONL by file picker or drag/drop to save existing logs in SQLite. Offline
 imports are explicitly browser-local and are not automatically uploaded later.
 
+### Stored Runs connection troubleshooting
+
+Open both `http://127.0.0.1:8765/api/runs` and `/api/runs` on the Viewer
+origin (for example `http://localhost:5173/api/runs`). Both should return JSON.
+If only the first works, check how the Viewer is served: use `npm run dev`
+or `npm run preview`, or configure a reverse proxy for static hosting.
+The API must be reachable from the machine running Vite. If Vite and Python
+run on different machines or in different containers, their loopback addresses
+refer to different hosts.
+
+For a non-default API address, create `viewer/.env.local`:
+
+```dotenv
+ANAROGUE_RUN_API_URL=http://127.0.0.1:8765
+```
+
+Set the address to the API host/port reachable from Vite and restart Vite.
+This variable configures the server-side proxy for both dev and preview.
+Stored Runs reports the failed endpoint and error details. A statistics failure
+does not prevent selection of Runs. An empty catalogue (`0 Runs`) means the API
+is reachable; check the database path, filters and JSONL import instead.
+
 ## Production build
 
 ```bash

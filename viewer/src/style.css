@@ -375,6 +375,23 @@ select,
   background: rgba(214, 232, 106, 0.08);
 }
 
+.comparison-card.comparison-card-stored {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.comparison-card-stored > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.comparison-policy {
+  color: var(--muted);
+  font-family: "DM Mono", monospace;
+  font-size: 11px;
+}
+
 .comparison-name,
 .comparison-strategy,
 .comparison-stat {
