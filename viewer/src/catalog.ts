@@ -32,10 +32,19 @@ export interface RunGroup {
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, { ...init, signal: init?.signal ?? AbortSignal.timeout(15000) });
+  let response: Response;
+  try {
+    response = await fetch(path, { ...init, signal: init?.signal ?? AbortSignal.timeout(15000) });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Run API ${path}: ${reason}. Check the Viewer /api proxy and API host/port.`);
+  }
   if (!response.ok) {
     const body = await response.json().catch(() => null) as {error?: string} | null;
-    throw new Error(body?.error ?? `Run API: HTTP ${response.status}`);
+    throw new Error(`Run API ${path}: HTTP ${response.status}${body?.error ? ` — ${body.error}` : ""}`);
+  }
+  if (!response.headers.get("Content-Type")?.includes("application/json")) {
+    throw new Error(`Run API ${path}: expected JSON, received ${response.headers.get("Content-Type") ?? "unknown content type"}. Start Viewer with Vite; static hosting needs an /api reverse proxy.`);
   }
   return response.json() as Promise<T>;
 }
