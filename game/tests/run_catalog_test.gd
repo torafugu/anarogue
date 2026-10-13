@@ -51,22 +51,22 @@ func run_tests() -> void:
 		quit(1)
 		return
 	assert(not viewer.has_node("LogSelector") and not viewer.has_node("RefreshButton"))
-	viewer.set_frame(1)
+	viewer.set_turn(1)
 	viewer.playing = true
 	viewer.auto_elapsed = -100  # Hold playback while checking background refresh.
 	var selected: String = viewer.selected_catalog_run
 	viewer.update_catalog(viewer.catalog_runs.duplicate(true))
-	assert(viewer.frame_index == 1 and viewer.playing and viewer.selected_catalog_run == selected)
+	assert(viewer.turn_index == 1 and viewer.playing and viewer.selected_catalog_run == selected)
 	var more: Array = viewer.catalog_runs.duplicate(true)
 	more[0]["score"] += 1
 	viewer.update_catalog(more)
-	assert(viewer.frame_index == 1 and viewer.playing and viewer.selected_catalog_run == selected)
+	assert(viewer.turn_index == 1 and viewer.playing and viewer.selected_catalog_run == selected)
 	viewer.select_run_at(1)
 	if not await wait_for(func(): return viewer.selected_catalog_run != selected):
 		printerr("Viewer did not switch Runs.")
 		quit(1)
 		return
-	assert(viewer.frame_index == 0 and not viewer.playing and viewer.displayed_log_frame == 0)
+	assert(viewer.turn_index == 0 and not viewer.playing and viewer.displayed_log_turn == 0)
 	viewer.free()
 	print("Run API integration tests passed (pagination, replay, polling and selection).")
 	quit(0)

@@ -17,7 +17,7 @@ def main():
     root = Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory() as directory:
         store = RunStore(Path(directory) / "runs.sqlite3")
-        template = [json.loads(line) for line in (root / "examples/reference-v8/aggressive-seed-424242.jsonl").read_text().splitlines()[:4]]
+        template = [json.loads(line) for line in (root / "examples/reference-v8/aggressive-seed-424242.jsonl").read_text().splitlines()[:6]]
         for index in range(501):
             events = [{**event, "run_id": f"catalogue-test-{index}"} for event in template]
             store.import_text("\n".join(json.dumps(event) for event in events))

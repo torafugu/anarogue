@@ -12,7 +12,7 @@ Each action you take advances the game by one turn. Move carefully, watch your H
 2. The main screen offers **Run** and **Replay**. Choose Run to set seed, strategy, enemy/treasure/stairs weights and maximum turns. Aggressive starts with weights 4/2/1; Cautious starts with 1/2/4. Changing strategy resets these weights, after which each can be customized. At least one weight must be positive.
 3. Press Run in the settings screen. The API queues the Rust simulation, which writes the result and all events directly to SQLite. The UI shows queued/running status and opens that specific Run in Replay when complete. Starting a second Run is disabled while your job is pending. Once the API has accepted the job, you may browse Replay and return to Run to resume checking it. Settings survive screen changes during the app session.
 4. Choose Replay from the main screen to browse stored Runs. The list updates automatically. Use Home to return to the main screen. The API is required for new Runs; if execution fails, the settings remain available to retry. If the API is unavailable in Replay, the bundled v8 reference is playable while the client retries.
-5. Below the Replay buttons, the left panel keeps event and decision history; the right panel shows Level/XP, HP, ATK, DEF, potions, weapon (W), armor (D). Each player status item is a separate Label; both panels scroll independently. The log follows new entries when at the bottom; scrolling upward preserves your reading position. Rewinding removes future entries, and switching Runs resets history. Depth, frame and turn appear over the maze. Large fixed-size tiles follow Player and show only the surrounding area.
+5. Below the Replay buttons, the left panel shows only the selected Turn’s events and decisions; the right panel shows Level/XP, HP, ATK, DEF, potions, weapon (W), armor (D). Each player status item is a separate Label; both panels scroll independently. Each step replaces the log and resets its scroll position to the top. Previous/Next and automatic playback advance by whole Turns, showing the final state of each Turn. Decisions are grouped with the Turn in which their action executes (`action_turn`). Turn 0 shows initialization. Switching Runs returns to Turn 0. Depth and current/final Turn appear over the maze. Large fixed-size tiles follow Player and show only the surrounding area.
 
 The Run form scrolls on smaller screens. Seed accepts 0–4294967295, goal weights
 accept 0–1000, and maximum turns accepts 1–100000. Weights influence goal selection
@@ -21,10 +21,10 @@ The turn limit may leave a Run unfinished, but its events are still saved for Re
 The legacy live simulator remains available by opening `res://scenes/main.tscn` directly.
 
 The replay uses 40 px text for selectors, buttons, logs, Player information,
-and the depth/frame/turn badge. The Run selector occupies a full
+and the depth/turn badge. The Run selector occupies a full
 row. Previous (`|◀`), Play (`▶`), Next (`▶|`), and `Home` share the next row.
 During playback, Play becomes Pause (`⏸`); tooltips identify the controls.
-Strategy is shown in the Run selector. The depth/frame/turn badge stays on one
+Strategy is shown in the Run selector. The depth/turn badge stays on one
 line with a fixed height, reducing its font size when needed on narrow screens. The information panels are taller so larger text can be read
 without crowding the controls. The maze viewport is smaller, while its tile
 size and Player-following behavior stay the same.
@@ -86,7 +86,7 @@ The right side of the screen shows:
 XP is progress within the current level, not lifetime XP. The next level requires
 `current level × 8` XP; leveling up spends that amount and carries any remainder
 forward. The Godot replay status and the web viewer event details also show level
-and XP for the selected frame or event.
+and XP for the selected Turn or event.
 
 The message log reports important events, such as defeating enemies, taking damage, finding a new floor, or losing the run.
 
@@ -266,7 +266,7 @@ account for low bow damage and melee enemies closing the gap. Archer movement
 can still change actual costs.
 
 Godot replay draws Player arrows in yellow and updates enemy HP / removal in the
-impact frame. Both viewers show weapon kind and range. Generate a new v8 log to
+Turn containing the impact. Both viewers show weapon kind and range. Generate a new v8 log to
 see bows; historical logs keep their recorded behavior.
 
 ## Brute and strategy comparisons

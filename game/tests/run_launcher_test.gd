@@ -59,7 +59,7 @@ func run_tests() -> void:
 	assert(await wait_for(func(): return current_scene != null and current_scene.has_method("load_catalog_run") and not current_scene.selected_catalog_run.is_empty()))
 	var viewer = current_scene
 	assert(viewer.selected_catalog_run != old_key)
-	assert(viewer.replay.frames.size() > 0 and viewer.frame_index == 0)
+	assert(viewer.replay.turns.size() > 0 and viewer.turn_index == 0)
 	assert(root.get_node("RunSession").job_id.is_empty())
 	var wanted: String = viewer.selected_catalog_run
 	assert(await wait_for(func(): return not viewer.catalog_runs.is_empty()))

@@ -27,9 +27,8 @@ const COLOR_TEXT := Color("#e7e1cf")
 var maze_view: Control
 var maze_canvas: Node2D
 var replay := ReplayData.new()
-var frame_index := 0
-var log_entries: Array[String] = []
-var displayed_log_frame := -1
+var turn_index := 0
+var displayed_log_turn := -1
 var playing := false
 var auto_elapsed := 0.0
 var arrow_elapsed := 0.0
@@ -94,15 +93,15 @@ func create_controls() -> void:
 	run_selector.item_selected.connect(select_run_at)
 	add_child(run_selector)
 
-	var previous_button := make_button("|◀", previous_frame)
+	var previous_button := make_button("|◀", previous_turn)
 	previous_button.name = "PreviousButton"
-	previous_button.tooltip_text = "Previous frame (Left arrow)"
+	previous_button.tooltip_text = "Previous Turn (Left arrow)"
 	play_button = make_button("▶", toggle_playing)
 	play_button.name = "PlayButton"
 	play_button.tooltip_text = "Play / Pause (Space)"
-	var next_button := make_button("▶|", next_frame)
+	var next_button := make_button("▶|", next_turn)
 	next_button.name = "NextButton"
-	next_button.tooltip_text = "Next frame (Right arrow)"
+	next_button.tooltip_text = "Next Turn (Right arrow)"
 	var simulator_button := make_button("Home", open_home)
 	simulator_button.name = "SimulatorButton"
 
@@ -218,7 +217,7 @@ func layout_map_overlay() -> void:
 	maze_view.size = area.size
 	maze_canvas.queue_redraw()
 	map_overlay.position = area.position + Vector2(8, 8)
-	# Keep the badge geometry fixed as frame/turn digit counts change.
+	# Keep the badge geometry fixed as Turn digit counts change.
 	var badge_width := maxf(1, area.size.x - 16)
 	var text_width := font.get_string_size(map_status_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x
 	var text_size := mini(UI_FONT_SIZE, maxi(1, int(UI_FONT_SIZE * maxf(1, badge_width - 16) / maxf(1, text_width))))
@@ -274,7 +273,7 @@ func command_line_api_url() -> String:
 	return configured if not configured.is_empty() else "http://127.0.0.1:8765"
 
 func update_catalog(runs: Array) -> void:
-	if runs.is_empty() and replay.frames.is_empty():
+	if runs.is_empty() and replay.turns.is_empty():
 		status_label.text = "No stored Runs yet. Choose Home → Run to create one."
 	if runs == catalog_runs:
 		return
@@ -300,14 +299,14 @@ func catalog_failed(kind: String, message: String) -> void:
 	if kind == "run":
 		pending_catalog_run = ""
 	run_selector.tooltip_text = ("API offline. " if kind == "catalog" else "Run load failed. ") + message
-	if kind == "catalog" and replay.frames.is_empty():
+	if kind == "catalog" and replay.turns.is_empty():
 		load_replay(DEFAULT_REPLAY)
 		run_selector.tooltip_text = "Offline bundled sample. " + message
 
 func load_catalog_run(run_key: String, events: Array) -> void:
 	var next_replay := ReplayData.new()
 	if next_replay.load_events(events) != OK:
-		catalog_failed("run", "Selected Run has no replay frames.")
+		catalog_failed("run", "Selected Run has no replay Turns.")
 		return
 	replay = next_replay
 	selected_catalog_run = run_key
@@ -315,15 +314,15 @@ func load_catalog_run(run_key: String, events: Array) -> void:
 	reset_playback()
 
 func reset_playback() -> void:
-	reset_log_history()
-	frame_index = 0
+	reset_turn_log()
+	turn_index = 0
 	playing = false
 	play_button.text = "▶"
 	update_status()
 	queue_redraw()
 
 func load_replay(path: String) -> void:
-	reset_log_history()
+	reset_turn_log()
 	var error := replay.load_file(path)
 	if error != OK:
 		update_status()
@@ -335,7 +334,7 @@ func load_replay(path: String) -> void:
 		run_selector.add_item(run_id)
 		run_selector.set_item_metadata(run_selector.item_count - 1, run_id)
 	run_selector.select(replay.run_ids.size() - 1)
-	frame_index = 0
+	turn_index = 0
 	playing = false
 	play_button.text = "▶"
 	update_status()
@@ -355,20 +354,20 @@ func select_run_at(index: int) -> void:
 		reset_playback()
 
 
-func previous_frame() -> void:
-	set_frame(frame_index - 1)
+func previous_turn() -> void:
+	set_turn(turn_index - 1)
 
 
-func next_frame() -> void:
-	set_frame(frame_index + 1)
+func next_turn() -> void:
+	set_turn(turn_index + 1)
 
 
-func set_frame(index: int) -> void:
-	if replay.frames.is_empty():
+func set_turn(index: int) -> void:
+	if replay.turns.is_empty():
 		return
-	frame_index = clampi(index, 0, replay.frames.size() - 1)
+	turn_index = clampi(index, 0, replay.turns.size() - 1)
 	arrow_elapsed = 0.0
-	if frame_index == replay.frames.size() - 1:
+	if turn_index == replay.turns.size() - 1:
 		playing = false
 		play_button.text = "▶"
 	update_status()
@@ -376,10 +375,10 @@ func set_frame(index: int) -> void:
 
 
 func toggle_playing() -> void:
-	if replay.frames.is_empty():
+	if replay.turns.is_empty():
 		return
-	if frame_index == replay.frames.size() - 1:
-		frame_index = 0
+	if turn_index == replay.turns.size() - 1:
+		turn_index = 0
 	playing = not playing
 	play_button.text = "⏸" if playing else "▶"
 	auto_elapsed = 0.0
@@ -397,7 +396,7 @@ func _process(delta: float) -> void:
 	auto_elapsed += delta
 	if auto_elapsed >= AUTO_STEP_SECONDS:
 		auto_elapsed = 0.0
-		set_frame(frame_index + 1)
+		set_turn(turn_index + 1)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -407,9 +406,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not key_event.is_pressed() or key_event.is_echo():
 		return
 	if key_event.keycode == KEY_LEFT:
-		previous_frame()
+		previous_turn()
 	elif key_event.keycode == KEY_RIGHT:
-		next_frame()
+		next_turn()
 	elif key_event.keycode == KEY_SPACE:
 		toggle_playing()
 
@@ -434,13 +433,13 @@ func command_line_replay_path() -> String:
 
 func update_status() -> void:
 	result_popup.hide()
-	if replay.frames.is_empty():
-		status_label.text = "No replay frames."
+	if replay.turns.is_empty():
+		status_label.text = "No replay Turns."
 		for label in player_labels.values():
 			label.text = ""
 		map_overlay.hide()
 		return
-	var frame: Dictionary = replay.frames[frame_index]
+	var frame: Dictionary = replay.turns[turn_index]
 	var player: Dictionary = frame["player_state"]
 	var outcome: String = frame.get("outcome", "")
 	if frame["kind"] == "terminal" and outcome in ["player_defeated", "dungeon_cleared"]:
@@ -452,7 +451,7 @@ func update_status() -> void:
 		]
 		result_popup.show()
 		layout_result_popup()
-	map_status_label.text = "Depth %d   ·   Frame %d/%d   ·   Turn %d" % [frame["depth"], frame_index + 1, replay.frames.size(), frame["turn"]]
+	map_status_label.text = "Depth %d   ·   Turn %d/%d" % [frame["depth"], frame["turn"], replay.turns.back()["turn"]]
 	map_overlay.show()
 	layout_map_overlay()
 	var raw_attack_text := "%d+%d" % [player.get("base_attack", player.get("attack", 0)), player.get("attack_bonus", 0)]
@@ -471,33 +470,24 @@ func update_status() -> void:
 	player_labels["potions"].text = "Potions %d/3" % int(player.get("inventory", {}).get("health_potion", 0))
 	player_labels["weapon"].text = "W %s" % (weapon["id"] if weapon != null else "none")
 	player_labels["armor"].text = "D %s" % (armor["id"] if armor != null else "none")
-	update_log_history()
+	update_turn_log()
 
-func reset_log_history() -> void:
-	log_entries.clear()
-	displayed_log_frame = -1
+func reset_turn_log() -> void:
+	displayed_log_turn = -1
 	status_label.text = ""
 
-func update_log_history() -> void:
-	if displayed_log_frame == frame_index:
+func update_turn_log() -> void:
+	if displayed_log_turn == turn_index:
 		return
-	if log_entries.is_empty():
-		for entry in replay.frames:
-			log_entries.append(format_log_entry(entry))
-		if not replay.warnings.is_empty():
-			log_entries[0] += "\nWarning: " + replay.warnings[0]
-	var scrollbar := status_label.get_v_scroll_bar()
-	var old_scroll := scrollbar.value
-	var follow_latest := displayed_log_frame < 0 or frame_index != displayed_log_frame + 1 or old_scroll >= scrollbar.max_value - scrollbar.page - 2
-	status_label.scroll_following = follow_latest
-	if frame_index == displayed_log_frame + 1:
-		status_label.add_text(("\n\n" if displayed_log_frame >= 0 else "") + log_entries[frame_index])
-	else:
-		status_label.text = "\n\n".join(log_entries.slice(0, frame_index + 1))
-	# Built-in following reaches the bottom even when the last entry wraps.
-	if not follow_latest:
-		scrollbar.value = old_scroll
-	displayed_log_frame = frame_index
+	var entries: Array[String] = []
+	for event_frame in replay.turns[turn_index]["log_frames"]:
+		entries.append(format_log_entry(event_frame))
+	if turn_index == 0 and not replay.warnings.is_empty():
+		entries.append("Warning: " + replay.warnings[0])
+	status_label.scroll_following = false
+	status_label.text = "\n\n".join(entries)
+	status_label.scroll_to_line(0)
+	displayed_log_turn = turn_index
 
 func format_log_entry(frame: Dictionary) -> String:
 	var rule: String = frame["rule_id"]
@@ -540,7 +530,32 @@ func format_log_entry(frame: Dictionary) -> String:
 	elif frame["kind"] == "terminal":
 		text += "\n" + ("Dungeon cleared." if frame["outcome"] == "dungeon_cleared" else "Player defeated.")
 
-	return "[Turn %d] %s" % [frame["turn"], text.strip_edges()]
+	if frame["kind"] == "decision":
+		var action: Dictionary = frame["details"].get("action", {})
+		text = "Decision for Turn %d: %s" % [frame["action_turn"], action.get("type", "unknown")] + text
+	elif text.strip_edges().is_empty():
+		var details: Dictionary = frame["details"]
+		var result := str(details.get("result", "")).replace("_", " ")
+		match frame["event"]:
+			"run_start":
+				text = "Run starts: %s · seed %s" % [frame["strategy_id"], str(details.get("scenario_seed", "?"))]
+			"user_action":
+				text = "%s: %s" % [str(details.get("action", "Action")).capitalize(), result]
+				if details.has("target"):
+					text += " · target %s" % str(details["target"])
+			"battle_result":
+				text = "%s · %s" % [result.capitalize(), str(details.get("enemy_id", ""))]
+			"floor_descend":
+				text = "Descended to Depth %d." % frame["depth"]
+			_:
+				text = "%s: %s" % [str(frame["event"]).replace("_", " ").capitalize(), result]
+	if frame["event"] == "battle_result":
+		var details: Dictionary = frame["details"]
+		if details.has("damage"):
+			text += " · damage %d" % int(details["damage"])
+		if details.has("enemy_hp_after"):
+			text += " · enemy HP %d" % int(details["enemy_hp_after"])
+	return text.strip_edges()
 
 
 func _draw() -> void:
@@ -550,9 +565,9 @@ func _draw() -> void:
 
 func draw_maze() -> void:
 	maze_canvas.draw_rect(Rect2(Vector2.ZERO, maze_view.size), COLOR_BG)
-	if replay.frames.is_empty():
+	if replay.turns.is_empty():
 		return
-	var frame: Dictionary = replay.frames[frame_index]
+	var frame: Dictionary = replay.turns[turn_index]
 	var rows: Array = frame["map_rows"]
 	if rows.is_empty():
 		return
@@ -646,9 +661,9 @@ func draw_stairs_icon(position_value: Dictionary, origin: Vector2, tile_size: fl
 
 
 func is_arrow_animating() -> bool:
-	if replay.frames.is_empty():
+	if replay.turns.is_empty():
 		return false
-	var frame: Dictionary = replay.frames[frame_index]
+	var frame: Dictionary = replay.turns[turn_index]
 	return (
 		not frame["arrow"].is_empty()
 		and arrow_elapsed < ARROW_FLIGHT_DURATION + ARROW_IMPACT_DURATION

@@ -4,6 +4,7 @@ extends RefCounted
 var events_by_run: Dictionary = {}
 var run_ids: Array[String] = []
 var frames: Array[Dictionary] = []
+var turns: Array[Dictionary] = []
 var warnings: Array[String] = []
 var selected_run_id := ""
 var source_path := ""
@@ -28,6 +29,7 @@ func load_events(events: Array) -> Error:
 	events_by_run.clear()
 	run_ids.clear()
 	frames.clear()
+	turns.clear()
 	warnings.clear()
 	selected_run_id = ""
 	for index in range(events.size()):
@@ -55,10 +57,11 @@ func select_run(run_id: String) -> bool:
 		return false
 	selected_run_id = run_id
 	frames = build_frames(events_by_run[run_id])
+	turns = build_turns(events_by_run[run_id])
 	return not frames.is_empty()
 
 
-func build_frames(events: Array) -> Array[Dictionary]:
+func build_frames(events: Array, include_all_events := false) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	var floors: Dictionary = {}
 	var last_enemies: Array = []
@@ -72,13 +75,25 @@ func build_frames(events: Array) -> Array[Dictionary]:
 		var event_name: String = str(event.get("event", ""))
 		var depth: int = int(event.get("depth", 1))
 		var details: Dictionary = event.get("details", {})
+		var previous_count := result.size()
+		# Ordinary melee results also change the final state of a Turn.
+		if include_all_events and event_name == "battle_result":
+			for index in range(last_enemies.size() - 1, -1, -1):
+				if last_enemies[index].get("id", "") != details.get("enemy_id", ""):
+					continue
+				if details.get("result", "") == "enemy_defeated":
+					last_enemies.remove_at(index)
+				else:
+					if details.has("enemy_pos"):
+						last_enemies[index]["pos"] = details["enemy_pos"].duplicate()
+					if details.has("enemy_hp_after"):
+						last_enemies[index]["hp"] = details["enemy_hp_after"]
 		if event_name == "floor_start":
 			var map_rows: Array = details.get("map_rows", [])
 			if map_rows.is_empty():
-				warnings.append(
-					"Run %s depth %d has no map_rows; use a schema v2 log for terrain replay."
-					% [selected_run_id, depth]
-				)
+				var warning := "Run %s depth %d has no map_rows; use a schema v2 log for terrain replay." % [selected_run_id, depth]
+				if not warnings.has(warning):
+					warnings.append(warning)
 			floors[depth] = map_rows.duplicate()
 			last_items = details.get("items", []).duplicate(true)
 			last_enemies = details.get("enemies", []).duplicate(true)
@@ -152,6 +167,42 @@ func build_frames(events: Array) -> Array[Dictionary]:
 			and details.get("result", "") in ["player_defeated", "dungeon_cleared"]
 		):
 			result.append(make_frame(event, floors, last_enemies, last_stairs, last_items, "terminal"))
+		if include_all_events and result.size() == previous_count:
+			result.append(make_frame(event, floors, last_enemies, last_stairs, last_items, event_name))
+	return result
+
+
+func build_turns(events: Array) -> Array[Dictionary]:
+	var snapshots := build_frames(events, true)
+	var by_turn: Dictionary = {}
+	var logs: Dictionary = {}
+	for snapshot in snapshots:
+		var turn: int = snapshot["turn"]
+		var previous: Dictionary = by_turn.get(turn, {})
+		# The next decision observes the completed Turn (including enemy movement).
+		var state: Dictionary = snapshot.duplicate(true)
+		if snapshot["arrow"].is_empty() and snapshot["depth"] == previous.get("depth", -1) and not previous.get("arrow", {}).is_empty():
+			state["arrow"] = previous["arrow"].duplicate(true)
+		if previous.get("kind", "") == "terminal":
+			state["kind"] = "terminal"
+			state["outcome"] = previous["outcome"]
+		by_turn[turn] = state
+	for snapshot in snapshots:
+		var turn: int = snapshot["turn"]
+		# Decisions belong with the action they cause, rather than the preceding Turn.
+		var log_turn: int = snapshot.get("action_turn", turn) if snapshot["kind"] == "decision" else turn
+		if not by_turn.has(log_turn):
+			log_turn = turn  # Preserve an unexecuted decision in a truncated Run.
+		if not logs.has(log_turn):
+			logs[log_turn] = []
+		logs[log_turn].append(snapshot)
+	var result: Array[Dictionary] = []
+	var numbers := by_turn.keys()
+	numbers.sort()
+	for turn in numbers:
+		var state: Dictionary = by_turn[turn]
+		state["log_frames"] = logs.get(turn, [])
+		result.append(state)
 	return result
 
 
@@ -175,6 +226,9 @@ func make_frame(
 			map_rows = floors[nearest_depth]
 	return {
 		"kind": kind,
+		"event": str(event.get("event", "")),
+		"details": details.duplicate(true),
+		"action_turn": int(details.get("action_turn", event.get("turn", 0))),
 		"outcome": str(details.get("result", "")) if kind == "terminal" else "",
 		"sequence": int(event.get("sequence", 0)),
 		"turn": int(event.get("turn", 0)),
