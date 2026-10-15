@@ -31,7 +31,16 @@ execution; a batch must contain 1–2,000 Runs.
 
 Every combination uses the same Seed and Max turns. Execution is sequential on
 the API server; switching to Replay keeps AutoRun running. Return Home to see
-the progress and current Strategy/weights. **Stop AutoRun after current Run**
+the progress and current Strategy/weights. A fixed panel above the scrolling
+settings shows a progress bar, finished/total Runs and percentage, saved/failed
+counts, and the current Run number, Strategy and weights. It stays visible when
+scrolling the form or returning to the main menu. Progress advances when each
+Run finishes, not on individual Turns. The panel refreshes every second; a
+connection failure preserves the last known progress and shows a retry notice.
+Returning from Replay immediately restores the last snapshot while checking the
+latest status. Completed, stopped and failed batches retain their final progress;
+a stopped or failed batch is not presented as 100% complete.
+**Stop after current Run**
 preserves the current Run and all earlier saved results. A failed execution
 stops the remaining combinations and displays the error. Successful completion
 stays on the settings screen, with Replay available for inspecting results.

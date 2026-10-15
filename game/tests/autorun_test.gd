@@ -45,6 +45,8 @@ func run_tests() -> void:
 	assert(home.form.visible and home.busy and home.cancel_button.visible)
 	assert(await wait_for(func(): return not home.busy))
 	assert(home.status.text.contains("14/14 Runs saved"), home.status.text)
+	assert(home.batch_progress.value == 14 and home.batch_progress.max_value == 14)
+	assert(home.batch_summary.text.contains("100.0%"))
 	assert(home.status.text.begins_with("AutoRun completed"))
 	assert(root.get_node("RunSession").job_id.is_empty())
 	assert(not home.execute_button.disabled and not home.autorun_button.disabled and not home.cancel_button.visible)
