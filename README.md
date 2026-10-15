@@ -25,6 +25,12 @@ The original JSONL events remain available for export and offline replay.
 
 Controls:
 
+- Home → Run → **AutoRun**: test both Strategies with all combinations of the
+  configured Enemy/Treasure/Stairs value lists (default 0–4: 248 Runs, excluding
+  all-zero weights). Sequential API execution, progress and stop-after-current
+  controls preserve completed results in SQLite. Viewer ranks combinations by
+  mean score, clear rate or mean depth; see [the manual](USER_MANUAL.md#autorun-compare-weight-combinations).
+
 - Run selector: choose a stored Run; changing it restarts playback
 - `|◀` / `▶|` or left / right arrows: step through complete Turns
 - `▶` / `⏸` or space: play / pause Turn-by-Turn replay

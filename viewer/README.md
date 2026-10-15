@@ -61,6 +61,9 @@ a static host needs its own same-origin `/api` reverse proxy.
 - Persistent Run selection with strategy/result/seed filters and pagination.
 - Aggregates grouped by policy weights, strategy, simulation/schema versions and
   code revision. Means and clear rate exclude unfinished Runs.
+- Rank weight combinations by mean score, clear rate or mean depth within the
+  active filters. The aggregate table covers all matching Runs, independent of
+  catalogue pagination. Filter to the AutoRun Seed for a same-dungeon comparison.
 - Cross-file same-seed comparison for compatible versions/revisions.
 - Summary metrics, HP history, route maps and searchable event streams.
 - Decision rules, observations, benefit/risk, probabilities and raw event JSON.

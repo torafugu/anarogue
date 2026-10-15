@@ -70,6 +70,7 @@ app.innerHTML = `
         <label class="select-label catalog-run-label">Run<select id="catalog-run"><option value="">No Runs yet</option></select></label>
       </div>
       <div class="catalog-pagination"><button id="catalog-previous" class="button button-ghost" type="button">Previous page</button><span id="catalog-page"></span><button id="catalog-next" class="button button-ghost" type="button">Next page</button></div>
+      <label class="select-label">Rank combinations by<select id="catalog-ranking"><option value="mean_score">Mean score</option><option value="clear_rate">Clear rate</option><option value="mean_depth">Mean depth</option></select></label>
       <div id="catalog-stats" class="catalog-stats"></div>
     </section>
     <section class="drop-zone" id="drop-zone" aria-label="JSONL file drop zone">
@@ -740,6 +741,7 @@ let catalogueGeneration = 0;
 let detailGeneration = 0;
 let catalogueBusy = false;
 let databaseOnline = false;
+let storedGroups: RunGroup[] = [];
 
 function catalogueQuery(): URLSearchParams {
   const query = new URLSearchParams();
@@ -842,8 +844,14 @@ async function importSource(source: string, sourceName: string): Promise<void> {
 }
 
 function renderStoredStats(groups: RunGroup[]): void {
+  storedGroups = groups;
+  const metric = getElement<HTMLSelectElement>("#catalog-ranking").value as "mean_score" | "clear_rate" | "mean_depth";
+  const ranked = [...groups].sort((a, b) => (b[metric] ?? -Infinity) - (a[metric] ?? -Infinity)
+    || (b.mean_score ?? -Infinity) - (a.mean_score ?? -Infinity)
+    || a.strategy_id.localeCompare(b.strategy_id) || JSON.stringify(a.goal_policy).localeCompare(JSON.stringify(b.goal_policy)));
+  let rank = 0;
   const display = (value: number | null) => value === null ? "—" : value.toFixed(1);
-  getElement("#catalog-stats").innerHTML = `<p class="panel-note">Completed Runs only for averages and clear rate. Groups keep simulation/schema versions, code revision and policy weights separate.</p><div class="table-scroll"><table><thead><tr><th>Strategy / policy</th><th>Version / revision</th><th>Runs / finished</th><th>Clear rate</th><th>Mean depth</th><th>Mean score</th><th>Mean turns</th></tr></thead><tbody>${groups.map(group => `<tr><td>${escapeHtml(strategyLabel(group.strategy_id))}<br><small>${escapeHtml(JSON.stringify(group.goal_policy))}</small></td><td>sim ${group.simulation_version} / schema ${group.schema_version}<br>${escapeHtml(group.code_revision || "revision unknown")}</td><td>${group.runs} / ${group.finished}</td><td>${group.clear_rate === null ? "—" : `${(group.clear_rate * 100).toFixed(1)}%`}</td><td>${display(group.mean_depth)}</td><td>${display(group.mean_score)}</td><td>${display(group.mean_turns)}</td></tr>`).join("")}</tbody></table></div>`;
+  getElement("#catalog-stats").innerHTML = `<p class="panel-note">Ranked within the current Strategy/result/Seed filters. Completed Runs only for averages and clear rate; unfinished Runs have no rank. Groups keep simulation/schema versions, code revision and policy weights separate.</p><div class="table-scroll"><table><thead><tr><th>Rank</th><th>Strategy / policy</th><th>Version / revision</th><th>Runs / finished</th><th>Clear rate</th><th>Mean depth</th><th>Mean score</th><th>Mean turns</th></tr></thead><tbody>${ranked.map(group => `<tr><td>${group[metric] === null ? "—" : ++rank}</td><td>${escapeHtml(strategyLabel(group.strategy_id))}<br><small>${escapeHtml(JSON.stringify(group.goal_policy))}</small></td><td>sim ${group.simulation_version} / schema ${group.schema_version}<br>${escapeHtml(group.code_revision || "revision unknown")}</td><td>${group.runs} / ${group.finished}</td><td>${group.clear_rate === null ? "—" : `${(group.clear_rate * 100).toFixed(1)}%`}</td><td>${display(group.mean_depth)}</td><td>${display(group.mean_score)}</td><td>${display(group.mean_turns)}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
 function renderStoredComparison(): void {
@@ -889,3 +897,5 @@ for (const [selector, step] of [["#catalog-previous", -100], ["#catalog-next", 1
 }
 void refreshCatalogue();
 window.setInterval(() => { if (!document.hidden) void refreshCatalogue(); }, 3000);
+
+getElement("#catalog-ranking").addEventListener("change", () => renderStoredStats(storedGroups));

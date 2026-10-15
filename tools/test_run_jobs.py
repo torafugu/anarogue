@@ -10,7 +10,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from run_jobs import QueueFull, RunJobs, validate_settings
+from run_jobs import QueueFull, RunJobs, validate_settings, validate_batch, batch_combinations
 from run_store import RunStore, make_server
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,11 +28,11 @@ class RunJobTests(unittest.TestCase):
         self.addCleanup(runner.close)
         return runner
 
-    def wait_job(self, runner, job_id):
-        deadline = time.monotonic() + 10
+    def wait_job(self, runner, job_id, timeout=10):
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             job = runner.get(job_id)
-            if job["status"] in ("completed", "failed"):
+            if job["status"] in ("completed", "failed", "cancelled"):
                 return job
             time.sleep(.01)
         self.fail("Job did not finish")
@@ -44,8 +44,8 @@ class RunJobTests(unittest.TestCase):
         self.addCleanup(server.shutdown)
         return f"http://127.0.0.1:{server.server_port}"
 
-    def post(self, base, settings, headers=None):
-        request = Request(base + "/api/jobs", data=json.dumps(settings).encode(),
+    def post(self, base, settings, headers=None, path="/api/jobs"):
+        request = Request(base + path, data=json.dumps(settings).encode(),
                           headers=headers or {"Content-Type": "application/json"})
         with urlopen(request, timeout=5) as response:
             return response.status, json.load(response)
@@ -61,6 +61,85 @@ class RunJobTests(unittest.TestCase):
                          {"db": "other.sqlite3"}, {"binary": "other"}, {"revision": "user"}]:
             with self.subTest(settings=settings), self.assertRaises(ValueError):
                 validate_settings(settings)
+
+    def test_batch_validation_and_exhaustive_combinations(self):
+        settings, total = validate_batch({})
+        combinations = list(batch_combinations(settings))
+        self.assertEqual(total, 248)
+        self.assertEqual(len(combinations), total)
+        self.assertEqual(len({tuple(sorted(item.items())) for item in combinations}), total)
+        self.assertEqual({item["strategy"] for item in combinations}, {"aggressive", "cautious"})
+        self.assertTrue(all(item["enemy_weight"] + item["item_weight"] + item["stairs_weight"] for item in combinations))
+        settings, total = validate_batch({"strategies": ["cautious", "cautious"], "enemy_weights": [2, 1, 2], "item_weights": [0], "stairs_weights": [0]})
+        self.assertEqual(total, 2)
+        self.assertEqual(settings["enemy_weights"], [1, 2])
+        for invalid in [None, [], {"strategies": []}, {"strategies": [None]}, {"enemy_weights": []},
+                        {"enemy_weights": [True]}, {"item_weights": [-1]}, {"stairs_weights": [1001]},
+                        {"enemy_weights": [0], "item_weights": [0], "stairs_weights": [0]},
+                        {"enemy_weights": list(range(20)), "item_weights": list(range(20)), "stairs_weights": list(range(20))},
+                        {"seed": -1}, {"max_turns": 0}, {"binary": "other"}]:
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate_batch(invalid)
+
+    def test_batch_cancel_finishes_only_current_run_and_preserves_progress(self):
+        runner = self.runner(capacity=1)
+        base = self.api(runner)
+        entered, release = threading.Event(), threading.Event()
+        def blocked(settings):
+            entered.set()
+            self.assertTrue(release.wait(5))
+            return "saved-key", {}
+        with patch.object(runner, "simulate", side_effect=blocked) as simulate:
+            accepted = runner.submit_batch({})
+            self.assertTrue(entered.wait(5))
+            snapshot = runner.get(accepted["id"])
+            snapshot["settings"]["enemy_weights"].clear()
+            self.assertEqual(len(runner.get(accepted["id"])["settings"]["enemy_weights"]), 5)
+            with self.assertRaises(QueueFull):
+                runner.submit_batch({})
+            status, stopping = self.post(base, {}, path=f"/api/jobs/{accepted['id']}/cancel")
+            self.assertEqual(status, 200)
+            self.assertTrue(stopping["cancel_requested"])
+            release.set()
+            cancelled = self.wait_job(runner, accepted["id"])
+            self.assertEqual(cancelled["status"], "cancelled")
+            self.assertEqual(cancelled["completed"], 1)
+            self.assertEqual(cancelled["run_id"], "saved-key")
+            self.assertEqual(simulate.call_count, 1)
+
+    def test_batch_failure_stops_remaining_combinations(self):
+        runner = self.runner(binary=ROOT / "missing-simulator")
+        base = self.api(runner)
+        status, accepted = self.post(base, {}, path="/api/batches")
+        self.assertEqual(status, 202)
+        failed = self.wait_job(runner, accepted["id"])
+        self.assertEqual((failed["status"], failed["failed"], failed["completed"]), ("failed", 1, 0))
+        with self.assertRaises(HTTPError) as error:
+            self.post(base, {}, path="/api/jobs/missing/cancel")
+        self.assertEqual(error.exception.code, 404)
+        with self.assertRaises(HTTPError) as error:
+            self.post(base, {"enemy_weights": []}, path="/api/batches")
+        self.assertEqual(error.exception.code, 400)
+
+    @unittest.skipUnless(BINARY.is_file(), "Build the Rust simulator first")
+    def test_real_batch_saves_all_248_combinations_and_statistics(self):
+        runner = self.runner(revision="autorun-test")
+        base = self.api(runner)
+        status, accepted = self.post(base, {"seed": 42, "max_turns": 2}, path="/api/batches")
+        self.assertEqual(status, 202)
+        completed = self.wait_job(runner, accepted["id"], timeout=30)
+        self.assertEqual(completed["status"], "completed", completed["error"])
+        self.assertEqual((completed["completed"], completed["failed"]), (248, 0))
+        runs = self.store.list_runs(limit=500)
+        self.assertEqual(runs["total"], 248)
+        expected, _total = validate_batch({"seed": 42, "max_turns": 2})
+        policies = {(item["strategy_id"].removesuffix("_v1"), item["goal_policy"]["enemy_weight"],
+                     item["goal_policy"]["item_weight"], item["goal_policy"]["stairs_weight"]) for item in runs["runs"]}
+        self.assertEqual(policies, {(item["strategy"], item["enemy_weight"], item["item_weight"], item["stairs_weight"])
+                                    for item in batch_combinations(expected)})
+        self.assertTrue(all(item["scenario_seed"] == 42 and item["turns"] <= 2 for item in runs["runs"]))
+        with urlopen(base + "/api/stats?scenario_seed=42") as response:
+            self.assertEqual(len(json.load(response)["groups"]), 248)
 
     def test_queue_bound_and_missing_executable(self):
         runner = self.runner(binary=ROOT / "missing-simulator", capacity=1)

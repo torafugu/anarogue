@@ -4,6 +4,8 @@ extends Node
 var settings := {"seed": 424242, "strategy": "aggressive", "enemy_weight": 4, "item_weight": 2, "stairs_weight": 1, "max_turns": 5000}
 var launch_handled := false
 var job_id := ""
+var job_kind := "run"
+var batch_values := {"enemy_weights": "0,1,2,3,4", "item_weights": "0,1,2,3,4", "stairs_weights": "0,1,2,3,4"}
 var replay_run_key := ""
 
 func api_url() -> String:

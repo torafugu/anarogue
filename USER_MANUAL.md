@@ -18,6 +18,36 @@ The Run form scrolls on smaller screens. Seed accepts 0–4294967295, goal weigh
 accept 0–1000, and maximum turns accepts 1–100000. Weights influence goal selection
 alongside the existing benefit/danger evaluation; they do not force every decision.
 The turn limit may leave a Run unfinished, but its events are still saved for Replay.
+
+### AutoRun: compare weight combinations
+
+In **Home → Run**, set Seed and Max turns, then press **AutoRun**. The three
+AutoRun value lists default to `0,1,2,3,4`. AutoRun tests the Cartesian product
+of Enemy, Treasure and Stairs values for **both Aggressive and Cautious**,
+regardless of the single-Run Strategy selection. All-zero weights are excluded;
+the default is **248 Runs**. Enter other comma-separated integer values from
+0 to 1000 in each list. Duplicate values are removed. The count is shown before
+execution; a batch must contain 1–2,000 Runs.
+
+Every combination uses the same Seed and Max turns. Execution is sequential on
+the API server; switching to Replay keeps AutoRun running. Return Home to see
+the progress and current Strategy/weights. **Stop AutoRun after current Run**
+preserves the current Run and all earlier saved results. A failed execution
+stops the remaining combinations and displays the error. Successful completion
+stays on the settings screen, with Replay available for inspecting results.
+
+In the web Viewer, set the Seed filter to your experiment's Seed and choose
+**Rank combinations by → Mean score / Clear rate / Mean depth**. The aggregate
+table ranks all matching combinations, including beyond the 100-Run catalogue
+page. Averages and ranking exclude unfinished Runs, so set Max turns high enough
+for Runs to finish. Counts show how many completed. Groups keep Strategy, weights,
+simulation/schema version and code revision separate. With one Seed this is a
+comparison for that dungeon; repeat across Seeds for a broader assessment.
+Repeated AutoRuns are new trials and their results accumulate in the DB.
+
+AutoRun progress records last only while the Python API is running. Restarting
+the API stops the batch; saved Runs remain in SQLite. Restarted batches start
+from the beginning rather than automatically resuming.
 The legacy live simulator remains available by opening `res://scenes/main.tscn` directly.
 
 The replay uses 40 px text for selectors, buttons, logs, Player information,

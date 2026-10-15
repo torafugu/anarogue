@@ -293,7 +293,7 @@ def make_server(store, host="127.0.0.1", port=8765, jobs=None):
 
         def do_POST(self):
             # Import is same-origin only. Vite proxies /api to this local server.
-            if self.path == "/api/jobs":
+            if self.path in ("/api/jobs", "/api/batches") or (self.path.startswith("/api/jobs/") and self.path.endswith("/cancel")):
                 if jobs is None:
                     self.reply(503, {"error": "Run execution is unavailable on this server"})
                     return
@@ -309,7 +309,14 @@ def make_server(store, host="127.0.0.1", port=8765, jobs=None):
                     if not 0 < length <= 4096:
                         raise ValueError("Run settings must be 1 byte to 4 KB")
                     settings = json.loads(self.rfile.read(length).decode("utf-8"))
-                    self.reply(202, jobs.submit(settings))
+                    if self.path.endswith("/cancel"):
+                        key = unquote(self.path[len("/api/jobs/"):-len("/cancel")])
+                        self.reply(200, jobs.cancel(key))
+                    else:
+                        submit = jobs.submit_batch if self.path == "/api/batches" else jobs.submit
+                        self.reply(202, submit(settings))
+                except KeyError:
+                    self.reply(404, {"error": "Job not found"})
                 except QueueFull as exc:
                     self.reply(429, {"error": str(exc)})
                 except (ValueError, TypeError) as exc:
