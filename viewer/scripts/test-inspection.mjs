@@ -51,10 +51,14 @@ try{
  await page.waitForFunction(()=>document.querySelector('#mean-metrics-status').textContent.includes('2 matching Runs'));
  assert.equal(await page.locator('#mean-metrics .metric-card').count(),11);
  assert.equal(await page.locator('#mean-metrics strong').first().textContent(),'55.00');
+ assert(await page.locator('#copy-means-header').isChecked());
  await page.click('#copy-means-csv');await page.waitForFunction(()=>document.querySelector('#mean-copy-status').textContent.includes('CSV copied'));
  const csv=await page.evaluate(()=>navigator.clipboard.readText());
  assert(csv.startsWith('Filters,Runs,Finished,Unfinished,Score,Level,Turns,Depth,Kills,Damage,Gold,Decisions,Potions found,Potions used,Healing\r\n'));
  assert(csv.includes('Strategy=All; Result=All; Seed=All; Enemy=All; Treasure=All; Stairs=All; Temperature=All,2,2,0,55,3.5,110.5,'));
+ await page.uncheck('#copy-means-header');
+ await page.click('#copy-means-csv');await page.waitForFunction(()=>document.querySelector('#mean-copy-status').textContent.includes('CSV copied (1 data row)'));
+ assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),csv.split('\r\n').slice(1).join('\r\n'));
  await page.evaluate(()=>Object.defineProperty(navigator.clipboard,'writeText',{configurable:true,value:()=>Promise.reject(new Error('clipboard denied'))}));
  await page.click('#copy-means-tsv');await page.waitForFunction(()=>document.querySelector('#mean-copy-status').textContent.includes('Copy failed: clipboard denied'));
  await page.evaluate(()=>delete navigator.clipboard.writeText);
@@ -65,9 +69,13 @@ try{
  assert.equal(await page.locator('#mean-metrics strong').first().textContent(),'90.00');assert.equal(meanQueries.at(-1).get('item_weight'),'4');
  await page.click('#copy-means-tsv');await page.waitForFunction(()=>document.querySelector('#mean-copy-status').textContent.includes('TSV copied'));
  const tsv=await page.evaluate(()=>navigator.clipboard.readText());
- assert(tsv.startsWith('Filters\tRuns\tFinished\tUnfinished\tScore\t'));
+ assert(!(await page.locator('#copy-means-header').isChecked()),'header choice persists across filter changes');
+ assert(tsv.startsWith('Strategy=All;'));
+ assert.equal(tsv.split('\r\n').length,2,'TSV without header has one data row');
+ assert((await page.locator('#mean-copy-status').textContent()).includes('1 data row'));
  assert(tsv.includes('Treasure=4; Stairs=All; Temperature=All\t1\t1\t0\t90\t5\t113\t'));
 
+ await page.check('#copy-means-header');
  await filter('3');await page.waitForFunction(()=>document.querySelector('#mean-metrics-status').textContent.includes('0 matching Runs'));
  assert.equal(await page.locator('#mean-metrics strong').first().textContent(),'—');
  await page.click('#copy-means-tsv');await page.waitForFunction(()=>document.querySelector('#mean-copy-status').textContent.includes('TSV copied'));

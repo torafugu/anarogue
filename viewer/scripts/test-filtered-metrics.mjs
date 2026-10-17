@@ -13,6 +13,10 @@ for(const format of ['csv','tsv']){
  const delimiter=format==='csv'?',':'\t';
  const rows=meanMetricsDelimited(data,filters,format).trimEnd().split('\r\n').map(row=>row.split(delimiter));
  assert.equal(rows.length,2);
+ const noHeader=meanMetricsDelimited(data,filters,format,false);
+ assert.equal(noHeader,meanMetricsDelimited(data,filters,format).split('\r\n').slice(1).join('\r\n'));
+ assert.equal(noHeader.split('\r\n').length,2,'one data row and trailing newline');
+ assert.equal(meanMetricsDelimited(data,filters,format,true),meanMetricsDelimited(data,filters,format));
  assert.deepEqual(rows[0],['Filters','Runs','Finished','Unfinished',...meanMetricFields.map(([label])=>label)]);
  assert.deepEqual(rows[1],[condition,'105','100','5',...Object.values(means).map(String)]);
  assert(rows[1].includes('0.3333333333333333'),'avoid rounding exported means to display precision');
