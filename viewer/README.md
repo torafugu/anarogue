@@ -74,6 +74,18 @@ how many selected policies have matching Runs. Select a card to expand that
 Run's metrics, maps and events. Runs without a Seed cannot form a same-seed
 group, but direct browsing and imported logs remain inspectable.
 
+Switching Run cards clears the previous inspection while loading. A successful
+load verifies the event Run ID against the selected Run, redraws all inspection
+sections, and resets event search/category filters. The header shows the loaded
+database key, event count and recorded policy. Fetch/parse/render failures leave
+no prior Run content behind and display **Retry selected Run**. Rapid selections
+cancel earlier requests and only the latest selection can update inspection.
+
+`npm run test:inspection` runs the real browser regression for switching between
+different Run contents, stale request handling and failure/retry. Install its
+browser with `npx playwright install chromium`; CI installs Chromium and runs
+this test automatically.
+
 **Back to analysis** and browser Back/Forward preserve filters and selection in
 the current tab. Changing filters clears the selection; **Clear selection**
 leaves filters intact. Page reload resets temporary navigation state.

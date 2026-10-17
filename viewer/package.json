@@ -9,10 +9,12 @@
     "validate:logs": "node scripts/validate-run-log.mjs",
     "preview": "vite preview",
     "test:analysis": "node scripts/test-weight-analysis.mjs",
-    "test:comparison": "node scripts/test-rank-comparison.mjs"
+    "test:comparison": "node scripts/test-rank-comparison.mjs",
+    "test:inspection": "node scripts/test-inspection.mjs"
   },
   "devDependencies": {
     "ajv": "^8.20.0",
+    "playwright": "1.61.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.7"
   }

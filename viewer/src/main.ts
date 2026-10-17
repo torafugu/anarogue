@@ -120,6 +120,8 @@ app.innerHTML = `
       </section>
       <section class="comparison-panel" id="comparison-panel" hidden></section>
     <details id="run-inspection"><summary>Inspect selected Run</summary>
+    <p id="inspection-status" role="status"></p>
+    <button id="inspection-retry" class="button button-ghost" hidden>Retry selected Run</button>
     <section class="viewer" id="viewer" hidden>
       <div class="run-bar">
         <div>
@@ -129,6 +131,7 @@ app.innerHTML = `
             <span class="status-pill" id="run-status"></span>
           </div>
           <p class="source-label" id="source-label"></p>
+          <p class="source-label" id="inspection-policy"></p>
         </div>
         <label class="select-label" id="run-select-label">
           Run
@@ -236,6 +239,9 @@ const strategyLabel = (strategy: string): string => {
 
 function loadSource(source: string, sourceName: string): void {
   comparisonAbort?.abort();
+  inspectionAbort?.abort();
+  getElement("#inspection-status").textContent = "";
+  getElement("#inspection-retry").hidden = true;
   activeStoredRun = null;
   comparisonRows = []; comparisonGroups = [];
   directRun = null;
@@ -292,6 +298,8 @@ function render(): void {
   const selected = events.find((event) => event.sequence === state.selectedSequence);
   const strategy = strategyForRun(events);
   const scenario = scenarioForRun(events);
+  const policy = runStart(events)?.details.goal_policy ?? activeStoredRun?.goal_policy;
+  getElement("#inspection-policy").textContent = policy ? `Policy ${JSON.stringify(policy)}` : "Policy not recorded";
 
   getElement("#run-title").textContent = state.runId;
   getElement("#source-label").textContent =
@@ -797,6 +805,8 @@ let comparisonAbort: AbortController | null = null;
 let analysisScroll = 0;
 let directComparison = false;
 let directRun: StoredRun | null = null;
+let inspectionAbort: AbortController | null = null;
+let pendingInspection: StoredRun | null = null;
 let weightAnalysis: WeightAnalysis = { cohorts: [], excluded_runs: 0 };
 const catalogueFilters = [
   ["#catalog-strategy", "strategy_id"], ["#catalog-result", "status"], ["#catalog-seed", "scenario_seed"],
@@ -873,24 +883,54 @@ function renderCatalogueSelect(): void {
   if (options.some(run => run.id === selected)) select.value = selected;
 }
 
+function clearRunInspection(): void {
+  state.parsed = null;
+  state.runId = "";
+  state.selectedSequence = null;
+  activeStoredRun = null;
+  getElement("#viewer").hidden = true;
+  delete getElement("#viewer").dataset.runKey;
+  for (const id of ["run-title", "source-label", "inspection-policy", "run-status", "run-select", "metrics", "hp-chart", "depth-select", "route-map", "timeline", "detail-panel"]) getElement(`#${id}`).replaceChildren();
+}
+
 async function selectStoredRun(run: StoredRun): Promise<void> {
+  inspectionAbort?.abort();
+  const controller = new AbortController();
+  inspectionAbort = controller;
   const generation = ++detailGeneration;
+  pendingInspection = run;
+  clearRunInspection();
+  getElement("#inspection-status").textContent = `Loading Run ${run.id}…`;
+  getElement("#inspection-retry").hidden = true;
   try {
-    const data = await api<{events: RunEvent[]}>(`/api/runs/${encodeURIComponent(run.id)}/events`);
+    const data = await api<{events: RunEvent[]}>(`/api/runs/${encodeURIComponent(run.id)}/events`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]) });
     if (generation !== detailGeneration) return;
     const parsed = parseJsonLines(data.events.map(event => JSON.stringify(event)).join("\n"));
+    if (parsed.runs.size !== 1 || !parsed.runs.has(run.run_id)) throw new Error("The returned events do not match the selected Run.");
     state.parsed = parsed;
     state.runId = run.run_id;
     activeStoredRun = run;
     state.sourceName = "Run database";
     state.error = "";
+    state.filter = "all";
+    state.query = "";
+    getElement<HTMLInputElement>("#event-search").value = "";
+    document.querySelectorAll<HTMLButtonElement>("#filters [data-filter]").forEach(button => button.classList.toggle("active", button.dataset.filter === "all"));
     selectInitialEvent();
     render();
+    getElement("#viewer").dataset.runKey = run.id;
+    getElement("#inspection-status").textContent = `Loaded Run ${run.id} · ${data.events.length} events`;
     renderCatalogueSelect();
   } catch (error) {
-    if (generation === detailGeneration) showToast(error instanceof Error ? error.message : "Could not load Run.");
+    if (generation !== detailGeneration) return;
+    clearRunInspection();
+    getElement("#inspection-status").textContent = `Could not display Run ${run.id}: ${error instanceof Error ? error.message : String(error)}`;
+    getElement("#inspection-retry").hidden = false;
+  } finally {
+    if (generation === detailGeneration) inspectionAbort = null;
   }
 }
+getElement("#inspection-retry").addEventListener("click", () => { if (pendingInspection) void selectStoredRun(pendingInspection); });
 
 async function importSource(source: string, sourceName: string): Promise<void> {
   if (!databaseOnline) {
@@ -1014,7 +1054,7 @@ function routeViewer(): void {
     getElement("#comparison-title").focus();
     void showComparison();
   } else {
-    comparisonAbort?.abort(); detailGeneration++;
+    comparisonAbort?.abort(); inspectionAbort?.abort(); detailGeneration++;
     requestAnimationFrame(() => window.scrollTo(0, analysisScroll));
   }
 }
