@@ -1,4 +1,5 @@
 import "./style.css";
+import { policyGroupKey, comparisonConditions, loadRankRuns, type ComparisonCondition } from "./rank-comparison.ts";
 import { updateWeightAnalysis, type WeightAnalysis } from "./weight-analysis.ts";
 import { api, type StoredRun, type RunGroup } from "./catalog.ts";
 import sampleLog from "../../examples/sample-run-v1.jsonl?raw";
@@ -59,16 +60,16 @@ app.innerHTML = `
     </div>
   </header>
   <main>
+    <div id="analysis-screen">
     <section class="panel catalogue" aria-label="Stored Runs">
       <div class="panel-heading">
-        <div><p class="eyebrow">RUN DATABASE</p><h2>Stored Runs</h2></div>
+        <div><p class="eyebrow">RUN DATABASE</p><h2>Weight and Score analysis</h2></div>
         <span id="catalog-status" role="status">Connecting…</span>
       </div>
       <div class="catalog-controls">
         <label class="select-label">Strategy<select id="catalog-strategy"><option value="">All strategies</option><option value="aggressive_v1">Aggressive</option><option value="cautious_v1">Cautious</option></select></label>
         <label class="select-label">Result<select id="catalog-result"><option value="">All results</option><option value="cleared">Cleared</option><option value="defeated">Defeated</option><option value="unfinished">Unfinished</option><option value="restarted">Restarted</option></select></label>
         <label class="select-label">Seed<input id="catalog-seed" type="number" min="0" placeholder="All seeds" /></label>
-        <label class="select-label catalog-run-label">Run<select id="catalog-run"><option value="">No Runs yet</option></select></label>
       </div>
       <fieldset class="catalog-policy"><legend>Policy filters</legend>
         <div class="catalog-controls">
@@ -80,18 +81,21 @@ app.innerHTML = `
         </div>
         <p class="panel-note">Exact values; leave blank for all. Zero is a filter value. Combine with Strategy and Seed. To explore Treasure, fix Enemy and Stairs and leave Treasure blank.</p>
       </fieldset>
-      <div class="catalog-pagination"><button id="catalog-previous" class="button button-ghost" type="button">Previous page</button><span id="catalog-page"></span><button id="catalog-next" class="button button-ghost" type="button">Next page</button></div>
+
     <section class="weight-analysis" id="weight-analysis" aria-label="Weight and Score analysis">
-      <h2>Weight and Score analysis</h2>
+      <h3>Weight relationships</h3>
       <p class="panel-note">Strategy, Policy and Seed filters apply; the Result filter does not apply here. Includes unfinished Runs using their last saved Score. Each condition group keeps Seed, versions, revision, other policy settings and recorded Turn limit separate.</p>
       <p class="panel-note">Pearson r measures a linear association, not causation. A small r can hide a curved relationship. Means average over the other weights; uneven sampling and repeated trials can affect the results. Counts are shown below each graph. All matching Runs are included, beyond catalogue pagination.</p>
       <label class="select-label">Conditions<select id="weight-cohort"></select></label>
       <p class="panel-note" id="weight-analysis-status" role="status">Loading analysis…</p>
-      <div id="weight-analysis-content"></div>
+      <details id="weight-charts"><summary>Show correlations and mean Score graphs</summary><div id="weight-analysis-content"></div></details>
     </section>
       <label class="select-label">Rank combinations by<select id="catalog-ranking"><option value="mean_score">Mean score</option><option value="clear_rate">Clear rate</option><option value="mean_depth">Mean depth</option></select></label>
+      <div class="rank-actions"><span id="rank-selection-count" role="status">0 selected</span><button id="compare-selected" class="button button-primary" disabled>Compare selected</button><button id="clear-rank-selection" class="button button-ghost" disabled>Clear selection</button></div>
       <div id="catalog-stats" class="catalog-stats"></div>
+      <details class="browse-runs"><summary>Browse individual stored Runs</summary><label class="select-label catalog-run-label">Run<select id="catalog-run"><option value="">No Runs yet</option></select></label>      <div class="catalog-pagination"><button id="catalog-previous" class="button button-ghost" type="button">Previous page</button><span id="catalog-page"></span><button id="catalog-next" class="button button-ghost" type="button">Next page</button></div></details>
     </section>
+    <details class="offline-import"><summary>Import a JSONL log</summary>
     <section class="drop-zone" id="drop-zone" aria-label="JSONL file drop zone">
       <div class="drop-icon" aria-hidden="true">↧</div>
       <p class="eyebrow">RUN CATALOGUE</p>
@@ -103,6 +107,19 @@ app.innerHTML = `
       </div>
       <p class="privacy-note">Imported logs are saved by your local Run API. The list updates automatically.</p>
     </section>
+    </details>
+    </div>
+    <div id="comparison-screen" hidden>
+      <section class="panel comparison-navigation">
+        <button id="back-to-analysis" class="button button-ghost">← Back to analysis</button>
+        <h2 tabindex="-1" id="comparison-title">Same-seed comparison</h2>
+        <p id="comparison-selection" class="panel-note"></p>
+        <label class="select-label">Seed / conditions<select id="comparison-seed"></select></label>
+        <p id="comparison-status" class="panel-note" role="status"></p>
+        <button id="comparison-retry" class="button button-ghost" hidden>Retry</button>
+      </section>
+      <section class="comparison-panel" id="comparison-panel" hidden></section>
+    <details id="run-inspection"><summary>Inspect selected Run</summary>
     <section class="viewer" id="viewer" hidden>
       <div class="run-bar">
         <div>
@@ -119,7 +136,6 @@ app.innerHTML = `
         </label>
       </div>
       <div class="warning" id="warning" hidden></div>
-      <section class="comparison-panel" id="comparison-panel" hidden></section>
       <section class="metrics" id="metrics" aria-label="Run summary"></section>
       <div class="analysis-grid">
         <section class="panel hp-panel">
@@ -175,6 +191,8 @@ app.innerHTML = `
         <aside class="detail-panel" id="detail-panel"></aside>
       </section>
     </section>
+    </details>
+    </div>
     <div class="toast" id="toast" role="alert" hidden></div>
   </main>
 `;
@@ -217,7 +235,17 @@ const strategyLabel = (strategy: string): string => {
 };
 
 function loadSource(source: string, sourceName: string): void {
+  comparisonAbort?.abort();
   activeStoredRun = null;
+  comparisonRows = []; comparisonGroups = [];
+  directRun = null;
+  directComparison = true;
+  getElement<HTMLDetailsElement>("#run-inspection").open = true;
+  getElement("#comparison-selection").textContent = "Imported log · local Run details";
+  getElement("#comparison-status").textContent = "";
+  getElement<HTMLSelectElement>("#comparison-seed").innerHTML = "";
+  getElement<HTMLSelectElement>("#comparison-seed").disabled = true;
+  location.hash = "comparison";
   try {
     const parsed = parseJsonLines(source);
     const runIds = [...parsed.runs.keys()];
@@ -761,6 +789,14 @@ let detailGeneration = 0;
 let catalogueBusy = false;
 let databaseOnline = false;
 let storedGroups: RunGroup[] = [];
+const selectedRanks = new Map<string, { group: RunGroup | StoredRun; rank: string }>();
+let comparisonRows: StoredRun[] = [];
+let comparisonGroups: ComparisonCondition[] = [];
+let comparisonScope: URLSearchParams | null = null;
+let comparisonAbort: AbortController | null = null;
+let analysisScroll = 0;
+let directComparison = false;
+let directRun: StoredRun | null = null;
 let weightAnalysis: WeightAnalysis = { cohorts: [], excluded_runs: 0 };
 const catalogueFilters = [
   ["#catalog-strategy", "strategy_id"], ["#catalog-result", "status"], ["#catalog-seed", "scenario_seed"],
@@ -816,7 +852,7 @@ async function refreshCatalogue(): Promise<void> {
     } catch (error) {
       getElement("#catalog-stats").textContent = `Statistics unavailable: ${error instanceof Error ? error.message : String(error)}`;
     }
-    if (!state.parsed && catalogue[0]) await selectStoredRun(catalogue[0]);
+
   } catch (error) {
     if (generation !== catalogueGeneration) return;
     databaseOnline = false;
@@ -869,7 +905,7 @@ async function importSource(source: string, sourceName: string): Promise<void> {
     catalogueGeneration++;
     await refreshCatalogue();
     const key = result.run_ids.at(-1);
-    if (key) await selectStoredRun(await api<StoredRun>(`/api/runs/${encodeURIComponent(key)}`));
+    if (key) openStoredComparison(await api<StoredRun>(`/api/runs/${encodeURIComponent(key)}`), new URLSearchParams());
     void refreshCatalogue();
     showToast(`Saved ${result.run_ids.length} Run(s) to the database.`);
   } catch (error) {
@@ -885,33 +921,136 @@ function renderStoredStats(groups: RunGroup[]): void {
     || a.strategy_id.localeCompare(b.strategy_id) || JSON.stringify(a.goal_policy).localeCompare(JSON.stringify(b.goal_policy)));
   let rank = 0;
   const display = (value: number | null) => value === null ? "—" : value.toFixed(1);
-  getElement("#catalog-stats").innerHTML = `<p class="panel-note">Ranked within the current Strategy/Policy/result/Seed filters. Completed Runs only for averages and clear rate; unfinished Runs have no rank. Groups keep simulation/schema versions, code revision and policy weights separate.</p><div class="table-scroll"><table><thead><tr><th>Rank</th><th>Strategy / policy</th><th>Version / revision</th><th>Runs / finished</th><th>Clear rate</th><th>Mean depth</th><th>Mean score</th><th>Mean turns</th></tr></thead><tbody>${ranked.map(group => `<tr><td>${group[metric] === null ? "—" : ++rank}</td><td>${escapeHtml(strategyLabel(group.strategy_id))}<br><small>${escapeHtml(JSON.stringify(group.goal_policy))}</small></td><td>sim ${group.simulation_version} / schema ${group.schema_version}<br>${escapeHtml(group.code_revision || "revision unknown")}</td><td>${group.runs} / ${group.finished}</td><td>${group.clear_rate === null ? "—" : `${(group.clear_rate * 100).toFixed(1)}%`}</td><td>${display(group.mean_depth)}</td><td>${display(group.mean_score)}</td><td>${display(group.mean_turns)}</td></tr>`).join("")}</tbody></table></div>`;
+  getElement("#catalog-stats").innerHTML = `<p class="panel-note">Ranked within the current Strategy/Policy/result/Seed filters. Select one or more rows, then Compare selected. Completed Runs only for averages and clear rate; unfinished Runs have no rank. Groups keep simulation/schema versions, code revision and policy weights separate.</p><div class="table-scroll"><table><thead><tr><th>Select</th><th>Rank</th><th>Strategy / policy</th><th>Version / revision</th><th>Runs / finished</th><th>Clear rate</th><th>Mean depth</th><th>Mean score</th><th>Mean turns</th></tr></thead><tbody>${ranked.map(group => {
+    const key = policyGroupKey(group);
+    const rankLabel = group[metric] === null ? "—" : String(++rank);
+    if (selectedRanks.has(key)) selectedRanks.set(key, { group, rank: rankLabel });
+    return `<tr><td><input type="checkbox" class="rank-checkbox" data-rank-key="${escapeHtml(key)}" aria-label="Select Rank ${rankLabel} ${escapeHtml(strategyLabel(group.strategy_id))}" ${selectedRanks.has(key) ? "checked" : ""}></td><td>${rankLabel}</td><td>${escapeHtml(strategyLabel(group.strategy_id))}<br><small>${escapeHtml(JSON.stringify(group.goal_policy))}</small></td><td>sim ${group.simulation_version} / schema ${group.schema_version}<br>${escapeHtml(group.code_revision || "revision unknown")}</td><td>${group.runs} / ${group.finished}</td><td>${group.clear_rate === null ? "—" : `${(group.clear_rate * 100).toFixed(1)}%`}</td><td>${display(group.mean_depth)}</td><td>${display(group.mean_score)}</td><td>${display(group.mean_turns)}</td></tr>`; }).join("")}</tbody></table></div>`;
+  updateRankSelection();
+}
+
+function updateRankSelection(): void {
+  getElement("#rank-selection-count").textContent = `${selectedRanks.size} selected`;
+  getElement<HTMLButtonElement>("#compare-selected").disabled = !selectedRanks.size;
+  getElement<HTMLButtonElement>("#clear-rank-selection").disabled = !selectedRanks.size;
 }
 
 function renderStoredComparison(): void {
   const panel = getElement<HTMLElement>("#comparison-panel");
-  const run = activeStoredRun;
-  panel.hidden = !run || run.scenario_seed === null;
-  if (!run || run.scenario_seed === null) return;
-  const generation = detailGeneration;
-  panel.innerHTML = '<p class="panel-note">Loading same-seed Runs…</p>';
-  const query = catalogueQuery();
-  for (const [key, value] of Object.entries({scenario_seed: String(run.scenario_seed), simulation_version: String(run.simulation_version), schema_version: String(run.schema_version), code_revision: run.code_revision, limit: "100"})) query.set(key, value);
-  void api<{runs: StoredRun[]; total: number}>(`/api/runs?${query}`).then(data => {
-    if (generation !== detailGeneration || activeStoredRun?.id !== run.id) return;
-    const peers = data.runs.filter(peer => peer.code_revision === run.code_revision);
-    panel.hidden = peers.length < 2;
-    panel.innerHTML = `<div class="comparison-heading"><h3>Same-seed comparison</h3><span>seed ${run.scenario_seed} · sim ${run.simulation_version}${data.total > 100 ? " · latest 100 Runs" : ""}</span></div><div class="comparison-cards">${peers.map(peer => `<button type="button" class="comparison-card comparison-card-stored ${peer.id === run.id ? "active" : ""}" data-stored-run="${escapeHtml(peer.id)}"><span class="comparison-name">${escapeHtml(strategyLabel(peer.strategy_id))}</span><span class="comparison-policy">${escapeHtml(JSON.stringify(peer.goal_policy))}</span><span>Score ${peer.score} · D${peer.max_depth} · Lv ${peer.level}</span><span>${peer.turns} turns · ${escapeHtml(peer.status)}</span></button>`).join("")}</div>`;
-    panel.querySelectorAll<HTMLButtonElement>("[data-stored-run]").forEach(button => button.addEventListener("click", () => {
-      const peer = peers.find(candidate => candidate.id === button.dataset.storedRun);
-      if (peer) void selectStoredRun(peer);
-    }));
-  }).catch(() => {
-    if (generation === detailGeneration) panel.innerHTML = '<p class="panel-note">Comparison unavailable while API is offline.</p>';
-  });
+  if (activeStoredRun?.scenario_seed === null) {
+    panel.hidden = true;
+    getElement("#comparison-status").textContent = "This Run has no recorded Seed; same-seed comparison is unavailable. Run details are shown below.";
+    return;
+  }
+  const key = getElement<HTMLSelectElement>("#comparison-seed").value;
+  const condition = comparisonGroups.find(group => group.key === key);
+  const rankNumber = (run: StoredRun) => Number(selectedRanks.get(policyGroupKey(run))?.rank) || Infinity;
+  const peers = [...(condition?.runs ?? [])].sort((a, b) => rankNumber(a) - rankNumber(b) || b.score - a.score);
+  panel.hidden = !peers.length;
+  const represented = new Set(peers.map(policyGroupKey));
+  getElement("#comparison-status").textContent = condition
+    ? `${peers.length} Runs · ${represented.size}/${selectedRanks.size || 1} selected policies available for these conditions. ${condition.runs[0]?.execution_settings ? "" : "Turn limit unknown for historical Runs."}`
+    : "No selected Runs with a recorded Seed match these filters.";
+  panel.innerHTML = `<div class="comparison-cards">${peers.map(peer => `<button type="button" class="comparison-card comparison-card-stored ${peer.id === activeStoredRun?.id ? "active" : ""}" data-stored-run="${escapeHtml(peer.id)}"><span class="comparison-name">Rank ${escapeHtml(selectedRanks.get(policyGroupKey(peer))?.rank ?? "—")} · ${escapeHtml(strategyLabel(peer.strategy_id))}</span><span class="comparison-policy">${escapeHtml(JSON.stringify(peer.goal_policy))}</span><span>Score ${peer.score} · D${peer.max_depth} · Lv ${peer.level}</span><span>${peer.turns} turns · ${escapeHtml(peer.status)} · ${escapeHtml(peer.id.slice(0, 8))}</span></button>`).join("")}</div>`;
+  panel.querySelectorAll<HTMLButtonElement>("[data-stored-run]").forEach(button => button.addEventListener("click", () => {
+    const peer = peers.find(candidate => candidate.id === button.dataset.storedRun);
+    if (peer) { getElement<HTMLDetailsElement>("#run-inspection").open = true; void selectStoredRun(peer); }
+  }));
 }
 
+async function showComparison(): Promise<void> {
+  comparisonAbort?.abort();
+  const controller = new AbortController();
+  comparisonAbort = controller;
+  detailGeneration++;
+  if (directComparison) {
+    directComparison = false;
+    if (directRun) {
+      const run = directRun; directRun = null;
+      state.parsed = null; activeStoredRun = null; render();
+      getElement("#comparison-status").textContent = "Loading selected Run…";
+      await selectStoredRun(run);
+    }
+    else render();
+    return;
+  }
+  getElement<HTMLDetailsElement>("#run-inspection").open = false;
+  state.parsed = null; activeStoredRun = null; render();
+  getElement("#comparison-panel").hidden = true;
+  getElement("#comparison-retry").hidden = true;
+  getElement("#comparison-selection").textContent = `${selectedRanks.size} selected policies · snapshot of analysis filters. Choose a card to inspect its Run.`;
+  getElement("#comparison-status").textContent = "Loading selected Runs…";
+  getElement<HTMLSelectElement>("#comparison-seed").disabled = true;
+  if (!selectedRanks.size) {
+    getElement("#comparison-status").textContent = "No policies selected. Return to analysis and select a Rank.";
+    return;
+  }
+  try {
+    comparisonRows = await loadRankRuns(comparisonScope ?? catalogueQuery(), new Set(selectedRanks.keys()), params => api(`/api/runs?${params}`, { signal: controller.signal }));
+    if (controller.signal.aborted) return;
+    comparisonGroups = comparisonConditions(comparisonRows);
+    const select = getElement<HTMLSelectElement>("#comparison-seed");
+    const previous = select.value;
+    select.innerHTML = comparisonGroups.map(group => `<option value="${escapeHtml(group.key)}">${escapeHtml(group.label)}</option>`).join("");
+    if (comparisonGroups.some(group => group.key === previous)) select.value = previous;
+    select.disabled = !comparisonGroups.length;
+    renderStoredComparison();
+    const first = comparisonGroups.find(group => group.key === select.value)?.runs[0];
+    if (first) await selectStoredRun(first);
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    getElement("#comparison-status").textContent = error instanceof Error ? error.message : "Could not load comparison.";
+    getElement("#comparison-retry").hidden = false;
+  }
+}
+
+function routeViewer(): void {
+  const compare = location.hash === "#comparison";
+  if (compare) analysisScroll = window.scrollY;
+  getElement("#analysis-screen").hidden = compare;
+  getElement("#comparison-screen").hidden = !compare;
+  if (compare) {
+    window.scrollTo(0, 0);
+    getElement("#comparison-title").focus();
+    void showComparison();
+  } else {
+    comparisonAbort?.abort(); detailGeneration++;
+    requestAnimationFrame(() => window.scrollTo(0, analysisScroll));
+  }
+}
+
+getElement("#catalog-stats").addEventListener("change", event => {
+  const checkbox = (event.target as HTMLElement).closest<HTMLInputElement>("[data-rank-key]");
+  if (!checkbox) return;
+  const key = checkbox.dataset.rankKey!;
+  const group = storedGroups.find(candidate => policyGroupKey(candidate) === key);
+  if (checkbox.checked && group) {
+    const rank = checkbox.closest("tr")!.children[1].textContent ?? "—";
+    selectedRanks.set(key, { group, rank });
+  } else selectedRanks.delete(key);
+  updateRankSelection();
+});
+getElement("#compare-selected").addEventListener("click", () => {
+  comparisonScope = new URLSearchParams(catalogueQuery());
+  directComparison = false;
+  location.hash = "comparison";
+});
+getElement("#clear-rank-selection").addEventListener("click", () => {
+  selectedRanks.clear(); renderStoredStats(storedGroups);
+});
+getElement("#back-to-analysis").addEventListener("click", () => { history.back(); });
+getElement("#comparison-retry").addEventListener("click", () => { void showComparison(); });
+getElement("#comparison-seed").addEventListener("change", () => {
+  detailGeneration++; activeStoredRun = null; state.parsed = null; render();
+  renderStoredComparison();
+  const key = getElement<HTMLSelectElement>("#comparison-seed").value;
+  const first = comparisonGroups.find(group => group.key === key)?.runs[0];
+  if (first) void selectStoredRun(first);
+});
+window.addEventListener("hashchange", routeViewer);
+
 function catalogueFiltersChanged(): void {
+  selectedRanks.clear(); updateRankSelection();
   catalogueOffset = 0;
   catalogueGeneration++;
   detailGeneration++; // Invalidate detail/comparison requests for the old filter.
@@ -934,10 +1073,28 @@ getElement("#catalog-clear").addEventListener("click", () => {
   for (const [selector] of catalogueFilters) getElement<HTMLInputElement | HTMLSelectElement>(selector).value = "";
   catalogueFiltersChanged();
 });
+function openStoredComparison(run: StoredRun, query = catalogueQuery()): void {
+  selectedRanks.clear();
+  const group = storedGroups.find(candidate => policyGroupKey(candidate) === policyGroupKey(run)) ?? run;
+  selectedRanks.set(policyGroupKey(group), { group, rank: "—" });
+  renderStoredStats(storedGroups);
+  comparisonScope = new URLSearchParams(query);
+  directComparison = run.scenario_seed === null;
+  directRun = directComparison ? run : null;
+  if (directComparison) {
+    comparisonGroups = [];
+    getElement<HTMLDetailsElement>("#run-inspection").open = true;
+    getElement<HTMLSelectElement>("#comparison-seed").innerHTML = "";
+    getElement<HTMLSelectElement>("#comparison-seed").disabled = true;
+    getElement("#comparison-selection").textContent = "Individual Run inspection";
+  }
+  if (location.hash === "#comparison") void showComparison();
+  else location.hash = "comparison";
+}
 getElement<HTMLSelectElement>("#catalog-run").addEventListener("change", event => {
   const id = (event.currentTarget as HTMLSelectElement).value;
   const run = catalogue.find(candidate => candidate.id === id);
-  if (run) void selectStoredRun(run);
+  if (run) openStoredComparison(run);
 });
 for (const [selector, step] of [["#catalog-previous", -100], ["#catalog-next", 100]] as const) {
   getElement(selector).addEventListener("click", () => {
@@ -946,6 +1103,8 @@ for (const [selector, step] of [["#catalog-previous", -100], ["#catalog-next", 1
     void refreshCatalogue();
   });
 }
+history.replaceState(null, "", "#analysis");
+routeViewer();
 void refreshCatalogue();
 window.setInterval(() => { if (!document.hidden) void refreshCatalogue(); }, 3000);
 
