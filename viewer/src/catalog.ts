@@ -4,6 +4,8 @@ export interface StoredRun {
   started_at: string;
   strategy_id: string;
   scenario_seed: number | null;
+  scenario_id?: string;
+  execution_settings?: { max_turns: number };
   simulation_version: number;
   schema_version: number;
   code_revision: string;

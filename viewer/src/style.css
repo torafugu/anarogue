@@ -1094,3 +1094,14 @@ blockquote {
 
 .catalog-policy { min-width: 0; margin: 16px 0; padding: 16px; border: 1px solid var(--border); }
 .catalog-policy legend { color: var(--muted); padding: 0 8px; }
+
+.rank-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 0; position: sticky; top: 90px; z-index: 3; background: var(--surface); }
+.rank-checkbox { width: 22px; height: 22px; cursor: pointer; accent-color: var(--lime); }
+.browse-runs { margin-top: 20px; }
+.browse-runs > summary, #weight-charts > summary { cursor: pointer; padding: 12px 0; }
+.comparison-navigation { margin-bottom: 20px; }
+.comparison-navigation select { max-width: 100%; width: 100%; }
+.comparison-navigation .select-label { display: flex; }
+#comparison-title { margin-top: 18px; }
+
+#run-inspection > summary, .offline-import > summary { cursor: pointer; padding: 14px 0; }

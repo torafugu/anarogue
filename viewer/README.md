@@ -60,14 +60,35 @@ a static host needs its own same-origin `/api` reverse proxy.
 
 ### Weight and Score analysis
 
+The Viewer starts on an analysis screen. Select one or more checkbox rows in
+the ranking table and press **Compare selected** to open a separate **Same-seed
+comparison** screen. Selections identify Strategy, full policy, versions and
+revision, so sorting and polling do not change which groups are selected.
+Rows without a defined rank can also be selected. Run details are not loaded
+automatically on the analysis screen.
+
+The comparison screen loads only selected groups under the captured filters,
+across all catalogue pages. Choose **Seed / conditions** to compare a common
+Seed/scenario, versions, revision and known/unknown Max turns. The page reports
+how many selected policies have matching Runs. Select a card to expand that
+Run's metrics, maps and events. Runs without a Seed cannot form a same-seed
+group, but direct browsing and imported logs remain inspectable.
+
+**Back to analysis** and browser Back/Forward preserve filters and selection in
+the current tab. Changing filters clears the selection; **Clear selection**
+leaves filters intact. Page reload resets temporary navigation state.
+Comparison is a snapshot; compare again to include new Runs. Correlation charts,
+direct Run browsing and import guidance are collapsed initially to reduce the
+information shown at once.
+
 Use **Strategy** together with **Policy filters** (Enemy, Treasure, Stairs and
 Temperature) to narrow the catalogue, ranking, weight analysis and stored
 same-seed comparison. Policy filters match exact numeric values from 0 to 1000;
 blank means unrestricted, while `0` selects numeric zero. Missing or string-valued
 settings do not match zero. Filters combine with AND. **Clear filters** resets
 Strategy, Result, Seed and all Policy values. Changing a filter returns to the
-first catalogue page and selects a matching Run; an old, nonmatching Run is not
-retained. No matches clears the previous detail view.
+first catalogue page and clears the prior selection/detail view; an old,
+nonmatching Run is not retained.
 
 For example, select Aggressive, fix Enemy and Stairs, and leave Treasure blank
 to inspect Treasure's association with Score under those fixed settings. To

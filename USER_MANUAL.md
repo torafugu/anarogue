@@ -54,6 +54,18 @@ simulation/schema version and code revision separate. With one Seed this is a
 comparison for that dungeon; repeat across Seeds for a broader assessment.
 Repeated AutoRuns are new trials and their results accumulate in the DB.
 
+The Viewer opens on **Weight and Score analysis**. Check one or more Rank rows,
+then press **Compare selected** to open the separate **Same-seed comparison**
+screen. Only selected Strategy/policy groups appear there. Choose **Seed /
+conditions** when the results span different Seeds, versions, revisions or Turn
+limits. Click a Run card to expand its metrics, route, HP history and events.
+**Back to analysis** and browser Back/Forward retain filters and checked groups;
+sorting or polling also preserves group identities. Changing filters clears
+selection, while **Clear selection** preserves filters. Comparisons load beyond
+the 100-Run catalogue page and stay fixed until opened again. The analysis screen
+initially collapses correlation graphs, direct Run browsing and import guidance.
+Selections/navigation reset on a page reload.
+
 The web Viewer's **Weight and Score analysis** panel adds Enemy, Treasure and
 Stairs correlations and average-Score graphs separately for each Strategy.
 Use **Strategy** and **Policy filters** above the panel to narrow the Run list,
