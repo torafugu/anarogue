@@ -35,6 +35,13 @@ Strategy, Seed and version/revision filters are supported; `status` is ignored
 to retain unfinished observations. Cohorts separate Seed/scenario, versions,
 revision, non-weight policy settings and known/unknown Max turns.
 
+`GET /api/runs`, `/api/stats` and `/api/weight-analysis` also accept independent
+`enemy_weight`, `item_weight`, `stairs_weight` and `temperature` parameters.
+Each supplied value must be an integer in 0–1000 and matches numeric JSON policy
+values exactly. Empty parameters impose no restriction; missing/string values
+are not treated as zero. Conditions combine with Strategy/Seed/etc. using AND
+before pagination or aggregation. Invalid values return HTTP 400.
+
 The API worker records Max turns as optional `execution_settings` in the saved
 Run's summary after a Rust execution. This requires no schema migration and does
 not change raw event payloads or Run identity. Existing databases remain usable;

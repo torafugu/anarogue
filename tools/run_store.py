@@ -140,6 +140,16 @@ class RunStore:
             if key in filters and (filters[key] != "" or key == "code_revision"):
                 clauses.append(f"{key}=?")
                 params.append(filters[key])
+        for key in ("enemy_weight", "item_weight", "stairs_weight", "temperature"):
+            value = filters.get(key, "")
+            if value == "":
+                continue
+            if not str(value).isascii() or not str(value).isdigit() or not 0 <= int(value) <= 1000:
+                raise ValueError(f"{key} must be an integer in 0..1000")
+            # Whitelisted JSON paths, numeric comparison and bound values keep
+            # missing/string weights distinct from a real numeric zero.
+            clauses.append(f"(json_type(goal_policy, '$.{key}') IN ('integer','real') AND json_extract(goal_policy, '$.{key}')=?)")
+            params.append(int(value))
         return (" WHERE " + " AND ".join(clauses) if clauses else ""), params
 
     @staticmethod

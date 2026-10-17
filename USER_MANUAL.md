@@ -56,6 +56,14 @@ Repeated AutoRuns are new trials and their results accumulate in the DB.
 
 The web Viewer's **Weight and Score analysis** panel adds Enemy, Treasure and
 Stairs correlations and average-Score graphs separately for each Strategy.
+Use **Strategy** and **Policy filters** above the panel to narrow the Run list,
+ranking, same-seed comparison and analysis together. Enemy/Treasure/Stairs and
+Temperature accept exact values; blank means all values, and `0` means numeric
+zero. **Clear filters** removes all selections, including Seed and Result.
+Changing filters resets pagination and removes the previously selected Run if
+it no longer matches. For Aggressive × Treasure, fix Enemy and Stairs but leave
+Treasure blank. For Cautious × Enemy, fix Treasure and Stairs but leave Enemy
+blank. A fixed weight has no variation and therefore no defined correlation.
 Select a condition group to compare a common Seed/scenario, versions, revision,
 other policy settings and recorded Max turns. Historical Runs may have an
 unknown Turn limit; the panel warns when this cannot be verified. New API Runs

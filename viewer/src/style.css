@@ -1091,3 +1091,6 @@ blockquote {
 .weight-axis th, .weight-axis td { padding: 6px; border-bottom: 1px solid var(--border); }
 .weight-warning { color: var(--orange); }
 @media (max-width: 1000px) { .weight-axes { grid-template-columns: minmax(0, 1fr); } }
+
+.catalog-policy { min-width: 0; margin: 16px 0; padding: 16px; border: 1px solid var(--border); }
+.catalog-policy legend { color: var(--muted); padding: 0 8px; }

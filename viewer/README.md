@@ -60,11 +60,27 @@ a static host needs its own same-origin `/api` reverse proxy.
 
 ### Weight and Score analysis
 
+Use **Strategy** together with **Policy filters** (Enemy, Treasure, Stairs and
+Temperature) to narrow the catalogue, ranking, weight analysis and stored
+same-seed comparison. Policy filters match exact numeric values from 0 to 1000;
+blank means unrestricted, while `0` selects numeric zero. Missing or string-valued
+settings do not match zero. Filters combine with AND. **Clear filters** resets
+Strategy, Result, Seed and all Policy values. Changing a filter returns to the
+first catalogue page and selects a matching Run; an old, nonmatching Run is not
+retained. No matches clears the previous detail view.
+
+For example, select Aggressive, fix Enemy and Stairs, and leave Treasure blank
+to inspect Treasure's association with Score under those fixed settings. To
+study Enemy in Cautious, fix Treasure and Stairs instead. Fixing a weight removes
+its variation, so its correlation correctly becomes undefined; the remaining
+varying weights can still be analyzed. The Result filter continues to apply to
+catalogue/ranking/comparison but deliberately not to weight analysis.
+
 The **Weight and Score analysis** panel shows three Pearson correlations and
 three mean-Score plots per Strategy: Enemy, Treasure and Stairs weight. The
 Conditions selector separates Seed/scenario, simulation and schema versions,
 producer revision, non-weight policy settings (such as temperature) and recorded
-Max turns. Groups with more observations appear first. Strategy and Seed filters
+Max turns. Groups with more observations appear first. Strategy, Policy and Seed filters
 apply; the Result filter deliberately does not apply to this panel. All matching
 Runs are analyzed, not just the current catalogue page.
 

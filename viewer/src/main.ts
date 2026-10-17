@@ -70,10 +70,20 @@ app.innerHTML = `
         <label class="select-label">Seed<input id="catalog-seed" type="number" min="0" placeholder="All seeds" /></label>
         <label class="select-label catalog-run-label">Run<select id="catalog-run"><option value="">No Runs yet</option></select></label>
       </div>
+      <fieldset class="catalog-policy"><legend>Policy filters</legend>
+        <div class="catalog-controls">
+          <label class="select-label">Enemy weight<input id="catalog-enemy" type="number" min="0" max="1000" step="1" placeholder="All values" /></label>
+          <label class="select-label">Treasure weight<input id="catalog-item" type="number" min="0" max="1000" step="1" placeholder="All values" /></label>
+          <label class="select-label">Stairs weight<input id="catalog-stairs" type="number" min="0" max="1000" step="1" placeholder="All values" /></label>
+          <label class="select-label">Temperature<input id="catalog-temperature" type="number" min="0" max="1000" step="1" placeholder="All values" /></label>
+          <button id="catalog-clear" class="button button-ghost" type="button">Clear filters</button>
+        </div>
+        <p class="panel-note">Exact values; leave blank for all. Zero is a filter value. Combine with Strategy and Seed. To explore Treasure, fix Enemy and Stairs and leave Treasure blank.</p>
+      </fieldset>
       <div class="catalog-pagination"><button id="catalog-previous" class="button button-ghost" type="button">Previous page</button><span id="catalog-page"></span><button id="catalog-next" class="button button-ghost" type="button">Next page</button></div>
     <section class="weight-analysis" id="weight-analysis" aria-label="Weight and Score analysis">
       <h2>Weight and Score analysis</h2>
-      <p class="panel-note">Strategy and Seed filters apply; the Result filter does not apply here. Includes unfinished Runs using their last saved Score. Each condition group keeps Seed, versions, revision, other policy settings and recorded Turn limit separate.</p>
+      <p class="panel-note">Strategy, Policy and Seed filters apply; the Result filter does not apply here. Includes unfinished Runs using their last saved Score. Each condition group keeps Seed, versions, revision, other policy settings and recorded Turn limit separate.</p>
       <p class="panel-note">Pearson r measures a linear association, not causation. A small r can hide a curved relationship. Means average over the other weights; uneven sampling and repeated trials can affect the results. Counts are shown below each graph. All matching Runs are included, beyond catalogue pagination.</p>
       <label class="select-label">Conditions<select id="weight-cohort"></select></label>
       <p class="panel-note" id="weight-analysis-status" role="status">Loading analysis…</p>
@@ -752,10 +762,15 @@ let catalogueBusy = false;
 let databaseOnline = false;
 let storedGroups: RunGroup[] = [];
 let weightAnalysis: WeightAnalysis = { cohorts: [], excluded_runs: 0 };
+const catalogueFilters = [
+  ["#catalog-strategy", "strategy_id"], ["#catalog-result", "status"], ["#catalog-seed", "scenario_seed"],
+  ["#catalog-enemy", "enemy_weight"], ["#catalog-item", "item_weight"], ["#catalog-stairs", "stairs_weight"],
+  ["#catalog-temperature", "temperature"],
+] as const;
 
 function catalogueQuery(): URLSearchParams {
   const query = new URLSearchParams();
-  for (const [selector, key] of [["#catalog-strategy", "strategy_id"], ["#catalog-result", "status"], ["#catalog-seed", "scenario_seed"]]) {
+  for (const [selector, key] of catalogueFilters) {
     const value = getElement<HTMLInputElement | HTMLSelectElement>(selector).value;
     if (value) query.set(key, value);
   }
@@ -817,7 +832,7 @@ function renderCatalogueSelect(): void {
   const selected = activeStoredRun?.id ?? select.value;
   const options = [...catalogue];
   if (activeStoredRun && !options.some(run => run.id === activeStoredRun?.id)) options.unshift(activeStoredRun);
-  const markup = options.map(run => `<option value="${escapeHtml(run.id)}">${escapeHtml(`${strategyLabel(run.strategy_id)} · seed ${run.scenario_seed ?? "?"} · D${run.max_depth} · ${run.status} · ${run.started_at} · ${run.id.slice(0, 8)}`)}</option>`).join("") || '<option value="">No Runs yet</option>';
+  const markup = options.map(run => `<option value="${escapeHtml(run.id)}">${escapeHtml(`${strategyLabel(run.strategy_id)} · E${run.goal_policy.enemy_weight ?? "?"}/T${run.goal_policy.item_weight ?? "?"}/S${run.goal_policy.stairs_weight ?? "?"} · seed ${run.scenario_seed ?? "?"} · D${run.max_depth} · ${run.status} · ${run.started_at} · ${run.id.slice(0, 8)}`)}</option>`).join("") || '<option value="">No Runs yet</option>';
   if (select.innerHTML !== markup) select.innerHTML = markup;
   if (options.some(run => run.id === selected)) select.value = selected;
 }
@@ -870,7 +885,7 @@ function renderStoredStats(groups: RunGroup[]): void {
     || a.strategy_id.localeCompare(b.strategy_id) || JSON.stringify(a.goal_policy).localeCompare(JSON.stringify(b.goal_policy)));
   let rank = 0;
   const display = (value: number | null) => value === null ? "—" : value.toFixed(1);
-  getElement("#catalog-stats").innerHTML = `<p class="panel-note">Ranked within the current Strategy/result/Seed filters. Completed Runs only for averages and clear rate; unfinished Runs have no rank. Groups keep simulation/schema versions, code revision and policy weights separate.</p><div class="table-scroll"><table><thead><tr><th>Rank</th><th>Strategy / policy</th><th>Version / revision</th><th>Runs / finished</th><th>Clear rate</th><th>Mean depth</th><th>Mean score</th><th>Mean turns</th></tr></thead><tbody>${ranked.map(group => `<tr><td>${group[metric] === null ? "—" : ++rank}</td><td>${escapeHtml(strategyLabel(group.strategy_id))}<br><small>${escapeHtml(JSON.stringify(group.goal_policy))}</small></td><td>sim ${group.simulation_version} / schema ${group.schema_version}<br>${escapeHtml(group.code_revision || "revision unknown")}</td><td>${group.runs} / ${group.finished}</td><td>${group.clear_rate === null ? "—" : `${(group.clear_rate * 100).toFixed(1)}%`}</td><td>${display(group.mean_depth)}</td><td>${display(group.mean_score)}</td><td>${display(group.mean_turns)}</td></tr>`).join("")}</tbody></table></div>`;
+  getElement("#catalog-stats").innerHTML = `<p class="panel-note">Ranked within the current Strategy/Policy/result/Seed filters. Completed Runs only for averages and clear rate; unfinished Runs have no rank. Groups keep simulation/schema versions, code revision and policy weights separate.</p><div class="table-scroll"><table><thead><tr><th>Rank</th><th>Strategy / policy</th><th>Version / revision</th><th>Runs / finished</th><th>Clear rate</th><th>Mean depth</th><th>Mean score</th><th>Mean turns</th></tr></thead><tbody>${ranked.map(group => `<tr><td>${group[metric] === null ? "—" : ++rank}</td><td>${escapeHtml(strategyLabel(group.strategy_id))}<br><small>${escapeHtml(JSON.stringify(group.goal_policy))}</small></td><td>sim ${group.simulation_version} / schema ${group.schema_version}<br>${escapeHtml(group.code_revision || "revision unknown")}</td><td>${group.runs} / ${group.finished}</td><td>${group.clear_rate === null ? "—" : `${(group.clear_rate * 100).toFixed(1)}%`}</td><td>${display(group.mean_depth)}</td><td>${display(group.mean_score)}</td><td>${display(group.mean_turns)}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
 function renderStoredComparison(): void {
@@ -880,7 +895,8 @@ function renderStoredComparison(): void {
   if (!run || run.scenario_seed === null) return;
   const generation = detailGeneration;
   panel.innerHTML = '<p class="panel-note">Loading same-seed Runs…</p>';
-  const query = new URLSearchParams({scenario_seed: String(run.scenario_seed), simulation_version: String(run.simulation_version), schema_version: String(run.schema_version), code_revision: run.code_revision, limit: "100"});
+  const query = catalogueQuery();
+  for (const [key, value] of Object.entries({scenario_seed: String(run.scenario_seed), simulation_version: String(run.simulation_version), schema_version: String(run.schema_version), code_revision: run.code_revision, limit: "100"})) query.set(key, value);
   void api<{runs: StoredRun[]; total: number}>(`/api/runs?${query}`).then(data => {
     if (generation !== detailGeneration || activeStoredRun?.id !== run.id) return;
     const peers = data.runs.filter(peer => peer.code_revision === run.code_revision);
@@ -895,13 +911,29 @@ function renderStoredComparison(): void {
   });
 }
 
-for (const selector of ["#catalog-strategy", "#catalog-result", "#catalog-seed"]) {
-  getElement(selector).addEventListener("change", () => {
-    catalogueOffset = 0;
-    catalogueGeneration++;
-    void refreshCatalogue();
-  });
+function catalogueFiltersChanged(): void {
+  catalogueOffset = 0;
+  catalogueGeneration++;
+  detailGeneration++; // Invalidate detail/comparison requests for the old filter.
+  activeStoredRun = null;
+  state.parsed = null;
+  state.runId = "";
+  catalogue = [];
+  renderCatalogueSelect();
+  render();
+  getElement("#catalog-status").textContent = "Applying filters…";
+  getElement("#catalog-stats").textContent = "Updating filtered statistics…";
+  getElement("#weight-analysis-content").textContent = "Updating filtered analysis…";
+  getElement("#weight-cohort").innerHTML = "";
+  void refreshCatalogue();
 }
+for (const [selector] of catalogueFilters) {
+  getElement(selector).addEventListener("change", catalogueFiltersChanged);
+}
+getElement("#catalog-clear").addEventListener("click", () => {
+  for (const [selector] of catalogueFilters) getElement<HTMLInputElement | HTMLSelectElement>(selector).value = "";
+  catalogueFiltersChanged();
+});
 getElement<HTMLSelectElement>("#catalog-run").addEventListener("change", event => {
   const id = (event.currentTarget as HTMLSelectElement).value;
   const run = catalogue.find(candidate => candidate.id === id);
