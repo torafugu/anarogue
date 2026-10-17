@@ -195,6 +195,7 @@ class RunJobs:
             run_id = saved.group(1)
             self.store.get_run(run_id)  # Do not report completion before the row is readable.
             summary = json.loads(result.stdout)
+            self.store.record_execution_settings(run_id, settings)
             return run_id, summary
         except subprocess.TimeoutExpired:
             raise ValueError(f"Run exceeded the {self.timeout:g}-second execution limit") from None

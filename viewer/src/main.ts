@@ -1,4 +1,5 @@
 import "./style.css";
+import { updateWeightAnalysis, type WeightAnalysis } from "./weight-analysis.ts";
 import { api, type StoredRun, type RunGroup } from "./catalog.ts";
 import sampleLog from "../../examples/sample-run-v1.jsonl?raw";
 import {
@@ -70,6 +71,14 @@ app.innerHTML = `
         <label class="select-label catalog-run-label">Run<select id="catalog-run"><option value="">No Runs yet</option></select></label>
       </div>
       <div class="catalog-pagination"><button id="catalog-previous" class="button button-ghost" type="button">Previous page</button><span id="catalog-page"></span><button id="catalog-next" class="button button-ghost" type="button">Next page</button></div>
+    <section class="weight-analysis" id="weight-analysis" aria-label="Weight and Score analysis">
+      <h2>Weight and Score analysis</h2>
+      <p class="panel-note">Strategy and Seed filters apply; the Result filter does not apply here. Includes unfinished Runs using their last saved Score. Each condition group keeps Seed, versions, revision, other policy settings and recorded Turn limit separate.</p>
+      <p class="panel-note">Pearson r measures a linear association, not causation. A small r can hide a curved relationship. Means average over the other weights; uneven sampling and repeated trials can affect the results. Counts are shown below each graph. All matching Runs are included, beyond catalogue pagination.</p>
+      <label class="select-label">Conditions<select id="weight-cohort"></select></label>
+      <p class="panel-note" id="weight-analysis-status" role="status">Loading analysis…</p>
+      <div id="weight-analysis-content"></div>
+    </section>
       <label class="select-label">Rank combinations by<select id="catalog-ranking"><option value="mean_score">Mean score</option><option value="clear_rate">Clear rate</option><option value="mean_depth">Mean depth</option></select></label>
       <div id="catalog-stats" class="catalog-stats"></div>
     </section>
@@ -742,6 +751,7 @@ let detailGeneration = 0;
 let catalogueBusy = false;
 let databaseOnline = false;
 let storedGroups: RunGroup[] = [];
+let weightAnalysis: WeightAnalysis = { cohorts: [], excluded_runs: 0 };
 
 function catalogueQuery(): URLSearchParams {
   const query = new URLSearchParams();
@@ -761,11 +771,20 @@ async function refreshCatalogue(): Promise<void> {
   query.set("limit", "100");
   query.set("offset", String(catalogueOffset));
   try {
-    const [runsResult, statsResult] = await Promise.allSettled([
+    const [runsResult, statsResult, analysisResult] = await Promise.allSettled([
       api<{runs: StoredRun[]; total: number}>(`/api/runs?${query}`),
       api<{groups: RunGroup[]}>(`/api/stats?${statsQuery}`),
+      api<WeightAnalysis>(`/api/weight-analysis?${statsQuery}`),
     ]);
     if (generation !== catalogueGeneration) return;
+    if (analysisResult.status === "fulfilled") {
+      weightAnalysis = analysisResult.value;
+      updateWeightAnalysis(weightAnalysis, getElement("#weight-analysis"));
+    } else {
+      getElement("#weight-analysis-content").textContent = "";
+      getElement("#weight-cohort").innerHTML = "";
+      getElement("#weight-analysis-status").textContent = `Analysis unavailable: ${analysisResult.reason instanceof Error ? analysisResult.reason.message : String(analysisResult.reason)}. Restart the updated Run API.`;
+    }
     if (runsResult.status === "rejected") throw runsResult.reason;
     const data = runsResult.value;
     databaseOnline = true;
@@ -899,3 +918,5 @@ void refreshCatalogue();
 window.setInterval(() => { if (!document.hidden) void refreshCatalogue(); }, 3000);
 
 getElement("#catalog-ranking").addEventListener("change", () => renderStoredStats(storedGroups));
+
+getElement("#weight-cohort").addEventListener("change", () => updateWeightAnalysis(weightAnalysis, getElement("#weight-analysis")));

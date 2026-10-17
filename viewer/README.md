@@ -58,6 +58,34 @@ a static host needs its own same-origin `/api` reverse proxy.
 
 ## Current scope
 
+### Weight and Score analysis
+
+The **Weight and Score analysis** panel shows three Pearson correlations and
+three mean-Score plots per Strategy: Enemy, Treasure and Stairs weight. The
+Conditions selector separates Seed/scenario, simulation and schema versions,
+producer revision, non-weight policy settings (such as temperature) and recorded
+Max turns. Groups with more observations appear first. Strategy and Seed filters
+apply; the Result filter deliberately does not apply to this panel. All matching
+Runs are analyzed, not just the current catalogue page.
+
+Unfinished Runs contribute their last saved Score. Each stored Run has equal
+weight, including repeated trials. Expand **Values and counts** to see exact
+means, sample counts and unfinished counts for every weight value. All plots in
+a selected condition group share the same Score scale. No correlation is shown
+when there are fewer than two Runs, constant weights or constant Score; the
+reason is displayed instead of treating it as zero. Missing/invalid weights are
+excluded and counted. A curved relationship can have near-zero Pearson r;
+uneven combinations and repeated trials can change both r and marginal means.
+These are descriptive statistics, without significance tests or causal claims.
+
+New Runs executed by the updated Python API record Max turns in catalogue
+summary metadata. Historical/imported logs without that metadata show an
+explicit unknown-limit warning and stay separate from known-limit Runs.
+This optional metadata is not part of raw JSONL exports. Restart the API and
+Viewer after updating. The panel polls automatically with the catalogue.
+
+### Other features
+
 - Persistent Run selection with strategy/result/seed filters and pagination.
 - Aggregates grouped by policy weights, strategy, simulation/schema versions and
   code revision. Means and clear rate exclude unfinished Runs.

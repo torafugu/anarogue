@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from run_jobs import QueueFull, RunJobs
+from weight_analysis import analyze_runs
 
 LOG = logging.getLogger(__name__)
 TERMINAL = {"player_defeated": "defeated", "dungeon_cleared": "cleared", "restart": "restarted"}
@@ -190,6 +191,25 @@ class RunStore:
                 result.append(group)
             return {"groups": result}
 
+    def record_execution_settings(self, key, settings):
+        # Optional summary metadata: no schema change and no rewrite of raw events.
+        with closing(self.connect()) as db, db:
+            row = db.execute("SELECT summary FROM runs WHERE id=?", (key,)).fetchone()
+            if row is None:
+                raise KeyError(key)
+            summary = json.loads(row[0])
+            summary["execution_settings"] = {"max_turns": settings["max_turns"]}
+            db.execute("UPDATE runs SET summary=? WHERE id=?", (canonical(summary), key))
+
+    def weight_analysis(self, filters=None):
+        # Outcome filtering would select on the result being studied. Include
+        # unfinished Runs and use their last saved Score, unlike ranking stats.
+        filters = {key: value for key, value in (filters or {}).items() if key != "status"}
+        where, params = self.where(filters)
+        with closing(self.connect()) as db:
+            rows = db.execute("SELECT * FROM runs" + where, params)
+            return analyze_runs(self.decode(row) for row in rows)
+
 
 def summarize(events):
     last = events[-1]
@@ -272,6 +292,8 @@ def make_server(store, host="127.0.0.1", port=8765, jobs=None):
                     self.reply(200, jobs.get(url.path[len("/api/jobs/"):]))
                 elif url.path == "/api/stats":
                     self.reply(200, store.stats(query))
+                elif url.path == "/api/weight-analysis":
+                    self.reply(200, store.weight_analysis(query))
                 elif url.path.startswith("/api/runs/"):
                     key, _, suffix = url.path[len("/api/runs/"):].partition("/")
                     if not suffix:

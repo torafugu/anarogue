@@ -1069,3 +1069,25 @@ blockquote {
 .catalog-stats table { width: 100%; border-collapse: collapse; text-align: left; }
 .catalog-stats th, .catalog-stats td { padding: 12px; border-bottom: 1px solid var(--border); }
 .catalog-stats small { overflow-wrap: anywhere; }
+
+.weight-analysis { margin-bottom: 24px; }
+.weight-analysis select { max-width: 100%; width: 100%; }
+.weight-analysis .select-label { display: flex; }
+.weight-strategy { margin-top: 24px; }
+.weight-strategy h3 { text-transform: capitalize; }
+.weight-axes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.weight-axis { min-width: 0; padding: 14px; border: 1px solid var(--border); background: var(--surface); }
+.weight-axis h4 { margin: 0 0 12px; }
+.weight-correlation strong { color: var(--lime); font-size: 24px; font-variant-numeric: tabular-nums; }
+.weight-correlation span { color: var(--muted); font-size: 12px; }
+.weight-chart { display: block; width: 100%; height: auto; }
+.weight-chart text { fill: var(--muted); font-size: 12px; }
+.weight-chart polyline { fill: none; stroke: var(--lime); stroke-width: 2; }
+.weight-chart circle { fill: var(--cyan); }
+.weight-chart .weight-grid { stroke: var(--border); }
+.weight-axis details { font-size: 12px; }
+.weight-axis summary { cursor: pointer; padding: 8px 0; }
+.weight-axis table { width: 100%; text-align: left; border-collapse: collapse; }
+.weight-axis th, .weight-axis td { padding: 6px; border-bottom: 1px solid var(--border); }
+.weight-warning { color: var(--orange); }
+@media (max-width: 1000px) { .weight-axes { grid-template-columns: minmax(0, 1fr); } }

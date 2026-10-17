@@ -23,6 +23,23 @@ path corresponding to Godot's `user://` directory. `--watch` accepts multiple
 files/directories and discovers JSONL recursively, including files created later.
 The service scans every three seconds; `--interval` changes this interval.
 
+## Weight and Score analysis
+
+`GET /api/weight-analysis` returns condition cohorts containing Strategy-specific
+`axes` for `enemy_weight`, `item_weight` and `stairs_weight`. Each axis includes
+`pearson_r` (nullable), `undefined_reason`, sample count `n`, and numerically
+sorted `values` with `weight`, `mean_score`, `n` and `unfinished`. The response
+also reports `excluded_runs` for invalid/missing weights or Score. It aggregates
+all matching catalogue rows, without reading full event histories or pagination.
+Strategy, Seed and version/revision filters are supported; `status` is ignored
+to retain unfinished observations. Cohorts separate Seed/scenario, versions,
+revision, non-weight policy settings and known/unknown Max turns.
+
+The API worker records Max turns as optional `execution_settings` in the saved
+Run's summary after a Rust execution. This requires no schema migration and does
+not change raw event payloads or Run identity. Existing databases remain usable;
+old or JSONL-imported Runs have unknown Max turns unless already annotated.
+
 ## Direct Rust persistence
 
 From the repository root:

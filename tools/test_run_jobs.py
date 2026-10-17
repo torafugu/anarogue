@@ -140,6 +140,11 @@ class RunJobTests(unittest.TestCase):
         self.assertTrue(all(item["scenario_seed"] == 42 and item["turns"] <= 2 for item in runs["runs"]))
         with urlopen(base + "/api/stats?scenario_seed=42") as response:
             self.assertEqual(len(json.load(response)["groups"]), 248)
+        with urlopen(base + "/api/weight-analysis?scenario_seed=42") as response:
+            analysis = json.load(response)
+        self.assertEqual(len(analysis["cohorts"]), 1)
+        self.assertEqual(analysis["cohorts"][0]["conditions"]["max_turns"], 2)
+        self.assertEqual([group["n"] for group in analysis["cohorts"][0]["strategies"]], [124, 124])
 
     def test_queue_bound_and_missing_executable(self):
         runner = self.runner(binary=ROOT / "missing-simulator", capacity=1)
