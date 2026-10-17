@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "validate:logs": "node scripts/validate-run-log.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:analysis": "node scripts/test-weight-analysis.mjs"
   },
   "devDependencies": {
     "ajv": "^8.20.0",

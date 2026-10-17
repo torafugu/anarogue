@@ -54,6 +54,21 @@ simulation/schema version and code revision separate. With one Seed this is a
 comparison for that dungeon; repeat across Seeds for a broader assessment.
 Repeated AutoRuns are new trials and their results accumulate in the DB.
 
+The web Viewer's **Weight and Score analysis** panel adds Enemy, Treasure and
+Stairs correlations and average-Score graphs separately for each Strategy.
+Select a condition group to compare a common Seed/scenario, versions, revision,
+other policy settings and recorded Max turns. Historical Runs may have an
+unknown Turn limit; the panel warns when this cannot be verified. New API Runs
+record their limit automatically. Strategy and Seed filters apply to analysis;
+the Result filter is ignored so incomplete outcomes are not selectively removed.
+Unlike the ranking table, this analysis includes unfinished Runs using the last
+saved Score. Expand **Values and counts** for exact averages and sample sizes.
+Pearson r ranges from −1 to +1 and measures linear association; a small value
+does not rule out a curved relation. Constant data or insufficient observations
+show a reason instead of a coefficient. Repeated trials count again, and uneven
+sampling of other weights can influence the results. Compare balanced sweeps
+first; a single Seed describes that dungeon rather than performance in general.
+
 AutoRun progress records last only while the Python API is running. Restarting
 the API stops the batch; saved Runs remain in SQLite. Restarted batches start
 from the beginning rather than automatically resuming.

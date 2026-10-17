@@ -14,6 +14,8 @@ jobs:
           python-version: '3.12'
       - name: Verify SQLite import and HTTP API
         run: python -m unittest discover -s tools -p test_run_store.py -v
+      - name: Verify weight and Score analysis
+        run: python -m unittest discover -s tools -p test_weight_analysis.py -v
       - name: Install Godot 4.5 for API integration
         run: |
           curl --fail --location --output /tmp/godot.zip https://github.com/godotengine/godot/releases/download/4.5-stable/Godot_v4.5-stable_linux.x86_64.zip
@@ -30,4 +32,6 @@ jobs:
       - run: npm ci
         working-directory: viewer
       - run: npm run build
+        working-directory: viewer
+      - run: npm run test:analysis
         working-directory: viewer
