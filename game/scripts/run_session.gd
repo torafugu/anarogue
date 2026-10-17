@@ -5,6 +5,7 @@ var settings := {"seed": 424242, "strategy": "aggressive", "enemy_weight": 4, "i
 var launch_handled := false
 var job_id := ""
 var job_kind := "run"
+var batch_snapshot: Dictionary = {}
 var batch_values := {"enemy_weights": "0,1,2,3,4", "item_weights": "0,1,2,3,4", "stairs_weights": "0,1,2,3,4"}
 var replay_run_key := ""
 
