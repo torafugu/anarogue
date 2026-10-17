@@ -96,6 +96,7 @@ app.innerHTML = `
         <p class="panel-note" id="mean-metrics-status" role="status">Loading averages…</p>
         <p class="panel-note">Strategy, Result, Seed and Policy filters apply. Each matching Run has equal weight; unfinished Runs use their latest saved values. These averages cover all matching Runs, independently of the correlation condition group and Rank selection.</p>
         <div class="mean-copy-actions">
+          <label><input id="copy-means-header" type="checkbox" checked /> Include header</label>
           <button id="copy-means-csv" class="button button-ghost" type="button" disabled>Copy CSV</button>
           <button id="copy-means-tsv" class="button button-ghost" type="button" disabled>Copy TSV</button>
           <span id="mean-copy-status" class="panel-note" role="status"></span>
@@ -848,11 +849,12 @@ async function copyMeanMetrics(format: "csv" | "tsv"): Promise<void> {
   const snapshot = meanMetricsSnapshot;
   if (!snapshot) return;
   const generation = catalogueGeneration;
+  const includeHeader = getElement<HTMLInputElement>("#copy-means-header").checked;
   const status = getElement("#mean-copy-status");
   try {
     if (!navigator.clipboard?.writeText) throw new Error("Clipboard requires HTTPS or localhost");
-    await navigator.clipboard.writeText(meanMetricsDelimited(snapshot.data, snapshot.filters, format));
-    if (generation === catalogueGeneration) status.textContent = `${format.toUpperCase()} copied (header + 1 row).`;
+    await navigator.clipboard.writeText(meanMetricsDelimited(snapshot.data, snapshot.filters, format, includeHeader));
+    if (generation === catalogueGeneration) status.textContent = `${format.toUpperCase()} copied (${includeHeader ? "header + 1 row" : "1 data row"}).`;
   } catch (error) {
     if (generation === catalogueGeneration) status.textContent = `Copy failed: ${error instanceof Error ? error.message : String(error)}. Allow clipboard access and use HTTPS or localhost, then try again.`;
   }

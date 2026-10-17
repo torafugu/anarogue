@@ -16,8 +16,8 @@ const filterFields = [
   ["Temperature", "temperature"],
 ] as const;
 
-/** One header and one data row; retain full numeric precision for spreadsheets. */
-export function meanMetricsDelimited(data: MeanMetrics, filters: URLSearchParams, format: "csv" | "tsv"): string {
+/** One data row with an optional header; retain full numeric precision. */
+export function meanMetricsDelimited(data: MeanMetrics, filters: URLSearchParams, format: "csv" | "tsv", includeHeader = true): string {
   const delimiter = format === "csv" ? "," : "\t";
   const condition = filterFields.map(([label, key]) => `${label}=${filters.get(key) || "All"}`).join("; ");
   const rows = [
@@ -29,5 +29,5 @@ export function meanMetricsDelimited(data: MeanMetrics, filters: URLSearchParams
     const text = String(value);
     return text.includes(delimiter) || /["\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
   };
-  return rows.map(row => row.map(cell).join(delimiter)).join("\r\n") + "\r\n";
+  return (includeHeader ? rows : rows.slice(1)).map(row => row.map(cell).join(delimiter)).join("\r\n") + "\r\n";
 }

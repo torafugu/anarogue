@@ -163,7 +163,9 @@ selection; ranking continues to use finished Runs only. Restart the updated Run
 API when upgrading an existing Viewer session.
 
 **Copy CSV** and **Copy TSV** copy a header and one data row for spreadsheet
-pasting. The first column, `Filters`, records Strategy, Result, Seed, Enemy,
+pasting. **Include header** is checked by default; uncheck it to copy only the
+data row when appending to an existing spreadsheet. The choice applies to both
+CSV and TSV and persists while changing filters in the current page. The first column, `Filters`, records Strategy, Result, Seed, Enemy,
 Treasure, Stairs and Temperature (`All` for unrestricted values). The following
 columns contain Runs, Finished, Unfinished and the 11 averages in screen order.
 Exported numbers retain their full precision without thousands separators;
