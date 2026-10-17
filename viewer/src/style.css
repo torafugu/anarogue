@@ -1105,3 +1105,8 @@ blockquote {
 #comparison-title { margin-top: 18px; }
 
 #run-inspection > summary, .offline-import > summary { cursor: pointer; padding: 14px 0; }
+
+#mean-metrics .metric-card strong {
+  font-size: 24px;
+  overflow-wrap: anywhere;
+}

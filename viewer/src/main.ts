@@ -90,6 +90,12 @@ app.innerHTML = `
       <p class="panel-note" id="weight-analysis-status" role="status">Loading analysis…</p>
       <details id="weight-charts"><summary>Show correlations and mean Score graphs</summary><div id="weight-analysis-content"></div></details>
     </section>
+      <section aria-labelledby="filtered-means-title">
+        <h3 id="filtered-means-title">Filtered Run averages</h3>
+        <p class="panel-note" id="mean-metrics-status" role="status">Loading averages…</p>
+        <p class="panel-note">Strategy, Result, Seed and Policy filters apply. Each matching Run has equal weight; unfinished Runs use their latest saved values. These averages cover all matching Runs, independently of the correlation condition group and Rank selection.</p>
+        <div class="metrics" id="mean-metrics"></div>
+      </section>
       <label class="select-label">Rank combinations by<select id="catalog-ranking"><option value="mean_score">Mean score</option><option value="clear_rate">Clear rate</option><option value="mean_depth">Mean depth</option></select></label>
       <div class="rank-actions"><span id="rank-selection-count" role="status">0 selected</span><button id="compare-selected" class="button button-primary" disabled>Compare selected</button><button id="clear-rank-selection" class="button button-ghost" disabled>Clear selection</button></div>
       <div id="catalog-stats" class="catalog-stats"></div>
@@ -823,6 +829,26 @@ function catalogueQuery(): URLSearchParams {
   return query;
 }
 
+interface MeanMetrics {
+  runs: number;
+  unfinished: number;
+  means: Record<string, number | null>;
+}
+
+function renderMeanMetrics(data: MeanMetrics): void {
+  getElement("#mean-metrics-status").textContent = `${data.runs} matching Runs · ${data.runs - data.unfinished} finished · ${data.unfinished} unfinished`;
+  const fields = [
+    ["Score", "score"], ["Level", "level"], ["Turns", "turns"], ["Depth", "max_depth"],
+    ["Kills", "kills"], ["Damage", "damage_taken"], ["Gold", "gold"], ["Decisions", "decisions"],
+    ["Potions found", "potions_picked_up"], ["Potions used", "potions_used"], ["Healing", "hp_healed"],
+  ];
+  getElement("#mean-metrics").innerHTML = fields.map(([label, key]) => {
+    const value = data.means[key];
+    const display = value == null ? "—" : value.toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    return `<article class="metric-card"><p>${escapeHtml(label)}</p><strong>${escapeHtml(display)}</strong><span>${value == null ? "No matching Runs" : "mean per Run"}</span></article>`;
+  }).join("");
+}
+
 async function refreshCatalogue(): Promise<void> {
   if (catalogueBusy) return;
   catalogueBusy = true;
@@ -832,12 +858,19 @@ async function refreshCatalogue(): Promise<void> {
   query.set("limit", "100");
   query.set("offset", String(catalogueOffset));
   try {
-    const [runsResult, statsResult, analysisResult] = await Promise.allSettled([
+    const [runsResult, statsResult, analysisResult, meansResult] = await Promise.allSettled([
       api<{runs: StoredRun[]; total: number}>(`/api/runs?${query}`),
       api<{groups: RunGroup[]}>(`/api/stats?${statsQuery}`),
       api<WeightAnalysis>(`/api/weight-analysis?${statsQuery}`),
+      api<MeanMetrics>(`/api/mean-metrics?${statsQuery}`),
     ]);
     if (generation !== catalogueGeneration) return;
+    if (meansResult.status === "fulfilled") {
+      renderMeanMetrics(meansResult.value);
+    } else {
+      getElement("#mean-metrics").textContent = "";
+      getElement("#mean-metrics-status").textContent = `Averages unavailable: ${meansResult.reason instanceof Error ? meansResult.reason.message : String(meansResult.reason)}. Restart the updated Run API.`;
+    }
     if (analysisResult.status === "fulfilled") {
       weightAnalysis = analysisResult.value;
       updateWeightAnalysis(weightAnalysis, getElement("#weight-analysis"));
@@ -1101,6 +1134,8 @@ function catalogueFiltersChanged(): void {
   renderCatalogueSelect();
   render();
   getElement("#catalog-status").textContent = "Applying filters…";
+  getElement("#mean-metrics").textContent = "";
+  getElement("#mean-metrics-status").textContent = "Updating filtered averages…";
   getElement("#catalog-stats").textContent = "Updating filtered statistics…";
   getElement("#weight-analysis-content").textContent = "Updating filtered analysis…";
   getElement("#weight-cohort").innerHTML = "";

@@ -14,12 +14,20 @@ const eventsFor=(name,index)=>reference.map(event=>{
 });
 const events={a:eventsFor('inspection-a',0),b:eventsFor('inspection-b',1)};
 const runs=['a','b'].map((id,index)=>({id,run_id:`inspection-${id}`,strategy_id:'aggressive_v1',scenario_seed:424242,scenario_id:'scenario-424242',simulation_version:8,schema_version:8,code_revision:'inspection-test',goal_policy:events[id][0].details.goal_policy,status:'cleared',score:index?90:20,level:index?5:2,turns:index?113:108,max_depth:5,started_at:'test',execution_settings:{max_turns:5000}}));
-let failKey=null,slowKey=null;
+let failKey=null,slowKey=null,failMeans=false;
+const meanQueries=[];
 const api=createServer(async(req,res)=>{
  const url=new URL(req.url,'http://localhost');
  let result;
  if(url.pathname==='/api/runs')result={runs,total:runs.length};
  else if(url.pathname==='/api/stats')result={groups:runs.map(run=>({...run,runs:1,finished:1,cleared:1,clear_rate:1,mean_score:run.score,mean_depth:5,mean_turns:run.turns}))};
+ else if(url.pathname==='/api/mean-metrics'){
+  meanQueries.push(url.searchParams);
+  if(failMeans){res.writeHead(500,{'Content-Type':'application/json'});res.end('{"error":"fixture averages failure"}');return;}
+  const selected=runs.filter(run=>!url.searchParams.has('item_weight')||run.goal_policy.item_weight===Number(url.searchParams.get('item_weight')));
+  const mean=key=>selected.length?selected.reduce((sum,run)=>sum+run[key],0)/selected.length:null;
+  result={runs:selected.length,unfinished:0,means:Object.fromEntries(['score','level','turns','max_depth','kills','damage_taken','gold','decisions','potions_picked_up','potions_used','hp_healed'].map(key=>[key,mean(key)]))};
+ }
  else if(url.pathname==='/api/weight-analysis')result={cohorts:[],excluded_runs:0};
  else {
   const match=url.pathname.match(/^\/api\/runs\/(a|b)\/events$/);if(!match){res.writeHead(404);res.end('{}');return;}
@@ -40,6 +48,21 @@ try{
  browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE}:{})});
  const page=await browser.newPage();page.setDefaultTimeout(10000);const errors=[];page.on('pageerror',error=>errors.push(error.message));
  await page.goto(`http://127.0.0.1:${port}`);await page.waitForSelector('.rank-checkbox');
+ await page.waitForFunction(()=>document.querySelector('#mean-metrics-status').textContent.includes('2 matching Runs'));
+ assert.equal(await page.locator('#mean-metrics .metric-card').count(),11);
+ assert.equal(await page.locator('#mean-metrics strong').first().textContent(),'55.00');
+ assert(await page.evaluate(()=>{const metrics=document.querySelector('#mean-metrics');return !!(document.querySelector('#weight-analysis').compareDocumentPosition(metrics)&Node.DOCUMENT_POSITION_FOLLOWING)&&!!(metrics.compareDocumentPosition(document.querySelector('#catalog-ranking'))&Node.DOCUMENT_POSITION_FOLLOWING);}));
+ const filter=async value=>{await page.fill('#catalog-item',value);await page.locator('#catalog-item').dispatchEvent('change');};
+ await filter('4');await page.waitForFunction(()=>document.querySelector('#mean-metrics-status').textContent.includes('1 matching Runs'));
+ assert.equal(await page.locator('#mean-metrics strong').first().textContent(),'90.00');assert.equal(meanQueries.at(-1).get('item_weight'),'4');
+ await filter('3');await page.waitForFunction(()=>document.querySelector('#mean-metrics-status').textContent.includes('0 matching Runs'));
+ assert.equal(await page.locator('#mean-metrics strong').first().textContent(),'—');
+ failMeans=true;await filter('1');await page.waitForFunction(()=>document.querySelector('#mean-metrics-status').textContent.includes('Averages unavailable'));
+ assert.equal(await page.locator('#mean-metrics').textContent(),'');
+ failMeans=false;await filter('');await page.waitForFunction(()=>document.querySelector('#mean-metrics-status').textContent.includes('2 matching Runs'));
+ await page.setViewportSize({width:390,height:844});
+ assert(await page.locator('#mean-metrics').evaluate(node=>node.getBoundingClientRect().right<=window.innerWidth));
+ await page.setViewportSize({width:1280,height:800});
  for(const checkbox of await page.locator('.rank-checkbox').all())await checkbox.check();
  await page.click('#compare-selected');await page.waitForSelector('[data-stored-run="a"]');
  const inspect=async id=>{await page.locator(`[data-stored-run="${id}"]`).click();await page.waitForFunction(id=>document.querySelector('#viewer').dataset.runKey===id&&!document.querySelector('#viewer').hidden,id);};

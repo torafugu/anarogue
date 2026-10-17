@@ -16,6 +16,8 @@ jobs:
         run: python -m unittest discover -s tools -p test_run_store.py -v
       - name: Verify weight and Score analysis
         run: python -m unittest discover -s tools -p test_weight_analysis.py -v
+      - name: Verify filtered Run averages
+        run: python -m unittest discover -s tools -p test_mean_metrics.py -v
       - name: Verify Strategy and policy filtering
         run: python -m unittest discover -s tools -p test_policy_filters.py -v
       - name: Install Godot 4.5 for API integration
