@@ -53,10 +53,10 @@ class PolicyFilterTests(unittest.TestCase):
         try:
             base = f"http://127.0.0.1:{server.server_port}"
             query = urlencode({"strategy_id": "aggressive_v1", "enemy_weight": 0, "item_weight": 3, "stairs_weight": 2, "temperature": 8})
-            for endpoint in ("runs", "stats", "weight-analysis"):
+            for endpoint in ("runs", "stats", "weight-analysis", "mean-metrics"):
                 with urlopen(f"{base}/api/{endpoint}?{query}") as response:
                     data = json.load(response)
-                count = data["total"] if endpoint == "runs" else sum(group["runs"] for group in data["groups"]) if endpoint == "stats" else sum(strategy["n"] for cohort in data["cohorts"] for strategy in cohort["strategies"])
+                count = (data["total"] if endpoint == "runs" else data["runs"]) if endpoint in ("runs", "mean-metrics") else sum(group["runs"] for group in data["groups"]) if endpoint == "stats" else sum(strategy["n"] for cohort in data["cohorts"] for strategy in cohort["strategies"])
                 self.assertEqual(count, 1)
                 for invalid in ("-1", "1001", "1.5", "true", "0 OR 1=1"):
                     with self.subTest(endpoint=endpoint, value=invalid), self.assertRaises(HTTPError) as error:

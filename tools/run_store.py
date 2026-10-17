@@ -201,6 +201,24 @@ class RunStore:
                 result.append(group)
             return {"groups": result}
 
+    def mean_metrics(self, filters=None):
+        """Run-weighted means over every match, including unfinished snapshots."""
+        where, params = self.where(filters or {})
+        fields = ("score", "level", "turns", "max_depth", "kills", "damage_taken",
+                  "gold", "decisions", "potions_picked_up", "potions_used", "hp_healed")
+        expressions = []
+        for field in fields:
+            value = f"json_extract(summary, '$.{field}')"
+            if field == "decisions":
+                # Older summaries omit Decisions; recover the exact event count.
+                value = f"COALESCE({value}, (SELECT COUNT(*) FROM events WHERE run_key=runs.id AND json_extract(payload, '$.event')='decision'))"
+            expressions.append(f"AVG({value}) AS {field}")
+        with closing(self.connect()) as db:
+            row = db.execute("SELECT COUNT(*) AS runs, COALESCE(SUM(status='unfinished'),0) AS unfinished, "
+                             + ", ".join(expressions) + " FROM runs" + where, params).fetchone()
+            return {"runs": row["runs"], "unfinished": row["unfinished"],
+                    "means": {field: row[field] for field in fields}}
+
     def record_execution_settings(self, key, settings):
         # Optional summary metadata: no schema change and no rewrite of raw events.
         with closing(self.connect()) as db, db:
@@ -230,6 +248,7 @@ def summarize(events):
                "xp": player.get("xp", 0), "hp": player.get("hp", last.get("hp", 0)),
                "gold": player.get("gold", last.get("gold", 0)),
                "status": "unfinished", "kills": 0, "damage_taken": 0,
+               "decisions": sum(e["event"] == "decision" for e in events),
                "potions_picked_up": 0, "potions_used": 0, "hp_healed": 0}
     for event in events:
         details = event.get("details", {})
@@ -302,6 +321,8 @@ def make_server(store, host="127.0.0.1", port=8765, jobs=None):
                     self.reply(200, jobs.get(url.path[len("/api/jobs/"):]))
                 elif url.path == "/api/stats":
                     self.reply(200, store.stats(query))
+                elif url.path == "/api/mean-metrics":
+                    self.reply(200, store.mean_metrics(query))
                 elif url.path == "/api/weight-analysis":
                     self.reply(200, store.weight_analysis(query))
                 elif url.path.startswith("/api/runs/"):

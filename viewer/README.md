@@ -149,3 +149,15 @@ Viewer after updating. The panel polls automatically with the catalogue.
 
 See [Run store guide](../docs/run-store.md) for import identity, unfinished status,
 API routes, known revision limits and operational details.
+
+### Filtered Run averages
+
+Between the correlation graphs and Rank list, **Filtered Run averages** displays
+Score, Level, Turns, Depth, Kills, Damage, Gold, Decisions, Potions found,
+Potions used and Healing. `/api/mean-metrics` computes an arithmetic mean per Run
+over every match, beyond catalogue pagination. Strategy, Result, Seed and all
+Policy filters apply. Unfinished Runs contribute their latest saved snapshot;
+the heading reports matching, finished and unfinished counts. Empty results show
+“—”. These averages are independent of the correlation condition group and Rank
+selection; ranking continues to use finished Runs only. Restart the updated Run
+API when upgrading an existing Viewer session.
