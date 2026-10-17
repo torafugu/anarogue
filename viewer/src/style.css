@@ -1110,3 +1110,11 @@ blockquote {
   font-size: 24px;
   overflow-wrap: anywhere;
 }
+
+.mean-copy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}

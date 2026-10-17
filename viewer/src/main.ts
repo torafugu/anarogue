@@ -1,4 +1,5 @@
 import "./style.css";
+import { meanMetricFields, meanMetricsDelimited, type MeanMetrics } from "./filtered-metrics.ts";
 import { policyGroupKey, comparisonConditions, loadRankRuns, type ComparisonCondition } from "./rank-comparison.ts";
 import { updateWeightAnalysis, type WeightAnalysis } from "./weight-analysis.ts";
 import { api, type StoredRun, type RunGroup } from "./catalog.ts";
@@ -94,6 +95,11 @@ app.innerHTML = `
         <h3 id="filtered-means-title">Filtered Run averages</h3>
         <p class="panel-note" id="mean-metrics-status" role="status">Loading averages…</p>
         <p class="panel-note">Strategy, Result, Seed and Policy filters apply. Each matching Run has equal weight; unfinished Runs use their latest saved values. These averages cover all matching Runs, independently of the correlation condition group and Rank selection.</p>
+        <div class="mean-copy-actions">
+          <button id="copy-means-csv" class="button button-ghost" type="button" disabled>Copy CSV</button>
+          <button id="copy-means-tsv" class="button button-ghost" type="button" disabled>Copy TSV</button>
+          <span id="mean-copy-status" class="panel-note" role="status"></span>
+        </div>
         <div class="metrics" id="mean-metrics"></div>
       </section>
       <label class="select-label">Rank combinations by<select id="catalog-ranking"><option value="mean_score">Mean score</option><option value="clear_rate">Clear rate</option><option value="mean_depth">Mean depth</option></select></label>
@@ -829,20 +835,36 @@ function catalogueQuery(): URLSearchParams {
   return query;
 }
 
-interface MeanMetrics {
-  runs: number;
-  unfinished: number;
-  means: Record<string, number | null>;
+let meanMetricsSnapshot: { data: MeanMetrics; filters: URLSearchParams } | null = null;
+
+function clearMeanMetricsExport(): void {
+  meanMetricsSnapshot = null;
+  getElement<HTMLButtonElement>("#copy-means-csv").disabled = true;
+  getElement<HTMLButtonElement>("#copy-means-tsv").disabled = true;
+  getElement("#mean-copy-status").textContent = "";
+}
+
+async function copyMeanMetrics(format: "csv" | "tsv"): Promise<void> {
+  const snapshot = meanMetricsSnapshot;
+  if (!snapshot) return;
+  const generation = catalogueGeneration;
+  const status = getElement("#mean-copy-status");
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("Clipboard requires HTTPS or localhost");
+    await navigator.clipboard.writeText(meanMetricsDelimited(snapshot.data, snapshot.filters, format));
+    if (generation === catalogueGeneration) status.textContent = `${format.toUpperCase()} copied (header + 1 row).`;
+  } catch (error) {
+    if (generation === catalogueGeneration) status.textContent = `Copy failed: ${error instanceof Error ? error.message : String(error)}. Allow clipboard access and use HTTPS or localhost, then try again.`;
+  }
+}
+
+for (const format of ["csv", "tsv"] as const) {
+  getElement(`#copy-means-${format}`).addEventListener("click", () => { void copyMeanMetrics(format); });
 }
 
 function renderMeanMetrics(data: MeanMetrics): void {
   getElement("#mean-metrics-status").textContent = `${data.runs} matching Runs · ${data.runs - data.unfinished} finished · ${data.unfinished} unfinished`;
-  const fields = [
-    ["Score", "score"], ["Level", "level"], ["Turns", "turns"], ["Depth", "max_depth"],
-    ["Kills", "kills"], ["Damage", "damage_taken"], ["Gold", "gold"], ["Decisions", "decisions"],
-    ["Potions found", "potions_picked_up"], ["Potions used", "potions_used"], ["Healing", "hp_healed"],
-  ];
-  getElement("#mean-metrics").innerHTML = fields.map(([label, key]) => {
+  getElement("#mean-metrics").innerHTML = meanMetricFields.map(([label, key]) => {
     const value = data.means[key];
     const display = value == null ? "—" : value.toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
     return `<article class="metric-card"><p>${escapeHtml(label)}</p><strong>${escapeHtml(display)}</strong><span>${value == null ? "No matching Runs" : "mean per Run"}</span></article>`;
@@ -867,7 +889,11 @@ async function refreshCatalogue(): Promise<void> {
     if (generation !== catalogueGeneration) return;
     if (meansResult.status === "fulfilled") {
       renderMeanMetrics(meansResult.value);
+      meanMetricsSnapshot = {data: meansResult.value, filters: new URLSearchParams(statsQuery)};
+      getElement<HTMLButtonElement>("#copy-means-csv").disabled = false;
+      getElement<HTMLButtonElement>("#copy-means-tsv").disabled = false;
     } else {
+      clearMeanMetricsExport();
       getElement("#mean-metrics").textContent = "";
       getElement("#mean-metrics-status").textContent = `Averages unavailable: ${meansResult.reason instanceof Error ? meansResult.reason.message : String(meansResult.reason)}. Restart the updated Run API.`;
     }
@@ -1136,6 +1162,7 @@ function catalogueFiltersChanged(): void {
   getElement("#catalog-status").textContent = "Applying filters…";
   getElement("#mean-metrics").textContent = "";
   getElement("#mean-metrics-status").textContent = "Updating filtered averages…";
+  clearMeanMetricsExport();
   getElement("#catalog-stats").textContent = "Updating filtered statistics…";
   getElement("#weight-analysis-content").textContent = "Updating filtered analysis…";
   getElement("#weight-cohort").innerHTML = "";

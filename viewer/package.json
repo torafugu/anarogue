@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test:analysis": "node scripts/test-weight-analysis.mjs",
     "test:comparison": "node scripts/test-rank-comparison.mjs",
-    "test:inspection": "node scripts/test-inspection.mjs"
+    "test:inspection": "node scripts/test-inspection.mjs",
+    "test:metrics": "node scripts/test-filtered-metrics.mjs"
   },
   "devDependencies": {
     "ajv": "^8.20.0",

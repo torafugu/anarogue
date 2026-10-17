@@ -39,6 +39,8 @@ jobs:
         working-directory: viewer
       - run: npm run test:analysis
         working-directory: viewer
+      - run: npm run test:metrics
+        working-directory: viewer
       - run: npm run test:comparison
         working-directory: viewer
       - name: Install Chromium for Run inspection regression

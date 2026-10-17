@@ -46,19 +46,37 @@ let browser;
 try{
  for(let attempt=0;attempt<100;attempt++){try{const r=await fetch(`http://127.0.0.1:${port}`);if(r.ok)break;}catch{}await new Promise(resolve=>setTimeout(resolve,50));}
  browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE}:{})});
- const page=await browser.newPage();page.setDefaultTimeout(10000);const errors=[];page.on('pageerror',error=>errors.push(error.message));
+ const page=await browser.newPage({permissions:['clipboard-read','clipboard-write']});page.setDefaultTimeout(10000);const errors=[];page.on('pageerror',error=>errors.push(error.message));
  await page.goto(`http://127.0.0.1:${port}`);await page.waitForSelector('.rank-checkbox');
  await page.waitForFunction(()=>document.querySelector('#mean-metrics-status').textContent.includes('2 matching Runs'));
  assert.equal(await page.locator('#mean-metrics .metric-card').count(),11);
  assert.equal(await page.locator('#mean-metrics strong').first().textContent(),'55.00');
+ await page.click('#copy-means-csv');await page.waitForFunction(()=>document.querySelector('#mean-copy-status').textContent.includes('CSV copied'));
+ const csv=await page.evaluate(()=>navigator.clipboard.readText());
+ assert(csv.startsWith('Filters,Runs,Finished,Unfinished,Score,Level,Turns,Depth,Kills,Damage,Gold,Decisions,Potions found,Potions used,Healing\r\n'));
+ assert(csv.includes('Strategy=All; Result=All; Seed=All; Enemy=All; Treasure=All; Stairs=All; Temperature=All,2,2,0,55,3.5,110.5,'));
+ await page.evaluate(()=>Object.defineProperty(navigator.clipboard,'writeText',{configurable:true,value:()=>Promise.reject(new Error('clipboard denied'))}));
+ await page.click('#copy-means-tsv');await page.waitForFunction(()=>document.querySelector('#mean-copy-status').textContent.includes('Copy failed: clipboard denied'));
+ await page.evaluate(()=>delete navigator.clipboard.writeText);
+
  assert(await page.evaluate(()=>{const metrics=document.querySelector('#mean-metrics');return !!(document.querySelector('#weight-analysis').compareDocumentPosition(metrics)&Node.DOCUMENT_POSITION_FOLLOWING)&&!!(metrics.compareDocumentPosition(document.querySelector('#catalog-ranking'))&Node.DOCUMENT_POSITION_FOLLOWING);}));
- const filter=async value=>{await page.fill('#catalog-item',value);await page.locator('#catalog-item').dispatchEvent('change');};
+ const filter=async value=>{await page.fill('#catalog-item',value);await page.locator('#catalog-item').press('Tab');};
  await filter('4');await page.waitForFunction(()=>document.querySelector('#mean-metrics-status').textContent.includes('1 matching Runs'));
  assert.equal(await page.locator('#mean-metrics strong').first().textContent(),'90.00');assert.equal(meanQueries.at(-1).get('item_weight'),'4');
+ await page.click('#copy-means-tsv');await page.waitForFunction(()=>document.querySelector('#mean-copy-status').textContent.includes('TSV copied'));
+ const tsv=await page.evaluate(()=>navigator.clipboard.readText());
+ assert(tsv.startsWith('Filters\tRuns\tFinished\tUnfinished\tScore\t'));
+ assert(tsv.includes('Treasure=4; Stairs=All; Temperature=All\t1\t1\t0\t90\t5\t113\t'));
+
  await filter('3');await page.waitForFunction(()=>document.querySelector('#mean-metrics-status').textContent.includes('0 matching Runs'));
  assert.equal(await page.locator('#mean-metrics strong').first().textContent(),'—');
+ await page.click('#copy-means-tsv');await page.waitForFunction(()=>document.querySelector('#mean-copy-status').textContent.includes('TSV copied'));
+ const emptyCopy=await page.evaluate(()=>navigator.clipboard.readText());assert(emptyCopy.split('\r\n')[1].endsWith('\t0\t0\t0'+'\t'.repeat(11)));
+
  failMeans=true;await filter('1');await page.waitForFunction(()=>document.querySelector('#mean-metrics-status').textContent.includes('Averages unavailable'));
  assert.equal(await page.locator('#mean-metrics').textContent(),'');
+ assert(await page.locator('#copy-means-csv').isDisabled());assert(await page.locator('#copy-means-tsv').isDisabled());
+
  failMeans=false;await filter('');await page.waitForFunction(()=>document.querySelector('#mean-metrics-status').textContent.includes('2 matching Runs'));
  await page.setViewportSize({width:390,height:844});
  assert(await page.locator('#mean-metrics').evaluate(node=>node.getBoundingClientRect().right<=window.innerWidth));
@@ -81,5 +99,5 @@ try{
  failKey=null;await page.click('#inspection-retry');await page.waitForFunction(()=>document.querySelector('#viewer').dataset.runKey==='a'&&!document.querySelector('#viewer').hidden);
  const restored=await snapshot();for(const field of Object.keys(first))assert.equal(restored[field],first[field],`${field} returns to Run A`);
  assert.deepEqual(errors,[]);
- console.log('Inspection regression passed: all metrics/HP/route/events/details change A→B→A; filters reset, latest click wins and failed loads clear stale content and retry.');
+ console.log('Clipboard export passed: native CSV/TSV clipboard, filter snapshot, counts, empty export, denied access and failed API state. Inspection regression passed: all metrics/HP/route/events/details change A→B→A; filters reset, latest click wins and failed loads clear stale content and retry.');
 }finally{if(browser)await browser.close();child.kill('SIGTERM');api.closeAllConnections();await new Promise(resolve=>api.close(resolve));}

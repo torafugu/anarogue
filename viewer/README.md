@@ -161,3 +161,14 @@ the heading reports matching, finished and unfinished counts. Empty results show
 “—”. These averages are independent of the correlation condition group and Rank
 selection; ranking continues to use finished Runs only. Restart the updated Run
 API when upgrading an existing Viewer session.
+
+**Copy CSV** and **Copy TSV** copy a header and one data row for spreadsheet
+pasting. The first column, `Filters`, records Strategy, Result, Seed, Enemy,
+Treasure, Stairs and Temperature (`All` for unrestricted values). The following
+columns contain Runs, Finished, Unfinished and the 11 averages in screen order.
+Exported numbers retain their full precision without thousands separators;
+missing averages are blank. TSV is convenient for direct spreadsheet pasting.
+Copy becomes available after averages load, including empty results, and is
+disabled while applying filters or when averages fail to load. Clipboard access
+requires HTTPS or localhost and browser permission; failures appear beside the
+buttons. Correlation condition and Rank selections do not affect these averages.
