@@ -76,6 +76,7 @@ func build_frames(events: Array, include_all_events := false) -> Array[Dictionar
 		var depth: int = int(event.get("depth", 1))
 		var details: Dictionary = event.get("details", {})
 		var previous_count := result.size()
+		var enemies_before := last_enemies.duplicate(true)
 		# Ordinary melee results also change the final state of a Turn.
 		if include_all_events and event_name == "battle_result":
 			for index in range(last_enemies.size() - 1, -1, -1):
@@ -169,6 +170,23 @@ func build_frames(events: Array, include_all_events := false) -> Array[Dictionar
 			result.append(make_frame(event, floors, last_enemies, last_stairs, last_items, "terminal"))
 		if include_all_events and result.size() == previous_count:
 			result.append(make_frame(event, floors, last_enemies, last_stairs, last_items, event_name))
+		# Turn snapshots deliberately show the final state. Arrows need a separate
+		# attack-time scene, before the victim disappears or enemies move.
+		for index in range(previous_count, result.size()):
+			var frame: Dictionary = result[index]
+			if frame["arrow"].is_empty():
+				continue
+			var scene: Dictionary = frame.duplicate(true)
+			scene["enemies"] = enemies_before.duplicate(true)
+			var player_shot: bool = frame["arrow"].get("player_shot", false)
+			for enemy in scene["enemies"]:
+				if enemy.get("id", "") == details.get("enemy_id", ""):
+					enemy["pos"] = details["enemy_pos"].duplicate(true)
+					if player_shot and details.has("enemy_hp_before"):
+						enemy["hp"] = details["enemy_hp_before"]
+			if player_shot:
+				scene["player_state"]["pos"] = frame["arrow"]["from"].duplicate(true)
+			frame["shot_scene"] = scene
 	return result
 
 
@@ -176,8 +194,13 @@ func build_turns(events: Array) -> Array[Dictionary]:
 	var snapshots := build_frames(events, true)
 	var by_turn: Dictionary = {}
 	var logs: Dictionary = {}
+	var shots: Dictionary = {}
 	for snapshot in snapshots:
 		var turn: int = snapshot["turn"]
+		if snapshot.has("shot_scene"):
+			if not shots.has(turn):
+				shots[turn] = []
+			shots[turn].append(snapshot["shot_scene"])
 		var previous: Dictionary = by_turn.get(turn, {})
 		# The next decision observes the completed Turn (including enemy movement).
 		var state: Dictionary = snapshot.duplicate(true)
@@ -202,6 +225,7 @@ func build_turns(events: Array) -> Array[Dictionary]:
 	for turn in numbers:
 		var state: Dictionary = by_turn[turn]
 		state["log_frames"] = logs.get(turn, [])
+		state["arrow_frames"] = shots.get(turn, [])
 		result.append(state)
 	return result
 
