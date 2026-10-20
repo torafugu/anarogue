@@ -165,9 +165,12 @@ API when upgrading an existing Viewer session.
 **Copy CSV** and **Copy TSV** copy a header and one data row for spreadsheet
 pasting. **Include header** is checked by default; uncheck it to copy only the
 data row when appending to an existing spreadsheet. The choice applies to both
-CSV and TSV and persists while changing filters in the current page. The first column, `Filters`, records Strategy, Result, Seed, Enemy,
-Treasure, Stairs and Temperature (`All` for unrestricted values). The following
-columns contain Runs, Finished, Unfinished and the 11 averages in screen order.
+CSV and TSV and persists while changing filters in the current page. The first
+seven columns are Strategy, Result, Seed, Enemy, Treasure, Stairs and Temperature,
+with each filter value in its own cell (`All` for unrestricted values). They are
+followed by Runs, Finished, Unfinished and the 11 averages in screen order.
+This replaces the former combined `Filters` column, so existing spreadsheets
+should use the new 21-column header when appending exported data.
 Exported numbers retain their full precision without thousands separators;
 missing averages are blank. TSV is convenient for direct spreadsheet pasting.
 Copy becomes available after averages load, including empty results, and is
