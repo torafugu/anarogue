@@ -12,7 +12,7 @@ fn main() -> ExitCode {
             eprintln!("error: {message}");
             eprintln!(
                 "usage: anarogue-sim [--strategy aggressive|cautious] [--seed N] \
-                 [--width N] [--height N] [--max-turns N] [--output PATH] [--enemy-weight N] [--item-weight N] [--stairs-weight N] [--temperature N] [--db PATH] [--revision REV]"
+                 [--width N] [--height N] [--max-turns N] [--enemy-amount 0..500] [--treasure-amount 0..500] [--map-depth 1..100] [--output PATH] [--enemy-weight N] [--item-weight N] [--stairs-weight N] [--temperature N] [--db PATH] [--revision REV]"
             );
             ExitCode::FAILURE
         }
@@ -129,6 +129,7 @@ fn parse_options() -> Result<CliOptions, String> {
         map_width: 24,
         map_height: 18,
         max_turns: 120,
+        map_settings: Default::default(),
     };
     let mut output = None;
     let mut database = None;
@@ -144,6 +145,11 @@ fn parse_options() -> Result<CliOptions, String> {
             "--seed" => config.scenario_seed = parse_number(&argument, &value)?,
             "--width" => config.map_width = parse_number(&argument, &value)?,
             "--height" => config.map_height = parse_number(&argument, &value)?,
+            "--enemy-amount" => config.map_settings.enemy_amount = parse_number(&argument, &value)?,
+            "--treasure-amount" => {
+                config.map_settings.treasure_amount = parse_number(&argument, &value)?
+            }
+            "--map-depth" => config.map_settings.map_depth = parse_number(&argument, &value)?,
             "--max-turns" => config.max_turns = parse_number(&argument, &value)?,
             "--enemy-weight" => weights[0] = Some(parse_number(&argument, &value)?),
             "--item-weight" => weights[1] = Some(parse_number(&argument, &value)?),

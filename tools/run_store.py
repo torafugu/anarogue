@@ -226,7 +226,8 @@ class RunStore:
             if row is None:
                 raise KeyError(key)
             summary = json.loads(row[0])
-            summary["execution_settings"] = {"max_turns": settings["max_turns"]}
+            summary["execution_settings"] = {field: settings[field] for field in
+                ("max_turns", "enemy_amount", "treasure_amount", "map_depth") if field in settings}
             db.execute("UPDATE runs SET summary=? WHERE id=?", (canonical(summary), key))
 
     def weight_analysis(self, filters=None):

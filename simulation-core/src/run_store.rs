@@ -175,6 +175,7 @@ fn summarize(events: &[RunLogEvent]) -> Value {
         "hp": player.get("hp").and_then(Value::as_i64).unwrap_or(last.hp.into()),
         "gold": player.get("gold").and_then(Value::as_u64).unwrap_or(last.gold.into()),
         "status": status, "kills": kills, "damage_taken": damage,
+        "decisions": events.iter().filter(|event| event.event == "decision").count(),
         "potions_picked_up": picked, "potions_used": used, "hp_healed": healed,
     })
 }

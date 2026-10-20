@@ -281,3 +281,9 @@ Next extensions can add incremental event ingestion,
 parameter sweeps, and benefit/risk or death-path aggregates using the stored
 events. The current watcher rereads a changed file; for very large continuous
 logs, rotating outputs per Run limits that cost.
+
+### Map settings for Run and AutoRun
+
+`POST /api/jobs` and `POST /api/batches` accept `enemy_amount` and `treasure_amount` (integer percentages 0..500, default 100) and `map_depth` (integer exit depth 1..100, default 5). AutoRun copies these conditions into every combination. The worker passes them as `--enemy-amount`, `--treasure-amount`, `--map-depth` and saves them in `execution_settings` alongside `max_turns`.
+
+Custom conditions are recorded in `run_start.details.map_settings` and a distinct scenario ID. The default 100/100/5 preserves v8 event parity and scenario IDs. Depth follows the existing exit-depth convention: 5 clears on descent from floor 4; 1 clears on the first stairs without exceeding depth 1. Percentage scaling uses each floor's normal spawn count, rounding to the nearest integer; extra objects occupy free room-interior tiles, excluding the player, stairs and other objects. Treasure scales floor items, not enemy gold rewards.

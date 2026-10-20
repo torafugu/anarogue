@@ -107,6 +107,7 @@ fn repeated_same_seed_runs_have_unique_identity_and_equal_outcomes() {
         map_width: 24,
         map_height: 18,
         max_turns: 120,
+        map_settings: Default::default(),
     };
     let first = Simulation::new_logged(config, "same.jsonl".into())
         .unwrap()

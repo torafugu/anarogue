@@ -14,17 +14,18 @@ class QueueFull(Exception):
     pass
 
 MAX_BATCH_RUNS = 2000
+MAP_FIELDS = ("enemy_amount", "treasure_amount", "map_depth")
 TERMINAL_JOBS = ("completed", "failed", "cancelled")
 
 
 def validate_batch(value):
     if not isinstance(value, dict):
         raise ValueError("AutoRun settings must be a JSON object")
-    fields = {"seed", "max_turns", "strategies", "enemy_weights", "item_weights", "stairs_weights"}
+    fields = {"seed", "max_turns", "strategies", "enemy_weights", "item_weights", "stairs_weights", *MAP_FIELDS}
     if set(value) - fields:
         raise ValueError("Unknown AutoRun setting")
-    single = validate_settings({key: value[key] for key in ("seed", "max_turns") if key in value})
-    settings = {key: single[key] for key in ("seed", "max_turns")}
+    single = validate_settings({key: value[key] for key in ("seed", "max_turns", *MAP_FIELDS) if key in value})
+    settings = {key: single[key] for key in ("seed", "max_turns", *MAP_FIELDS)}
     strategies = value.get("strategies", ["aggressive", "cautious"])
     if not isinstance(strategies, list) or not strategies or any(
             item not in ("aggressive", "cautious") for item in strategies):
@@ -49,13 +50,14 @@ def batch_combinations(settings):
                                                 settings["item_weights"], settings["stairs_weights"]):
         if enemy + item + stairs:
             yield {"strategy": strategy, "seed": settings["seed"], "max_turns": settings["max_turns"],
-                   "enemy_weight": enemy, "item_weight": item, "stairs_weight": stairs}
+                   "enemy_weight": enemy, "item_weight": item, "stairs_weight": stairs,
+                   **{key: settings[key] for key in MAP_FIELDS}}
 
 
 def validate_settings(value):
     if not isinstance(value, dict):
         raise ValueError("Run settings must be a JSON object")
-    fields = {"seed", "strategy", "enemy_weight", "item_weight", "stairs_weight", "max_turns"}
+    fields = {"seed", "strategy", "enemy_weight", "item_weight", "stairs_weight", "max_turns", *MAP_FIELDS}
     if set(value) - fields:
         raise ValueError("Unknown Run setting")
     strategy = value.get("strategy", "aggressive")
@@ -63,11 +65,14 @@ def validate_settings(value):
         raise ValueError("strategy must be aggressive or cautious")
     settings = {"strategy": strategy}
     defaults = {"seed": 424242, "max_turns": 5000, "enemy_weight": 1 if strategy == "cautious" else 4,
-                "item_weight": 2, "stairs_weight": 4 if strategy == "cautious" else 1}
+                "item_weight": 2, "stairs_weight": 4 if strategy == "cautious" else 1,
+                "enemy_amount": 100, "treasure_amount": 100, "map_depth": 5}
     for field, default in defaults.items():
         number = value.get(field, default)
         maximum = 4294967295 if field == "seed" else 100000 if field == "max_turns" else 1000
-        minimum = 1 if field == "max_turns" else 0
+        if field in MAP_FIELDS:
+            maximum = 100 if field == "map_depth" else 500
+        minimum = 1 if field in ("max_turns", "map_depth") else 0
         if type(number) is not int or not minimum <= number <= maximum:
             raise ValueError(f"{field} must be an integer in {minimum}..{maximum}")
         settings[field] = number
