@@ -14,6 +14,7 @@ const MAX_ROOM_SIZE: i32 = 11;
 const BASE_MAX_HP: i32 = 18;
 const BASE_ATTACK: i32 = 5;
 const BOW_RANGE: i32 = 5;
+#[cfg(test)]
 const MAX_DEPTH: u32 = 5;
 const POTION_HEAL: i32 = 8;
 const INVENTORY_CAPACITY: u32 = 3;
@@ -101,12 +102,31 @@ impl std::str::FromStr for Strategy {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct MapSettings {
+    pub enemy_amount: u32,
+    pub treasure_amount: u32,
+    pub map_depth: u32,
+}
+
+impl Default for MapSettings {
+    fn default() -> Self {
+        Self {
+            enemy_amount: 100,
+            treasure_amount: 100,
+            map_depth: 5,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SimulationConfig {
     pub scenario_seed: u32,
     pub strategy: Strategy,
     pub map_width: i32,
     pub map_height: i32,
     pub max_turns: u32,
+    #[serde(default)]
+    pub map_settings: MapSettings,
 }
 
 impl SimulationConfig {
@@ -117,6 +137,12 @@ impl SimulationConfig {
                 "map dimensions must both be at least {minimum}, got {}x{}",
                 self.map_width, self.map_height
             ));
+        }
+        if self.map_settings.enemy_amount > 500
+            || self.map_settings.treasure_amount > 500
+            || !(1..=100).contains(&self.map_settings.map_depth)
+        {
+            return Err("map amounts must be in 0..500 percent and depth in 1..100".into());
         }
         Ok(self)
     }
@@ -501,7 +527,17 @@ impl Simulation {
             std::process::id(),
             RUN_COUNTER.fetch_add(1, Ordering::Relaxed)
         );
-        let scenario_id = format!("scenario-{}", config.scenario_seed);
+        let scenario_id = if config.map_settings == MapSettings::default() {
+            format!("scenario-{}", config.scenario_seed)
+        } else {
+            format!(
+                "scenario-{}-e{}-t{}-d{}",
+                config.scenario_seed,
+                config.map_settings.enemy_amount,
+                config.map_settings.treasure_amount,
+                config.map_settings.map_depth
+            )
+        };
         Self::create(
             config,
             Some(EventLogger {
@@ -602,7 +638,7 @@ impl Simulation {
         let Some(logger) = self.logger.as_ref() else {
             return;
         };
-        let details = json!({
+        let mut details = json!({
             "log_file": logger.log_file,
             "scenario_id": logger.scenario_id,
             "scenario_seed": self.config.scenario_seed,
@@ -613,6 +649,9 @@ impl Simulation {
             "comparison": false,
             "comparison_phase": 0,
         });
+        if self.config.map_settings != MapSettings::default() {
+            details["map_settings"] = serde_json::to_value(self.config.map_settings).unwrap();
+        }
         self.emit_event("run_start", details);
     }
 
@@ -721,10 +760,27 @@ impl Simulation {
         if self.stairs == self.player.pos {
             self.stairs = self.farthest_walkable_tile_from(self.player.pos);
         }
-        self.spawn_enemies(&mut PortableRng::new(spawn_seed));
+        let mut spawn_rng = PortableRng::new(spawn_seed);
+        self.spawn_enemies(&mut spawn_rng);
+        let enemy_target =
+            (self.enemies.len() * self.config.map_settings.enemy_amount as usize + 50) / 100;
+        self.enemies.truncate(enemy_target);
+        for room in self
+            .rooms
+            .clone()
+            .into_iter()
+            .cycle()
+            .take(enemy_target * self.rooms.len())
+        {
+            if self.enemies.len() >= enemy_target {
+                break;
+            }
+            self.spawn_enemy_in_room(room, &mut spawn_rng);
+        }
         let item_seed =
             PortableRng::derive_seed(self.config.scenario_seed, "items", self.player.depth, None);
         self.spawn_items(&mut PortableRng::new(item_seed));
+        self.scale_treasure(&mut PortableRng::new(item_seed));
         self.emit_event(
             "floor_start",
             json!({
@@ -740,6 +796,42 @@ impl Simulation {
                 "stairs_pos": self.stairs,
             }),
         );
+    }
+
+    fn scale_treasure(&mut self, rng: &mut PortableRng) {
+        let originals = self.items.clone();
+        let target =
+            (originals.len() * self.config.map_settings.treasure_amount as usize + 50) / 100;
+        while self.items.len() > target {
+            let index = rng.range_inclusive(0, self.items.len() as i32 - 1) as usize;
+            self.items.swap_remove(index);
+        }
+        if target <= originals.len() || originals.is_empty() {
+            return;
+        }
+        let mut candidates = Vec::new();
+        for room in &self.rooms {
+            for y in room.y + 1..room.end_y() - 1 {
+                for x in room.x + 1..room.end_x() - 1 {
+                    let pos = Point { x, y };
+                    if pos != self.player.pos
+                        && pos != self.stairs
+                        && self.enemy_at(pos).is_none()
+                        && !self.items.iter().any(|item| item.pos == pos)
+                    {
+                        candidates.push(pos);
+                    }
+                }
+            }
+        }
+        while self.items.len() < target && !candidates.is_empty() {
+            let index = self.items.len();
+            let mut item = originals[index % originals.len()].clone();
+            item.id = format!("extra-item-{}-{}", self.player.depth, index);
+            item.pos = candidates
+                .swap_remove(rng.range_inclusive(0, candidates.len() as i32 - 1) as usize);
+            self.items.push(item);
+        }
     }
 
     fn spawn_items(&mut self, rng: &mut PortableRng) {
@@ -1743,7 +1835,13 @@ impl Simulation {
 
             let benefit = xp_gain as i32 * 2
                 + 2
-                + levels_gained as i32 * (8 + (MAX_DEPTH - 1 - self.player.depth) as i32 * 6);
+                + levels_gained as i32
+                    * (8 + (self
+                        .config
+                        .map_settings
+                        .map_depth
+                        .saturating_sub(1 + self.player.depth)) as i32
+                        * 6);
             let mut direction = if self.can_player_shoot_from(self.player.pos, enemy.pos) {
                 Point::ZERO
             } else {
@@ -1854,7 +1952,7 @@ impl Simulation {
                 let repeated = route.iter().map(|p| self.revisit_cost(*p)).sum();
                 let benefit = 8
                     + 4.min(self.player.max_hp - self.player.hp) * 2
-                    + if self.player.depth == MAX_DEPTH - 1 {
+                    + if self.player.depth == self.config.map_settings.map_depth - 1 {
                         20
                     } else {
                         0
@@ -1973,7 +2071,7 @@ impl Simulation {
         let stairs_healing = 4.min(self.player.max_hp - self.player.hp);
         let mut stairs_score =
             if cautious { 16 } else { 8 } + stairs_healing * 2 - (stairs_route.len().min(8) as i32);
-        if self.player.depth == MAX_DEPTH - 1 {
+        if self.player.depth == self.config.map_settings.map_depth - 1 {
             stairs_score += 20;
         }
         let mut candidates = Vec::new();
@@ -2032,7 +2130,13 @@ impl Simulation {
                 repeated_cost += self.revisit_cost(*pos);
             }
             let mut score = xp_gain as i32 * if cautious { 2 } else { 4 }
-                + levels_gained as i32 * (8 + (MAX_DEPTH - 1 - self.player.depth) as i32 * 6);
+                + levels_gained as i32
+                    * (8 + (self
+                        .config
+                        .map_settings
+                        .map_depth
+                        .saturating_sub(1 + self.player.depth)) as i32
+                        * 6);
             score -= approach.len() as i32 * if cautious { 2 } else { 1 }
                 + attack_turns
                 + damage * if cautious { 3 } else { 2 }
@@ -2369,14 +2473,14 @@ impl Simulation {
                         "hp_before": hp_before,
                     }),
                 );
-                self.player.depth += 1;
+                self.player.depth = (self.player.depth + 1).min(self.config.map_settings.map_depth);
                 self.player.score += 3;
                 self.player.hp = (self.player.hp + 4).min(self.player.max_hp);
                 self.emit_event(
                     "floor_descend",
                     json!({"to_depth": self.player.depth, "hp_after": self.player.hp}),
                 );
-                if self.player.depth >= MAX_DEPTH {
+                if self.player.depth >= self.config.map_settings.map_depth {
                     self.game_over = true;
                     self.run_outcome = Some(RunOutcome::DungeonCleared);
                     self.emit_event(
@@ -2889,6 +2993,7 @@ mod tests {
                 map_width: 24,
                 map_height: 18,
                 max_turns: 1,
+                map_settings: Default::default(),
             },
             "rust-test.jsonl".to_owned(),
         )
@@ -2911,6 +3016,7 @@ mod tests {
                 map_width: 24,
                 map_height: 18,
                 max_turns: 120,
+                map_settings: Default::default(),
             },
             "item-test.jsonl".to_owned(),
         )
@@ -3214,6 +3320,7 @@ mod tests {
             map_width: 44,
             map_height: 28,
             max_turns: 500,
+            map_settings: Default::default(),
         };
         let a = Simulation::new(config).unwrap();
         let c = Simulation::new(SimulationConfig {
@@ -3725,6 +3832,7 @@ mod tests {
                 map_width: 64,
                 map_height: 40,
                 max_turns: 500,
+                map_settings: Default::default(),
             },
             "aggressive-cycle.jsonl".to_owned(),
         )
@@ -3760,6 +3868,7 @@ mod tests {
                 map_width: 44,
                 map_height: 28,
                 max_turns: 500,
+                map_settings: Default::default(),
             },
             "cycle-regression.jsonl".to_owned(),
         )
@@ -3803,6 +3912,7 @@ mod tests {
                 map_width: 24,
                 map_height: 18,
                 max_turns: 120,
+                map_settings: Default::default(),
             };
             let a = Simulation::new(config).unwrap();
             let b = Simulation::new(SimulationConfig {
@@ -3822,6 +3932,124 @@ mod tests {
     }
 
     #[test]
+    fn map_quantities_are_deterministic_and_keep_terrain_and_positions_valid() {
+        let baseline =
+            Simulation::new(item_test_simulation(Strategy::AggressiveV1).config).unwrap();
+        for amount in [0, 50, 100, 200, 500] {
+            let config = SimulationConfig {
+                map_settings: MapSettings {
+                    enemy_amount: amount,
+                    treasure_amount: amount,
+                    map_depth: 8,
+                },
+                ..baseline.config
+            };
+            let a = Simulation::new(config).unwrap();
+            let b = Simulation::new(config).unwrap();
+            assert_eq!(a.map, baseline.map);
+            assert_eq!(a.enemies, b.enemies);
+            assert_eq!(a.items, b.items);
+            assert_eq!(
+                a.enemies.len(),
+                (baseline.enemies.len() * amount as usize + 50) / 100
+            );
+            for (index, enemy) in a.enemies.iter().enumerate() {
+                assert!(a.is_walkable(enemy.pos));
+                assert_ne!(enemy.pos, a.player.pos);
+                assert_ne!(enemy.pos, a.stairs);
+                assert!(!a.enemies[..index]
+                    .iter()
+                    .any(|other| other.pos == enemy.pos || other.id == enemy.id));
+            }
+            for (index, item) in a.items.iter().enumerate() {
+                assert!(a.is_walkable(item.pos));
+                assert!(a.enemy_at(item.pos).is_none());
+                assert_ne!(item.pos, a.player.pos);
+                assert_ne!(item.pos, a.stairs);
+                assert!(!a.items[..index]
+                    .iter()
+                    .any(|other| other.pos == item.pos || other.id == item.id));
+            }
+            if amount == 0 {
+                assert!(a.items.is_empty());
+            }
+        }
+        for amount in [0, 50, 200, 500] {
+            let a = Simulation::new(SimulationConfig {
+                map_settings: MapSettings {
+                    treasure_amount: amount,
+                    ..MapSettings::default()
+                },
+                ..baseline.config
+            })
+            .unwrap();
+            assert_eq!(a.enemies, baseline.enemies);
+            assert_eq!(
+                a.items.len(),
+                (baseline.items.len() * amount as usize + 50) / 100
+            );
+        }
+    }
+
+    #[test]
+    fn configured_exit_depth_and_scenario_identity_are_recorded() {
+        for depth in [1, 2, 5, 8] {
+            let mut sim = item_test_simulation(Strategy::AggressiveV1);
+            sim.config.map_settings.map_depth = depth;
+            sim.player.depth = depth.saturating_sub(1).max(1);
+            sim.new_floor();
+            sim.enemies.clear();
+            let direction = DIRECTIONS
+                .into_iter()
+                .find(|d| sim.is_walkable(sim.stairs - *d))
+                .unwrap();
+            sim.player.pos = sim.stairs - direction;
+            sim.player_act(direction, "test");
+            assert_eq!(sim.run_outcome, Some(RunOutcome::DungeonCleared));
+            assert_eq!(sim.player.depth, depth);
+        }
+        let config = item_test_simulation(Strategy::AggressiveV1).config;
+        let custom = Simulation::new_logged(
+            SimulationConfig {
+                map_settings: MapSettings {
+                    map_depth: 8,
+                    ..MapSettings::default()
+                },
+                ..config
+            },
+            "test.jsonl".into(),
+        )
+        .unwrap()
+        .run_logged();
+        assert!(custom.events[0].scenario_id.ends_with("-e100-t100-d8"));
+        assert_eq!(custom.events[0].details["map_settings"]["map_depth"], 8);
+        for settings in [
+            MapSettings {
+                map_depth: 0,
+                ..MapSettings::default()
+            },
+            MapSettings {
+                enemy_amount: 501,
+                ..MapSettings::default()
+            },
+            MapSettings {
+                treasure_amount: 501,
+                ..MapSettings::default()
+            },
+            MapSettings {
+                map_depth: 101,
+                ..MapSettings::default()
+            },
+        ] {
+            assert!(Simulation::new(SimulationConfig {
+                map_settings: settings,
+                ..config
+            })
+            .is_err());
+        }
+    }
+
+    #[test]
     fn reaching_depth_five_clears_the_dungeon() {
         let mut simulation = Simulation::new(SimulationConfig {
             scenario_seed: 1,
@@ -3829,6 +4057,7 @@ mod tests {
             map_width: 24,
             map_height: 18,
             max_turns: 120,
+            map_settings: Default::default(),
         })
         .expect("simulation starts");
         simulation.player.depth = MAX_DEPTH - 1;
@@ -3941,6 +4170,7 @@ mod tests {
             map_width: 24,
             map_height: 18,
             max_turns: 120,
+            map_settings: Default::default(),
         })
         .expect("simulation starts");
         simulation.map = vec![vec![false; 24]; 18];

@@ -19,6 +19,22 @@ accept 0–1000, and maximum turns accepts 1–100000. Weights influence goal se
 alongside the existing benefit/danger evaluation; they do not force every decision.
 The turn limit may leave a Run unfinished, but its events are still saved for Replay.
 
+### Map settings
+
+**Home → Run → Map settings** controls the environment separately from the player's goal weights.
+
+| Setting | Range | Default | Meaning |
+| --- | --- | --- | --- |
+| Enemy amount (%) | 0–500 | 100 | Multiplier of the normal enemy count on each floor |
+| Treasure amount (%) | 0–500 | 100 | Multiplier of the normal floor-item count, including potions, weapons and armor |
+| Map depth | 1–100 | 5 | Exit depth: reaching this depth clears the Run, following the existing rule |
+
+100% preserves normal generation; 0% removes that category. Quantities round to the nearest whole number and cannot exceed available room tiles. Gold earned from defeating enemies is unaffected by Treasure amount. More enemies can leave fewer free tiles for treasure. Depth 1 clears at the first stairs; Depth 5 retains the existing floors 1–4 followed by the exit at depth 5. Changing Strategy resets only goal weights, preserving Map settings.
+
+Both Run and AutoRun use these settings. They persist across screen changes and are stored with each completed Run. Different Map settings produce different scenario identities, keeping same-seed comparisons and correlation cohorts separate. Existing default Runs remain comparable.
+
+After updating, rebuild the Rust binary and restart the API before launching the updated Godot client.
+
 ### AutoRun: compare weight combinations
 
 In **Home → Run**, set Seed and Max turns, then press **AutoRun**. The three
@@ -29,7 +45,7 @@ the default is **248 Runs**. Enter other comma-separated integer values from
 0 to 1000 in each list. Duplicate values are removed. The count is shown before
 execution; a batch must contain 1–2,000 Runs.
 
-Every combination uses the same Seed and Max turns. Execution is sequential on
+Every combination uses the same Seed, Max turns and Map settings. Execution is sequential on
 the API server; switching to Replay keeps AutoRun running. Return Home to see
 the progress and current Strategy/weights. A fixed panel above the scrolling
 settings shows a progress bar, finished/total Runs and percentage, saved/failed

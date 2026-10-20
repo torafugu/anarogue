@@ -92,8 +92,18 @@ func _ready() -> void:
 	number_field(grid, "Stairs weight", "stairs_weight", 0, 1000)
 	number_field(grid, "Max turns", "max_turns", 1, 100000)
 	form.add_child(label("Weights affect goal selection alongside benefit and danger. At least one weight must be positive."))
+	form.add_child(label("Map settings"))
+	var map_grid := GridContainer.new()
+	map_grid.columns = 2
+	map_grid.add_theme_constant_override("h_separation", 24)
+	map_grid.add_theme_constant_override("v_separation", 16)
+	form.add_child(map_grid)
+	number_field(map_grid, "Enemy amount (%)", "enemy_amount", 0, 500)
+	number_field(map_grid, "Treasure amount (%)", "treasure_amount", 0, 500)
+	number_field(map_grid, "Map depth", "map_depth", 1, 100)
+	form.add_child(label("100% = normal per-floor quantity; 0% = none. Treasure includes potions and equipment. Counts round to the nearest whole number and are limited by free tiles. Depth is the exit depth: reaching it clears the Run (existing rule). Depth 1 clears at the first stairs."))
 	execute_button = button(form, "Run", execute_run, "ExecuteRunButton")
-	form.add_child(label("AutoRun: test both Strategies with every combination of the values below. Uses the Seed and Max turns above; ignores the single-Run weights."))
+	form.add_child(label("AutoRun: test both Strategies with every combination of the values below. Uses the Seed, Max turns and Map settings above; ignores the single-Run weights."))
 	var batch_grid := GridContainer.new()
 	batch_grid.columns = 2
 	batch_grid.add_theme_constant_override("h_separation", 24)
@@ -257,6 +267,8 @@ func set_busy(value: bool) -> void:
 
 func batch_settings() -> Dictionary:
 	var settings := {"seed": RunSession.settings["seed"], "max_turns": RunSession.settings["max_turns"], "strategies": ["aggressive", "cautious"]}
+	for field in ["enemy_amount", "treasure_amount", "map_depth"]:
+		settings[field] = RunSession.settings[field]
 	for field in batch_inputs:
 		var text: String = batch_inputs[field].text
 		RunSession.batch_values[field] = text

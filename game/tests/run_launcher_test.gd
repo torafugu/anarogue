@@ -54,6 +54,11 @@ func run_tests() -> void:
 	home.inputs["item_weight"].value = 7
 	home.inputs["stairs_weight"].value = 2
 	home.inputs["max_turns"].value = 20
+	home.inputs["enemy_amount"].value = 200
+	home.inputs["treasure_amount"].value = 50
+	home.inputs["map_depth"].value = 8
+	var batch: Dictionary = home.batch_settings()
+	assert(batch["enemy_amount"] == 200 and batch["treasure_amount"] == 50 and batch["map_depth"] == 8)
 	home.execute_button.pressed.emit()
 	assert(home.busy and home.execute_button.disabled)
 	assert(await wait_for(func(): return current_scene != null and current_scene.has_method("load_catalog_run") and not current_scene.selected_catalog_run.is_empty()))
@@ -70,11 +75,15 @@ func run_tests() -> void:
 	assert(metadata["scenario_seed"] == 42 and metadata["strategy_id"] == "cautious_v1")
 	assert(metadata["goal_policy"]["item_weight"] == 7)
 	assert(metadata["turns"] <= 20)
+	assert(metadata["execution_settings"]["enemy_amount"] == 200)
+	assert(metadata["execution_settings"]["treasure_amount"] == 50)
+	assert(metadata["execution_settings"]["map_depth"] == 8)
 	viewer.get_node("SimulatorButton").pressed.emit()
 	await process_frame
 	await process_frame
 	home = current_scene
 	assert(home.menu.visible and home.inputs["seed"].value == 42)
+	assert(home.inputs["enemy_amount"].value == 200 and home.inputs["map_depth"].value == 8)
 	home.menu.get_node("ReplayMenuButton").pressed.emit()
 	assert(await wait_for(func(): return current_scene != null and current_scene.has_method("load_catalog_run") and not current_scene.catalog_runs.is_empty()))
 	viewer = current_scene

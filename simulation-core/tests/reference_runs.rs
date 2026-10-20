@@ -45,6 +45,7 @@ fn godot_reference_runs_match() {
                 map_width: case.map_width,
                 map_height: case.map_height,
                 max_turns: case.max_turns,
+                map_settings: Default::default(),
             },
             "rust-test.jsonl".to_owned(),
         )

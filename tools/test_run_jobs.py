@@ -62,6 +62,30 @@ class RunJobTests(unittest.TestCase):
             with self.subTest(settings=settings), self.assertRaises(ValueError):
                 validate_settings(settings)
 
+    def test_map_settings_validation_and_batch_propagation(self):
+        default = validate_settings({})
+        self.assertEqual([default[key] for key in ("enemy_amount", "treasure_amount", "map_depth")], [100, 100, 5])
+        custom = {"enemy_amount": 0, "treasure_amount": 500, "map_depth": 8}
+        settings, _ = validate_batch(custom)
+        for combination in batch_combinations(settings):
+            self.assertEqual({key: combination[key] for key in custom}, custom)
+        for key, value in [("enemy_amount", -1), ("enemy_amount", 501), ("treasure_amount", 501),
+                           ("map_depth", 0), ("map_depth", 101), ("map_depth", True), ("enemy_amount", 1.5)]:
+            for validator in (validate_settings, validate_batch):
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    validator({key: value})
+
+    def test_map_settings_reach_simulator_and_saved_metadata(self):
+        runner = self.runner()
+        custom = {"enemy_amount": 0, "treasure_amount": 0, "map_depth": 2}
+        job = self.wait_job(runner, runner.submit({**custom, "max_turns": 500})["id"])
+        self.assertEqual(job["status"], "completed", job)
+        row = self.store.get_run(job["run_id"])
+        self.assertEqual(row["status"], "cleared")
+        self.assertEqual(row["max_depth"], 2)
+        self.assertEqual({key: row["execution_settings"][key] for key in custom}, custom)
+        self.assertTrue(row["scenario_id"].endswith("-e0-t0-d2"))
+
     def test_batch_validation_and_exhaustive_combinations(self):
         settings, total = validate_batch({})
         combinations = list(batch_combinations(settings))
