@@ -67,6 +67,7 @@ app.innerHTML = `
         <div><p class="eyebrow">RUN DATABASE</p><h2>Weight and Score analysis</h2></div>
         <span id="catalog-status" role="status">Connecting…</span>
       </div>
+      <div class="database-actions"><button id="delete-all-runs" class="button button-danger" type="button">Delete all Runs…</button><span id="delete-status" role="status"></span></div>
       <div class="catalog-controls">
         <label class="select-label">Strategy<select id="catalog-strategy"><option value="">All strategies</option><option value="aggressive_v1">Aggressive</option><option value="cautious_v1">Cautious</option></select></label>
         <label class="select-label">Result<select id="catalog-result"><option value="">All results</option><option value="cleared">Cleared</option><option value="defeated">Defeated</option><option value="unfinished">Unfinished</option><option value="restarted">Restarted</option></select></label>
@@ -209,6 +210,15 @@ app.innerHTML = `
     </section>
     </details>
     </div>
+    <dialog id="delete-dialog" aria-labelledby="delete-title">
+      <h2 id="delete-title">Delete all stored Runs?</h2>
+      <p>This deletes every Run and its events from the database, including Runs hidden by the current filters. This cannot be undone.</p>
+      <p id="delete-counts" role="status">Loading counts…</p>
+      <p id="delete-watch-note" hidden>JSONL watching is enabled. Source files are not deleted and may be imported again when they change or the API restarts.</p>
+      <label class="select-label">Type DELETE to confirm<input id="delete-confirmation" autocomplete="off" spellcheck="false" /></label>
+      <p id="delete-error" role="alert"></p>
+      <div class="database-actions"><button id="delete-cancel" class="button button-ghost" type="button">Cancel</button><button id="delete-confirm" class="button button-danger" type="button" disabled>Delete all Runs</button></div>
+    </dialog>
     <div class="toast" id="toast" role="alert" hidden></div>
   </main>
 `;
@@ -827,6 +837,87 @@ const catalogueFilters = [
   ["#catalog-temperature", "temperature"],
 ] as const;
 
+interface DatabaseCounts { runs: number; events: number; watch_enabled: boolean }
+let deletionCounts: DatabaseCounts | null = null;
+let deletionBusy = false;
+let deletionGeneration = 0;
+const deleteDialog = getElement<HTMLDialogElement>("#delete-dialog");
+const deleteConfirm = getElement<HTMLButtonElement>("#delete-confirm");
+const deleteInput = getElement<HTMLInputElement>("#delete-confirmation");
+
+function closeDeleteDialog(): void {
+  if (deletionBusy) return;
+  deletionGeneration++;
+  deletionCounts = null;
+  deleteDialog.close();
+}
+getElement("#delete-cancel").addEventListener("click", closeDeleteDialog);
+deleteDialog.addEventListener("cancel", event => {
+  event.preventDefault();
+  closeDeleteDialog();
+});
+deleteInput.addEventListener("input", () => {
+  deleteConfirm.disabled = deletionBusy || !deletionCounts || deleteInput.value !== "DELETE";
+});
+getElement("#delete-all-runs").addEventListener("click", async () => {
+  const generation = ++deletionGeneration;
+  deletionCounts = null;
+  deleteInput.value = "";
+  deleteConfirm.disabled = true;
+  getElement("#delete-error").textContent = "";
+  getElement("#delete-counts").textContent = "Loading database totals…";
+  getElement("#delete-watch-note").hidden = true;
+  deleteDialog.showModal();
+  try {
+    const counts = await api<DatabaseCounts>("/api/database");
+    if (generation !== deletionGeneration || !deleteDialog.open) return;
+    deletionCounts = counts;
+    getElement("#delete-counts").textContent = `${counts.runs.toLocaleString()} Runs · ${counts.events.toLocaleString()} events in the entire database`;
+    getElement("#delete-watch-note").hidden = !counts.watch_enabled;
+    deleteConfirm.disabled = deleteInput.value !== "DELETE";
+  } catch (error) {
+    if (generation === deletionGeneration) getElement("#delete-error").textContent = `Could not load database totals: ${error instanceof Error ? error.message : String(error)}. Restart the updated Run API.`;
+  }
+});
+deleteConfirm.addEventListener("click", async () => {
+  if (deletionBusy || !deletionCounts || deleteInput.value !== "DELETE") return;
+  deletionBusy = true;
+  deleteConfirm.disabled = true;
+  deleteInput.disabled = true;
+  getElement<HTMLButtonElement>("#delete-cancel").disabled = true;
+  getElement("#delete-error").textContent = "";
+  catalogueGeneration++; // Invalidate catalogue requests started before deletion.
+  try {
+    const result = await api<{deleted_runs: number; deleted_events: number}>("/api/database/clear", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({confirmation: "DELETE", expected: {runs: deletionCounts.runs, events: deletionCounts.events}}),
+    });
+    comparisonAbort?.abort(); inspectionAbort?.abort(); detailGeneration++;
+    pendingInspection = null; directRun = null; directComparison = false;
+    comparisonRows = []; comparisonGroups = []; comparisonScope = null;
+    getElement("#comparison-panel").replaceChildren();
+    getElement("#comparison-panel").hidden = true;
+    getElement("#comparison-seed").replaceChildren();
+    getElement("#inspection-status").textContent = "";
+    getElement("#inspection-retry").hidden = true;
+    clearRunInspection();
+    storedGroups = []; selectedRanks.clear(); renderStoredStats([]);
+    catalogueFiltersChanged();
+    location.hash = "analysis";
+    getElement("#delete-status").textContent = `Deleted ${result.deleted_runs.toLocaleString()} Runs and ${result.deleted_events.toLocaleString()} events.`;
+    deletionBusy = false;
+    closeDeleteDialog();
+  } catch (error) {
+    deletionCounts = null; // Require a fresh review after stale counts or an uncertain response.
+    getElement("#delete-error").textContent = `${error instanceof Error ? error.message : String(error)} Close this dialog and reopen it to review current totals.`;
+  } finally {
+    deletionBusy = false;
+    deleteInput.disabled = false;
+    getElement<HTMLButtonElement>("#delete-cancel").disabled = false;
+    void refreshCatalogue();
+  }
+});
+
 function catalogueQuery(): URLSearchParams {
   const query = new URLSearchParams();
   for (const [selector, key] of catalogueFilters) {
@@ -874,7 +965,7 @@ function renderMeanMetrics(data: MeanMetrics): void {
 }
 
 async function refreshCatalogue(): Promise<void> {
-  if (catalogueBusy) return;
+  if (catalogueBusy || deletionBusy) return;
   catalogueBusy = true;
   const generation = catalogueGeneration;
   const query = catalogueQuery();

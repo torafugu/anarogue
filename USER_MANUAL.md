@@ -19,6 +19,18 @@ accept 0–1000, and maximum turns accepts 1–100000. Weights influence goal se
 alongside the existing benefit/danger evaluation; they do not force every decision.
 The turn limit may leave a Run unfinished, but its events are still saved for Replay.
 
+### Clearing stored Runs
+
+In the browser Viewer, open **Weight and Score analysis → Delete all Runs…**.
+Review the total number of Runs and events, type `DELETE`, then confirm. This
+removes **all** stored Runs and events, including those hidden by filters, and
+cannot be undone. Cancel or Escape closes the dialog without deleting anything.
+Queued/running Run and AutoRun jobs must finish before deletion. If counts have
+changed, close and reopen the dialog before retrying. The Viewer refreshes its
+analysis and clears old selections after deletion. New Runs can then be saved
+normally. Original JSONL files remain; when log watching is enabled they may be
+imported again after changes or an API restart.
+
 ### Map settings
 
 **Home → Run → Map settings** controls the environment separately from the player's goal weights.

@@ -67,6 +67,10 @@ def parse_log(text, allow_partial=False):
     return groups
 
 
+class ClearConflict(Exception):
+    pass
+
+
 class RunStore:
     def __init__(self, path):
         self.path = str(path)
@@ -219,6 +223,21 @@ class RunStore:
             return {"runs": row["runs"], "unfinished": row["unfinished"],
                     "means": {field: row[field] for field in fields}}
 
+    def database_counts(self):
+        with closing(self.connect()) as db:
+            row = db.execute("SELECT (SELECT COUNT(*) FROM runs), (SELECT COUNT(*) FROM events)").fetchone()
+            return {"runs": row[0], "events": row[1]}
+
+    def clear_runs(self, expected):
+        with closing(self.connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT (SELECT COUNT(*) FROM runs), (SELECT COUNT(*) FROM events)").fetchone()
+            if expected != {"runs": row[0], "events": row[1]}:
+                raise ClearConflict("Database changed. Review the updated counts before deleting.")
+            db.execute("DELETE FROM events")
+            db.execute("DELETE FROM runs")
+        return {"deleted_runs": row[0], "deleted_events": row[1]}
+
     def record_execution_settings(self, key, settings):
         # Optional summary metadata: no schema change and no rewrite of raw events.
         with closing(self.connect()) as db, db:
@@ -298,7 +317,7 @@ def log_paths(paths):
     return sorted(files)
 
 
-def make_server(store, host="127.0.0.1", port=8765, jobs=None):
+def make_server(store, host="127.0.0.1", port=8765, jobs=None, watch_enabled=False):
     class Handler(BaseHTTPRequestHandler):
         def reply(self, status, value, content_type="application/json"):
             payload = (canonical(value) if content_type == "application/json" else value).encode()
@@ -313,7 +332,9 @@ def make_server(store, host="127.0.0.1", port=8765, jobs=None):
             try:
                 url = urlsplit(self.path)
                 query = {k: v[-1] for k, v in parse_qs(url.query, keep_blank_values=True).items()}
-                if url.path == "/api/runs":
+                if url.path == "/api/database":
+                    self.reply(200, {**store.database_counts(), "watch_enabled": watch_enabled})
+                elif url.path == "/api/runs":
                     limit, offset = int(query.get("limit", 200)), int(query.get("offset", 0))
                     if not 1 <= limit <= 500 or offset < 0:
                         raise ValueError("Invalid pagination")
@@ -346,6 +367,45 @@ def make_server(store, host="127.0.0.1", port=8765, jobs=None):
                 self.reply(400, {"error": str(exc)})
 
         def do_POST(self):
+            if self.path == "/api/database/clear":
+                origin = self.headers.get("Origin")
+                # A same-origin browser fetch may arrive through Vite/reverse
+                # proxies that rewrite Host. Sec-Fetch-Site is browser-controlled.
+                if origin and urlsplit(origin).netloc != self.headers.get("Host") and self.headers.get("Sec-Fetch-Site") != "same-origin":
+                    self.reply(403, {"error": "Deletion requires a same-origin request"})
+                    return
+                if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
+                    self.reply(415, {"error": "Use application/json"})
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if not 0 < length <= 4096:
+                        raise ValueError("Invalid deletion request size")
+                    value = json.loads(self.rfile.read(length).decode("utf-8"))
+                    if not isinstance(value, dict) or value.get("confirmation") != "DELETE":
+                        raise ValueError("Type DELETE to confirm removal of all Runs")
+                    expected = value.get("expected")
+                    if not isinstance(expected, dict) or set(expected) != {"runs", "events"} or any(
+                            type(n) is not int or n < 0 for n in expected.values()):
+                        raise ValueError("Expected Run and event counts are required")
+                    if jobs is None:
+                        deleted = store.clear_runs(expected)
+                    else:
+                        # Enqueue and completion use this lock too: deletion cannot
+                        # race with a newly accepted Run or an in-flight AutoRun.
+                        with jobs.lock:
+                            if any(job["status"] in ("queued", "running") for job in jobs.jobs.values()):
+                                raise ClearConflict("A Run or AutoRun is active. Wait for it to finish before deleting.")
+                            deleted = store.clear_runs(expected)
+                            jobs.jobs.clear()
+                    self.reply(200, deleted)
+                except ClearConflict as exc:
+                    self.reply(409, {"error": str(exc)})
+                except (ValueError, TypeError, UnicodeError) as exc:
+                    self.reply(400, {"error": str(exc)})
+                except sqlite3.Error:
+                    self.reply(503, {"error": "Database is busy. Try again after all writers have stopped."})
+                return
             # Import is same-origin only. Vite proxies /api to this local server.
             if self.path in ("/api/jobs", "/api/batches") or (self.path.startswith("/api/jobs/") and self.path.endswith("/cancel")):
                 if jobs is None:
@@ -438,7 +498,7 @@ def main():
     worker = threading.Thread(target=watch, daemon=True)
     worker.start()
     jobs = RunJobs(store, args.simulator, args.revision)
-    server = make_server(store, args.host, args.port, jobs)
+    server = make_server(store, args.host, args.port, jobs, watch_enabled=bool(args.watch))
     LOG.info("Run API: http://%s:%s/api/runs", *server.server_address)
     try:
         server.serve_forever()

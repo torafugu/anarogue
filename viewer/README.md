@@ -177,3 +177,17 @@ Copy becomes available after averages load, including empty results, and is
 disabled while applying filters or when averages fail to load. Clipboard access
 requires HTTPS or localhost and browser permission; failures appear beside the
 buttons. Correlation condition and Rank selections do not affect these averages.
+
+### Delete stored Runs
+
+In **Weight and Score analysis**, choose **Delete all Runs…**. The dialog shows
+whole-database Run/event totals, regardless of the current filters. Type `DELETE`
+and confirm to permanently remove every Run and event. Cancel/Escape leaves the
+DB unchanged. The catalogue, averages, ranking selection and inspection state
+refresh after success. The SQLite file remains usable for new Runs.
+
+Deletion is refused while this API has a queued/running Run or AutoRun, or if
+totals changed after opening the dialog. Close and reopen the dialog to review
+current totals and retry. Existing JSONL files are not removed. If `--watch` is
+enabled, the dialog warns that source logs can be reimported when modified or
+when the API restarts. Restart the updated Python API to enable this feature.
