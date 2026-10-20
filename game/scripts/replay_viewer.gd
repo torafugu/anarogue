@@ -563,11 +563,21 @@ func _draw() -> void:
 	if maze_canvas != null:
 		maze_canvas.queue_redraw()
 
+func display_frame() -> Dictionary:
+	if replay.turns.is_empty():
+		return {}
+	var frame: Dictionary = replay.turns[turn_index]
+	if is_arrow_animating():
+		var duration := ARROW_FLIGHT_DURATION + ARROW_IMPACT_DURATION
+		return frame["arrow_frames"][int(arrow_elapsed / duration)]
+	return frame
+
+
 func draw_maze() -> void:
 	maze_canvas.draw_rect(Rect2(Vector2.ZERO, maze_view.size), COLOR_BG)
 	if replay.turns.is_empty():
 		return
-	var frame: Dictionary = replay.turns[turn_index]
+	var frame := display_frame()
 	var rows: Array = frame["map_rows"]
 	if rows.is_empty():
 		return
@@ -664,25 +674,23 @@ func is_arrow_animating() -> bool:
 	if replay.turns.is_empty():
 		return false
 	var frame: Dictionary = replay.turns[turn_index]
-	return (
-		not frame["arrow"].is_empty()
-		and arrow_elapsed < ARROW_FLIGHT_DURATION + ARROW_IMPACT_DURATION
-	)
+	return arrow_elapsed < frame.get("arrow_frames", []).size() * (ARROW_FLIGHT_DURATION + ARROW_IMPACT_DURATION)
 
 
 func draw_arrow(arrow: Dictionary, origin: Vector2, tile_size: float) -> void:
 	if arrow.is_empty() or not is_arrow_animating():
 		return
+	var shot_elapsed := fmod(arrow_elapsed, ARROW_FLIGHT_DURATION + ARROW_IMPACT_DURATION)
 	var from_value: Dictionary = arrow["from"]
 	var to_value: Dictionary = arrow["to"]
 	if not from_value.has("x") or not to_value.has("x"):
 		return
 	var arrow_origin := origin + Vector2(from_value["x"] + 0.5, from_value["y"] + 0.5) * tile_size
 	var target := origin + Vector2(to_value["x"] + 0.5, to_value["y"] + 0.5) * tile_size
-	if arrow_elapsed < ARROW_FLIGHT_DURATION:
+	if shot_elapsed < ARROW_FLIGHT_DURATION:
 		var direction := (target - arrow_origin).normalized()
 		var perpendicular := Vector2(-direction.y, direction.x)
-		var tip := arrow_origin.lerp(target, arrow_elapsed / ARROW_FLIGHT_DURATION)
+		var tip := arrow_origin.lerp(target, shot_elapsed / ARROW_FLIGHT_DURATION)
 		var tail := tip - direction * tile_size * 0.55
 		maze_canvas.draw_line(
 			tail - direction * tile_size * 0.3,
@@ -698,7 +706,7 @@ func draw_arrow(arrow: Dictionary, origin: Vector2, tile_size: float) -> void:
 			tip - direction * tile_size * 0.225 - perpendicular * tile_size * 0.125,
 		]), COLOR_TEXT)
 	else:
-		var progress := (arrow_elapsed - ARROW_FLIGHT_DURATION) / ARROW_IMPACT_DURATION
+		var progress := (shot_elapsed - ARROW_FLIGHT_DURATION) / ARROW_IMPACT_DURATION
 		var color := COLOR_PLAYER if arrow.get("player_shot", false) else COLOR_ARCHER
 		color.a = 1.0 - progress
 		maze_canvas.draw_arc(

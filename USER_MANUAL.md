@@ -416,3 +416,12 @@ a hypothetical redraw. Old logs keep their original decisions.
 
 See [v8 comparison](docs/strategy-comparison-v8.md) for 50 paired seeds and
 [exact evaluation rules](docs/simulation-spec-v8.md) for estimates and limitations.
+
+### Replay arrow timing
+
+During a ranged attack animation, Replay displays the recorded attack-time
+positions. A defeated target stays visible until the arrow lands; a surviving
+target is shown on its original tile before its later movement. Multiple shots
+within one Turn play in event order, then the map returns to the completed Turn
+snapshot. Turn summaries and logs retain the completed values. Existing stored
+Runs use this playback fix without being rerun.
