@@ -287,3 +287,22 @@ logs, rotating outputs per Run limits that cost.
 `POST /api/jobs` and `POST /api/batches` accept `enemy_amount` and `treasure_amount` (integer percentages 0..500, default 100) and `map_depth` (integer exit depth 1..100, default 5). AutoRun copies these conditions into every combination. The worker passes them as `--enemy-amount`, `--treasure-amount`, `--map-depth` and saves them in `execution_settings` alongside `max_turns`.
 
 Custom conditions are recorded in `run_start.details.map_settings` and a distinct scenario ID. The default 100/100/5 preserves v8 event parity and scenario IDs. Depth follows the existing exit-depth convention: 5 clears on descent from floor 4; 1 clears on the first stairs without exceeding depth 1. Percentage scaling uses each floor's normal spawn count, rounding to the nearest integer; extra objects occupy free room-interior tiles, excluding the player, stairs and other objects. Treasure scales floor items, not enemy gold rewards.
+
+### Clear the database from the Viewer
+
+`GET /api/database` returns whole-database `runs`, `events` and `watch_enabled`.
+`POST /api/database/clear` accepts JSON:
+
+```json
+{"confirmation":"DELETE","expected":{"runs":12,"events":1200}}
+```
+
+This transaction deletes events and Runs together. A count mismatch or an active
+API Run/AutoRun returns HTTP 409 without deleting records. Job enqueue is locked
+until the deletion commits; terminal in-memory job records are cleared too.
+Cross-origin requests are refused and `application/json` is required. The Viewer
+requires typed confirmation, shows unfiltered counts, and resets displayed
+analysis/comparison/inspection caches after success. This removes records, not
+the SQLite schema or source JSONL files. Watching/importing those logs can add
+records again. Database clearing has API tests and a real Viewer/API/SQLite
+browser test (`npm run test:clear` in `viewer/`).

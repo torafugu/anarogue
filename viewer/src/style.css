@@ -1118,3 +1118,11 @@ blockquote {
   gap: 12px;
   margin-bottom: 16px;
 }
+
+.database-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 16px 0; }
+.button-danger { background: #632b34; color: #fff0f1; border: 1px solid #e68391; }
+.button-danger:hover:not(:disabled) { background: #823b46; }
+#delete-dialog { color: #e7e1cf; background: #20252e; border: 1px solid #e68391; border-radius: 12px; padding: 24px; width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
+#delete-dialog::backdrop { background: #000a; }
+#delete-dialog p { line-height: 1.6; }
+#delete-error, #delete-watch-note { color: #ffb3b3; }

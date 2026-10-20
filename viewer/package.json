@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test:analysis": "node scripts/test-weight-analysis.mjs",
     "test:comparison": "node scripts/test-rank-comparison.mjs",
+    "test:clear": "node scripts/test-clear-runs.mjs",
     "test:inspection": "node scripts/test-inspection.mjs",
     "test:metrics": "node scripts/test-filtered-metrics.mjs"
   },

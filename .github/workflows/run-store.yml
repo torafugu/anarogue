@@ -14,6 +14,8 @@ jobs:
           python-version: '3.12'
       - name: Verify SQLite import and HTTP API
         run: python -m unittest discover -s tools -p test_run_store.py -v
+      - name: Verify database deletion and active-Run conflicts
+        run: python -m unittest discover -s tools -p test_clear_runs.py -v
       - name: Verify weight and Score analysis
         run: python -m unittest discover -s tools -p test_weight_analysis.py -v
       - name: Verify filtered Run averages
@@ -45,6 +47,8 @@ jobs:
         working-directory: viewer
       - name: Install Chromium for Run inspection regression
         run: npx playwright install --with-deps chromium
+        working-directory: viewer
+      - run: npm run test:clear
         working-directory: viewer
       - run: npm run test:inspection
         working-directory: viewer
