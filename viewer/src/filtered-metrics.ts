@@ -19,10 +19,10 @@ const filterFields = [
 /** One data row with an optional header; retain full numeric precision. */
 export function meanMetricsDelimited(data: MeanMetrics, filters: URLSearchParams, format: "csv" | "tsv", includeHeader = true): string {
   const delimiter = format === "csv" ? "," : "\t";
-  const condition = filterFields.map(([label, key]) => `${label}=${filters.get(key) || "All"}`).join("; ");
+  const conditions = filterFields.map(([, key]) => filters.get(key) || "All");
   const rows = [
-    ["Filters", "Runs", "Finished", "Unfinished", ...meanMetricFields.map(([label]) => label)],
-    [condition, data.runs, data.runs - data.unfinished, data.unfinished,
+    [...filterFields.map(([label]) => label), "Runs", "Finished", "Unfinished", ...meanMetricFields.map(([label]) => label)],
+    [...conditions, data.runs, data.runs - data.unfinished, data.unfinished,
       ...meanMetricFields.map(([, key]) => data.means[key] ?? "")],
   ];
   const cell = (value: string | number): string => {

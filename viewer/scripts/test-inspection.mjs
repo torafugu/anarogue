@@ -54,8 +54,8 @@ try{
  assert(await page.locator('#copy-means-header').isChecked());
  await page.click('#copy-means-csv');await page.waitForFunction(()=>document.querySelector('#mean-copy-status').textContent.includes('CSV copied'));
  const csv=await page.evaluate(()=>navigator.clipboard.readText());
- assert(csv.startsWith('Filters,Runs,Finished,Unfinished,Score,Level,Turns,Depth,Kills,Damage,Gold,Decisions,Potions found,Potions used,Healing\r\n'));
- assert(csv.includes('Strategy=All; Result=All; Seed=All; Enemy=All; Treasure=All; Stairs=All; Temperature=All,2,2,0,55,3.5,110.5,'));
+ assert(csv.startsWith('Strategy,Result,Seed,Enemy,Treasure,Stairs,Temperature,Runs,Finished,Unfinished,Score,Level,Turns,Depth,Kills,Damage,Gold,Decisions,Potions found,Potions used,Healing\r\n'));
+ assert(csv.includes('All,All,All,All,All,All,All,2,2,0,55,3.5,110.5,'));
  await page.uncheck('#copy-means-header');
  await page.click('#copy-means-csv');await page.waitForFunction(()=>document.querySelector('#mean-copy-status').textContent.includes('CSV copied (1 data row)'));
  assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),csv.split('\r\n').slice(1).join('\r\n'));
@@ -70,10 +70,11 @@ try{
  await page.click('#copy-means-tsv');await page.waitForFunction(()=>document.querySelector('#mean-copy-status').textContent.includes('TSV copied'));
  const tsv=await page.evaluate(()=>navigator.clipboard.readText());
  assert(!(await page.locator('#copy-means-header').isChecked()),'header choice persists across filter changes');
- assert(tsv.startsWith('Strategy=All;'));
+ assert(tsv.startsWith('All\tAll\tAll\tAll\t4\tAll\tAll\t'));
+ assert.equal(tsv.split('\r\n')[0].split('\t').length,21);
  assert.equal(tsv.split('\r\n').length,2,'TSV without header has one data row');
  assert((await page.locator('#mean-copy-status').textContent()).includes('1 data row'));
- assert(tsv.includes('Treasure=4; Stairs=All; Temperature=All\t1\t1\t0\t90\t5\t113\t'));
+ assert(tsv.includes('4\tAll\tAll\t1\t1\t0\t90\t5\t113\t'));
 
  await page.check('#copy-means-header');
  await filter('3');await page.waitForFunction(()=>document.querySelector('#mean-metrics-status').textContent.includes('0 matching Runs'));
