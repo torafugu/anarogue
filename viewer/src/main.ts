@@ -1,4 +1,5 @@
 import "./style.css";
+import { sprites, enemySprite, itemSprite } from "./sprites.ts";
 import { meanMetricFields, meanMetricsDelimited, type MeanMetrics } from "./filtered-metrics.ts";
 import { policyGroupKey, comparisonConditions, loadRankRuns, type ComparisonCondition } from "./rank-comparison.ts";
 import { updateWeightAnalysis, type WeightAnalysis } from "./weight-analysis.ts";
@@ -178,11 +179,11 @@ app.innerHTML = `
           </div>
           <div id="route-map"></div>
           <div class="map-legend">
-            <span><i class="legend-player"></i>Player</span>
-            <span><i class="legend-enemy"></i>Melee</span>
-            <span><i class="legend-archer"></i>Archer</span>
-            <span><i class="legend-brute"></i>Brute / marked strike</span>
-            <span style="color:#de8fe8">● Health potion</span>
+            <span><img class="legend-sprite" src="${sprites.player}" alt="" />Player</span>
+            <span><img class="legend-sprite" src="${sprites.melee}" alt="" />Melee</span>
+            <span><img class="legend-sprite" src="${sprites.archer}" alt="" />Archer</span>
+            <span><img class="legend-sprite" src="${sprites.brute}" alt="" />Brute / marked strike</span>
+            <span><img class="legend-sprite" src="${sprites.potion}" alt="" />Health potion</span>
             <span><svg class="map-stairs legend-stairs" viewBox="0 0 1 1" aria-hidden="true">${stairsIcon}</svg>Stairs</span>
           </div>
         </section>
@@ -575,13 +576,15 @@ function renderRouteMap(events: RunEvent[], selected?: RunEvent): void {
       items = items.filter((candidate) => candidate.id !== item.id);
     }
   }
-  const itemMarks = items.map((item) => `<g fill="#de8fe8"><circle cx="${item.pos.x + .5}" cy="${item.pos.y + .5}" r=".28"/><text x="${item.pos.x + .5}" y="${item.pos.y + .68}" text-anchor="middle" font-size=".45" fill="#17212b">${item.type === "weapon" ? item.weapon_kind === "bow" ? "B" : "W" : item.type === "armor" ? "D" : "+"}</text><title>${escapeHtml(item.id)} · ${escapeHtml(item.type)}</title></g>`).join("");
+  const itemMarks = items.map((item) => `<g class="map-item"><image class="map-sprite" href="${itemSprite(item)}" x="${item.pos.x + .1}" y="${item.pos.y + .1}" width=".8" height=".8"/><title>${escapeHtml(item.id)} · ${escapeHtml(item.type)}</title></g>`).join("");
   const route = positions.map((pos) => `${pos.x + 0.5},${pos.y + 0.5}`).join(" ");
   const enemyMarks = enemies
     .map(
       (enemy) => `
         <g class="map-enemy ${enemy.type === "archer" ? "archer" : enemy.type === "brute" ? "brute" : ""}">
-          <circle cx="${enemy.pos.x + 0.5}" cy="${enemy.pos.y + 0.5}" r=".38" />
+          <circle cx="${enemy.pos.x + 0.5}" cy="${enemy.pos.y + 0.5}" r=".42" opacity=".2" />
+          <image class="map-sprite" href="${enemySprite(enemy.type)}" x="${enemy.pos.x + .1}" y="${enemy.pos.y + .1}" width=".8" height=".8"/>
+          ${enemy.type === "archer" ? `<image class="map-sprite" href="${sprites.bow}" x="${enemy.pos.x + .55}" y="${enemy.pos.y + .45}" width=".4" height=".4"/>` : ""}
           <title>${escapeHtml(enemy.id)} · ${escapeHtml(enemy.type)}</title>
           ${enemy.windup_target ? `<rect class="windup-mark" x="${enemy.windup_target.x}" y="${enemy.windup_target.y}" width="1" height="1"><title>Brute strike next enemy phase</title></rect>` : ""}
         </g>`,
@@ -602,7 +605,7 @@ function renderRouteMap(events: RunEvent[], selected?: RunEvent): void {
       ${itemMarks}
       ${enemyMarks}
       ${positions[0] ? `<circle class="route-start" cx="${positions[0].x + 0.5}" cy="${positions[0].y + 0.5}" r=".25"><title>Start</title></circle>` : ""}
-      ${selectedPos ? `<circle class="route-selected" cx="${selectedPos.x + 0.5}" cy="${selectedPos.y + 0.5}" r=".44"><title>Selected event</title></circle>` : ""}
+      ${selectedPos ? `<circle class="route-selected" cx="${selectedPos.x + 0.5}" cy="${selectedPos.y + 0.5}" r=".44"><title>Selected event</title></circle><image class="map-sprite map-player" href="${sprites.player}" x="${selectedPos.x + .1}" y="${selectedPos.y + .1}" width=".8" height=".8"/>` : ""}
     </svg>`;
 }
 
