@@ -416,3 +416,15 @@ a hypothetical redraw. Old logs keep their original decisions.
 
 See [v8 comparison](docs/strategy-comparison-v8.md) for 50 paired seeds and
 [exact evaluation rules](docs/simulation-spec-v8.md) for estimates and limitations.
+
+### Dungeon sprites
+
+Player, enemies and items use Tiny Dungeon pixel-art sprites in Godot (both the
+simulator and Replay) and the browser Viewer. Melee enemies are skeletons,
+Archers wear green hoods with a bow, and Brutes are red monsters. Potions are red
+flasks, melee weapons are swords, defense gear uses a shield, and bows have a
+separate icon. The underlying enemy types, equipment effects and saved logs
+are unchanged. Existing Runs display the new artwork when opened.
+
+The original CC0 assets and their license are under `game/assets/tiny-dungeon/`.
+See `game/assets/SPRITES.md` for image assignments and extension instructions.

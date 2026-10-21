@@ -95,6 +95,13 @@ try{
  const inspect=async id=>{await page.locator(`[data-stored-run="${id}"]`).click();await page.waitForFunction(id=>document.querySelector('#viewer').dataset.runKey===id&&!document.querySelector('#viewer').hidden,id);};
  const snapshot=async()=>page.evaluate(()=>Object.fromEntries(['metrics','hp-chart','route-map','timeline','detail-panel'].map(id=>[id,document.getElementById(id).innerHTML])));
  await inspect('a');const first=await snapshot();
+ assert(await page.locator('#route-map .map-sprite').count()>0,'map contains image sprites');
+ assert.equal(await page.locator('#route-map .map-player').count(),1,'selected Player uses a sprite');
+ const decoded=await page.locator('#route-map .map-sprite, .legend-sprite').evaluateAll(async nodes=>Promise.all(nodes.map(node=>new Promise(resolve=>{
+  const image=new Image();image.onload=()=>resolve(image.naturalWidth===16&&image.naturalHeight===16);image.onerror=()=>resolve(false);image.src=node.getAttribute('href')||node.getAttribute('src');
+ }))));
+ assert(decoded.every(Boolean),'all map and legend images decode as 16px assets');
+ if(process.env.ANAROGUE_SCREENSHOT)await page.locator('.map-panel').screenshot({path:process.env.ANAROGUE_SCREENSHOT});
  await page.locator('[data-filter="combat"]').click();await page.fill('#event-search','no-such-event');
  await inspect('b');const second=await snapshot();
  for(const field of Object.keys(first))assert.notEqual(second[field],first[field],`${field} must change with the selected Run`);
