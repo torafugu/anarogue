@@ -102,8 +102,8 @@ imported Runs even if their source files are moved or removed.
 ## Godot replay
 
 Run `game/` after starting the API. The main screen offers Run and Replay;
-choose Replay to open the existing viewer. The Run selector displays strategy, seed,
-depth, result and a short database ID. Hovering shows the original Run ID,
+choose Replay to open the existing viewer. The Run selector displays `Strategy / D<depth> / Result / YYYYMMDD`, using the
+recorded Run start date. Hovering shows the original Run ID,
 start time and simulation version. There is no file selector or Refresh logs
 button. The list updates every three seconds and keeps the selected Run and
 playback frame. Selecting a Run loads an event snapshot and resets playback to
