@@ -16,9 +16,11 @@ func _init() -> void:
 func run_tests() -> void:
 	var viewer := TestViewer.new()
 	root.add_child(viewer)
+	check_arrow_scenes(viewer)
 	check_camera_geometry(viewer)
 	await check_layout_sizes()
 	await check_turn_log(viewer)
+	check_reference_arrow_targets()
 	for file_name in ["aggressive-seed-1.jsonl", "cautious-seed-1.jsonl"]:
 		viewer.load_replay("res://../examples/reference-v2/" + file_name)
 		check(not viewer.result_popup.visible, "popup hidden at replay start")
@@ -197,3 +199,60 @@ func check_turn_log(viewer: TestViewer) -> void:
 func check(condition: bool, message: String) -> void:
 	if not condition:
 		failures.append("FAIL: " + message)
+
+func check_arrow_scenes(viewer) -> void:
+	for enemy_type in ["melee", "brute"]:
+		var events := [
+			{"event": "floor_start", "turn": 0, "depth": 1, "player_state": {"pos": {"x": 0, "y": 0}}, "details": {
+				"map_rows": ["......"], "enemies": [
+					{"id": "victim", "type": enemy_type, "hp": 2, "pos": {"x": 3, "y": 0}},
+					{"id": "archer", "type": "archer", "hp": 5, "pos": {"x": 5, "y": 0}}]}},
+			{"event": "battle_result", "turn": 1, "depth": 1, "player_state": {"pos": {"x": 0, "y": 0}}, "details": {
+				"result": "enemy_defeated", "ranged": true, "enemy_id": "victim", "enemy_type": enemy_type,
+				"attacker_pos": {"x": 0, "y": 0}, "enemy_pos": {"x": 3, "y": 0}, "enemy_hp_before": 2, "enemy_hp_after": 0}},
+			{"event": "battle_result", "turn": 1, "depth": 1, "player_state": {"pos": {"x": 0, "y": 0}, "hp": 16}, "details": {
+				"result": "player_hit", "ranged": true, "enemy_id": "archer", "enemy_type": "archer", "enemy_pos": {"x": 5, "y": 0}}},
+			{"event": "decision", "turn": 1, "depth": 1, "player_state": {"pos": {"x": 0, "y": 0}, "hp": 16}, "details": {
+				"action_turn": 2, "observation": {"enemies": [{"id": "archer", "type": "archer", "hp": 5, "pos": {"x": 4, "y": 0}}]}}},
+		]
+		viewer.replay.turns = viewer.replay.build_turns(events)
+		viewer.set_turn(1)
+		check(viewer.replay.turns[1]["arrow_frames"].size() == 2, "all shots in a Turn are retained in event order")
+		var shot: Dictionary = viewer.display_frame()
+		check(shot["arrow"].get("player_shot", false), "Player shot animates first")
+		check(shot["enemies"].any(func(e): return e["id"] == "victim" and e["pos"] == shot["arrow"]["to"] and e["hp"] == 2), "fatal arrow has a visible victim at its endpoint: " + enemy_type)
+		viewer.arrow_elapsed = viewer.ARROW_FLIGHT_DURATION + viewer.ARROW_IMPACT_DURATION + 0.01
+		shot = viewer.display_frame()
+		check(not shot["arrow"].get("player_shot", false), "Archer retaliation animates second")
+		check(shot["enemies"].any(func(e): return e["id"] == "archer" and e["pos"] == shot["arrow"]["from"]), "Archer arrow starts at the attack-time shooter")
+		check(not shot["enemies"].any(func(e): return e["id"] == "victim"), "killed victim is absent during retaliation")
+		viewer.arrow_elapsed = 2.0 * (viewer.ARROW_FLIGHT_DURATION + viewer.ARROW_IMPACT_DURATION)
+		check(not viewer.is_arrow_animating(), "animation ends after all shots")
+		check(viewer.display_frame()["enemies"].size() == 1 and viewer.display_frame()["enemies"][0]["pos"]["x"] == 4, "after animation, final Turn state is displayed")
+		viewer.set_turn(1)
+		check(viewer.is_arrow_animating() and viewer.display_frame()["arrow"].get("player_shot", false), "stepping back to a Turn restarts its shots")
+		# A surviving enemy can move later in the same Turn; the arrow must
+		# still hit its original tile while the completed snapshot stays current.
+		events[1]["details"]["result"] = "enemy_hit"
+		events[1]["details"]["enemy_hp_after"] = 1
+		events[3]["details"]["observation"]["enemies"].append({"id": "victim", "type": enemy_type, "hp": 1, "pos": {"x": 2, "y": 0}})
+		viewer.replay.turns = viewer.replay.build_turns(events)
+		viewer.set_turn(1)
+		check(viewer.display_frame()["enemies"].any(func(e): return e["id"] == "victim" and e["pos"]["x"] == 3), "moving survivor stays at attack-time position during flight")
+		check(viewer.replay.turns[1]["enemies"].any(func(e): return e["id"] == "victim" and e["pos"]["x"] == 2), "final survivor position is preserved separately")
+		check(viewer.replay.turns[0]["enemies"][0]["hp"] == 2, "animation does not mutate previous Turns")
+
+func check_reference_arrow_targets() -> void:
+	var replay := ReplayData.new()
+	var shots_checked := 0
+	for path in ["res://../examples/reference-v6/cautious-seed-1.jsonl", "res://../examples/reference-v8/cautious-seed-1.jsonl", "res://../examples/reference-v8/aggressive-seed-424242.jsonl"]:
+		check(replay.load_file(path) == OK, "load arrow regression reference")
+		for turn in replay.turns:
+			for shot in turn["arrow_frames"]:
+				shots_checked += 1
+				var arrow: Dictionary = shot["arrow"]
+				if arrow.get("player_shot", false):
+					check(shot["enemies"].any(func(e): return e["id"] == shot["details"]["enemy_id"] and e["pos"] == arrow["to"]), "reference Player arrow points to its visible target")
+				else:
+					check(shot["enemies"].any(func(e): return e["id"] == shot["details"]["enemy_id"] and e["pos"] == arrow["from"]), "reference Archer arrow begins at its visible shooter")
+	check(shots_checked > 0, "real references contain arrow animations")
