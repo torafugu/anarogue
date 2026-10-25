@@ -21,11 +21,13 @@ TERMINAL_JOBS = ("completed", "failed", "cancelled")
 def validate_batch(value):
     if not isinstance(value, dict):
         raise ValueError("AutoRun settings must be a JSON object")
-    fields = {"seed", "max_turns", "strategies", "enemy_weights", "item_weights", "stairs_weights", *MAP_FIELDS}
+    fields = {"seed", "max_turns", "strategies", "enemy_weights", "item_weights", "stairs_weights", "dsl", *MAP_FIELDS}
     if set(value) - fields:
         raise ValueError("Unknown AutoRun setting")
     single = validate_settings({key: value[key] for key in ("seed", "max_turns", *MAP_FIELDS) if key in value})
     settings = {key: single[key] for key in ("seed", "max_turns", *MAP_FIELDS)}
+    if "dsl" in value:
+        settings["dsl"] = validate_settings({"dsl": value["dsl"]})["dsl"]
     strategies = value.get("strategies", ["aggressive", "cautious"])
     if not isinstance(strategies, list) or not strategies or any(
             item not in ("aggressive", "cautious") for item in strategies):
@@ -51,19 +53,24 @@ def batch_combinations(settings):
         if enemy + item + stairs:
             yield {"strategy": strategy, "seed": settings["seed"], "max_turns": settings["max_turns"],
                    "enemy_weight": enemy, "item_weight": item, "stairs_weight": stairs,
-                   **{key: settings[key] for key in MAP_FIELDS}}
+                   **{key: settings[key] for key in MAP_FIELDS},
+                   **({"dsl": settings["dsl"]} if "dsl" in settings else {})}
 
 
 def validate_settings(value):
     if not isinstance(value, dict):
         raise ValueError("Run settings must be a JSON object")
-    fields = {"seed", "strategy", "enemy_weight", "item_weight", "stairs_weight", "max_turns", *MAP_FIELDS}
+    fields = {"seed", "strategy", "enemy_weight", "item_weight", "stairs_weight", "max_turns", "dsl", *MAP_FIELDS}
     if set(value) - fields:
         raise ValueError("Unknown Run setting")
     strategy = value.get("strategy", "aggressive")
     if strategy not in ("aggressive", "cautious"):
         raise ValueError("strategy must be aggressive or cautious")
     settings = {"strategy": strategy}
+    if "dsl" in value:
+        if not isinstance(value["dsl"], str) or len(value["dsl"].encode("utf-8")) > 16384:
+            raise ValueError("DSL source must be a string of at most 16 KB")
+        settings["dsl"] = value["dsl"]
     defaults = {"seed": 424242, "max_turns": 5000, "enemy_weight": 1 if strategy == "cautious" else 4,
                 "item_weight": 2, "stairs_weight": 4 if strategy == "cautious" else 1,
                 "enemy_amount": 100, "treasure_amount": 100, "map_depth": 5}
@@ -76,7 +83,7 @@ def validate_settings(value):
         if type(number) is not int or not minimum <= number <= maximum:
             raise ValueError(f"{field} must be an integer in {minimum}..{maximum}")
         settings[field] = number
-    if not sum(settings[field] for field in ("enemy_weight", "item_weight", "stairs_weight")):
+    if not settings.get("dsl", "").strip() and not sum(settings[field] for field in ("enemy_weight", "item_weight", "stairs_weight")):
         raise ValueError("At least one goal weight must be positive")
     return settings
 
@@ -103,10 +110,19 @@ class RunJobs:
 
     def submit(self, value):
         settings = validate_settings(value)
+        if settings.get("dsl", "").strip():
+            self.validate_dsl(settings)
         return self.enqueue({"kind": "run", "settings": settings, "run_id": None, "error": None})
 
     def submit_batch(self, value):
         settings, total = validate_batch(value)
+        if settings.get("dsl", "").strip():
+            first = next(batch_combinations(settings))
+            overrides = self.validate_dsl(first)["policy_overrides"]
+            for combination in batch_combinations(settings):
+                if not sum(overrides.get(dsl_key, combination[key]) for dsl_key, key in
+                           (("enemy_weight", "enemy_weight"), ("treasure_weight", "item_weight"), ("stairs_weight", "stairs_weight"))):
+                    raise ValueError("DSL makes all goal weights zero in an AutoRun combination")
         return self.enqueue({"kind": "batch", "settings": settings, "total": total,
                              "completed": 0, "failed": 0, "current_settings": None,
                              "run_id": None, "error": None, "cancel_requested": False})
@@ -185,12 +201,17 @@ class RunJobs:
     def simulate(self, settings):
         command = [self.binary, "--db", self.database]
         for field, value in settings.items():
+            if field == "dsl":
+                continue
             command.extend(["--" + field.replace("_", "-"), str(value)])
+        if settings.get("dsl", "").strip():
+            command.extend(["--dsl-stdin", "yes"])
         if self.revision:
             command.extend(["--revision", self.revision])
         try:
             result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8",
-                                    errors="replace", timeout=self.timeout, check=False)
+                                    errors="replace", timeout=self.timeout, check=False,
+                                    **({"input": settings["dsl"]} if settings.get("dsl", "").strip() else {}))
             if result.returncode:
                 raise ValueError((result.stderr.strip() or f"Simulator exited with {result.returncode}")[-2000:])
             # Rust reports the committed catalogue key only after save_run succeeds.
@@ -208,6 +229,26 @@ class RunJobs:
             raise ValueError(str(exc)) from exc
         except Exception:
             raise ValueError("Could not read the saved Run") from None
+
+    def validate_dsl(self, value):
+        settings = validate_settings(value)
+        command = [self.binary, "--validate-dsl", "yes", "--strategy", settings["strategy"]]
+        for field in ("enemy_weight", "item_weight", "stairs_weight"):
+            command.extend(["--" + field.replace("_", "-"), str(settings[field])])
+        try:
+            result = subprocess.run(command, input=settings.get("dsl", ""), capture_output=True,
+                                    text=True, encoding="utf-8", errors="replace", timeout=5, check=False)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise ValueError(f"DSL validation unavailable: {exc}. Rebuild the Rust simulator.") from None
+        if result.returncode:
+            raise ValueError(result.stderr.split("\nusage:")[0].strip()[-2000:])
+        try:
+            report = json.loads(result.stdout)
+            if report.get("valid") is not True or not isinstance(report.get("policy_overrides"), dict):
+                raise ValueError("invalid validator response")
+            return report
+        except (ValueError, AttributeError):
+            raise ValueError("Invalid DSL validation response; rebuild the Rust simulator") from None
 
     def fail(self, job, message):
         with self.lock:

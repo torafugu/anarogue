@@ -1,3 +1,4 @@
+pub mod dsl;
 pub mod run_store;
 
 use serde::{Deserialize, Serialize};
@@ -476,6 +477,8 @@ impl PortableRng {
 }
 
 pub struct Simulation {
+    dsl: dsl::Program,
+    dsl_trace: Vec<String>,
     config: SimulationConfig,
     map: Vec<Vec<bool>>,
     rooms: Vec<Rect>,
@@ -568,6 +571,8 @@ impl Simulation {
             None,
         ));
         let mut simulation = Self {
+            dsl: dsl::Program::default(),
+            dsl_trace: Vec::new(),
             config,
             map: Vec::new(),
             rooms: Vec::new(),
@@ -591,6 +596,151 @@ impl Simulation {
         simulation.emit_run_start();
         simulation.new_floor();
         Ok(simulation)
+    }
+
+    /// Configure before running; empty source preserves the original v8 event stream.
+    pub fn with_dsl(mut self, source: &str) -> Result<Self, String> {
+        if self.turn != 0 {
+            return Err("DSL must be configured before execution".into());
+        }
+        let program = dsl::Program::parse(source)?;
+        self.goal_policy = program.apply(self.goal_policy)?;
+        self.dsl = program;
+        if !source.trim().is_empty() {
+            use sha2::{Digest, Sha256};
+            let hash = format!("{:x}", Sha256::digest(source.as_bytes()));
+            if let Some(logger) = self.logger.as_mut() {
+                let details = &mut logger.events[0].details;
+                details["goal_policy"] = json!(self.goal_policy);
+                details["dsl"] = json!({"version": 1, "hash": hash, "source": source});
+                details["code_revision"] = json!(format!("dsl-v1:{hash}"));
+            }
+        }
+        Ok(self)
+    }
+
+    fn dsl_value(&self, field: &str, target: Option<&Value>) -> dsl::Value {
+        use dsl::Value as D;
+        let t = target.unwrap_or(&Value::Null);
+        let pos = serde_json::from_value::<Point>(t["pos"].clone()).ok();
+        let f = field.trim_start_matches("target.");
+        match field {
+            "self.hp" => D::Number(self.player.hp as f64),
+            "self.max_hp" => D::Number(self.player.max_hp as f64),
+            "self.hp_percent" => {
+                D::Number(100.0 * self.player.hp as f64 / self.player.max_hp.max(1) as f64)
+            }
+            "self.potions" => D::Number(self.player.inventory.health_potion as f64),
+            "self.attack" => D::Number(self.effective_attack() as f64),
+            "self.weapon" => D::Word(self.weapon_kind().into()),
+            _ => match f {
+                "hp" => D::Number(t["hp"].as_f64().unwrap_or(0.0)),
+                "type" => D::Word(
+                    t["type"]
+                        .as_str()
+                        .or_else(|| t["kind"].as_str())
+                        .unwrap_or("")
+                        .into(),
+                ),
+                "distance" => D::Number(pos.map_or(f64::INFINITY, |p| {
+                    (self.player.pos.distance_squared(p) as f64).sqrt()
+                })),
+                "visible" => {
+                    D::Bool(pos.is_some_and(|p| self.has_line_of_sight(self.player.pos, p)))
+                }
+                "shootable" => D::Bool(
+                    t["id"]
+                        .as_str()
+                        .is_some_and(|id| self.enemies.iter().any(|e| e.id == id))
+                        && pos.is_some_and(|p| self.can_player_shoot_from(self.player.pos, p)),
+                ),
+                _ => D::Bool(false),
+            },
+        }
+    }
+
+    fn choose_dsl_decision(&mut self) -> Option<Decision> {
+        self.dsl_trace.clear();
+        for rule in &self.dsl.rules {
+            let mut candidates: Vec<Value> = match rule.target.as_deref() {
+                Some("enemy") => self.enemy_snapshots(),
+                Some("item") => self.items.iter().map(|i| json!(i)).collect(),
+                Some("stairs") => vec![json!({"kind":"stairs", "pos":self.stairs})],
+                _ => Vec::new(),
+            };
+            candidates.retain(|t| {
+                rule.filter.as_ref().is_none_or(|e| {
+                    e.eval(&|f| self.dsl_value(f, Some(t))) == dsl::Value::Bool(true)
+                })
+            });
+            candidates.sort_by(|a, b| {
+                let distance = |t: &Value| {
+                    serde_json::from_value::<Point>(t["pos"].clone())
+                        .map_or(i32::MAX, |p| self.player.pos.distance_squared(p))
+                };
+                distance(a)
+                    .cmp(&distance(b))
+                    .then_with(|| a["id"].as_str().cmp(&b["id"].as_str()))
+            });
+            let target = candidates.first();
+            let skip =
+                if rule.target.is_some() && target.is_none() {
+                    Some("no matching target")
+                } else if rule.condition.as_ref().is_some_and(|e| {
+                    e.eval(&|f| self.dsl_value(f, target)) != dsl::Value::Bool(true)
+                }) {
+                    Some("condition false")
+                } else {
+                    None
+                };
+            if let Some(reason) = skip {
+                self.dsl_trace.push(format!("{}: {reason}", rule.name));
+                continue;
+            }
+            let pos = target.and_then(|t| serde_json::from_value::<Point>(t["pos"].clone()).ok());
+            let mut direction = Point::ZERO;
+            let available = match rule.action.as_str() {
+                "wait" => true,
+                "use_potion" => {
+                    self.player.inventory.health_potion > 0 && self.player.hp < self.player.max_hp
+                }
+                "shoot" => pos.is_some_and(|p| self.can_player_shoot_from(self.player.pos, p)),
+                "attack" => pos.is_some_and(|p| {
+                    direction = p - self.player.pos;
+                    direction.x.abs() + direction.y.abs() == 1
+                }),
+                "move_toward" => pos.is_some_and(|p| {
+                    direction = self.find_next_step_toward(p).unwrap_or(Point::ZERO);
+                    direction != Point::ZERO
+                }),
+                _ => false,
+            };
+            if !available {
+                self.dsl_trace
+                    .push(format!("{}: action unavailable", rule.name));
+                continue;
+            }
+            self.dsl_trace.push(format!("{}: selected", rule.name));
+            return Some(Decision {
+                direction,
+                rule_id: "dsl_rule",
+                reason: "Explicit DSL rule takes priority over the default AI.",
+                action_type: match rule.action.as_str() {
+                    "shoot" => "ranged_attack",
+                    "attack" => "attack",
+                    "move_toward" => "move",
+                    "use_potion" => "use_item",
+                    _ => "wait",
+                },
+                target: target
+                    .cloned()
+                    .unwrap_or_else(|| json!({"kind":"inventory_item", "type":"health_potion"})),
+                selected_step_danger: Some(self.danger_cost(self.player.pos + direction)),
+                progression: None,
+                goal_selection: None,
+            });
+        }
+        None
     }
 
     pub fn run(mut self) -> RunSummary {
@@ -1366,8 +1516,11 @@ impl Simulation {
     }
 
     fn run_auto_player_turn(&mut self) {
+        let explicit = self.choose_dsl_decision();
         let item_decision = self.choose_item_decision();
-        let decision = if item_decision
+        let decision = if let Some(decision) = explicit {
+            decision
+        } else if item_decision
             .as_ref()
             .is_some_and(|d| d.action_type == "use_item")
         {
@@ -2253,7 +2406,7 @@ impl Simulation {
                 "decision_id": decision_id,
                 "strategy_id": self.config.strategy.id(),
                 "rule_id": decision.rule_id,
-                "reason": decision.reason,
+                "reason": if self.dsl_trace.is_empty() { decision.reason.to_owned() } else { format!("{} | DSL: {}", decision.reason, self.dsl_trace.join(" | ")) },
                 "action_turn": self.turn + 1,
                 "observation": observation,
                 "action": {
@@ -2857,6 +3010,82 @@ fn format_utc_timestamp(seconds_since_epoch: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn dsl_precedes_healing_and_brute_avoidance_and_falls_back() {
+        let mut sim = item_test_simulation(Strategy::CautiousV1)
+            .with_dsl("rule \"Hold\" { do wait }")
+            .unwrap();
+        sim.player.hp = 5;
+        sim.player.inventory.health_potion = 1;
+        let mut brute = test_brute(Point { x: 3, y: 2 });
+        brute.windup_target = Some(sim.player.pos);
+        sim.enemies.push(brute);
+        assert!(sim.choose_item_decision().is_some());
+        assert!(sim.choose_windup_response().is_some());
+        sim.run_auto_player_turn();
+        assert_eq!(sim.turn, 1);
+        assert_eq!(
+            sim.player.inventory.health_potion, 1,
+            "explicit wait overrides automatic potion"
+        );
+        let decision = sim
+            .logger
+            .as_ref()
+            .unwrap()
+            .events
+            .iter()
+            .find(|e| e.event == "decision")
+            .unwrap();
+        assert_eq!(decision.details["rule_id"], "dsl_rule");
+        assert!(decision.details["reason"]
+            .as_str()
+            .unwrap()
+            .contains("Hold: selected"));
+        let mut fallback = item_test_simulation(Strategy::CautiousV1)
+            .with_dsl("rule \"Not now\" { when self.hp_percent > 90 do wait }")
+            .unwrap();
+        fallback.player.hp = 5;
+        fallback.player.inventory.health_potion = 1;
+        fallback.run_auto_player_turn();
+        assert_eq!(
+            fallback.player.inventory.health_potion, 0,
+            "false rule permits automatic healing"
+        );
+    }
+
+    #[test]
+    fn dsl_targets_availability_order_and_partial_policy() {
+        let mut sim = item_test_simulation(Strategy::CautiousV1).with_dsl("policy { treasure_weight = 7 } rule \"No bow\" { target nearest enemy do shoot target } rule \"Recover\" { do use_potion } rule \"Hold\" { do wait }").unwrap();
+        assert_eq!(sim.goal_policy.item_weight, 7);
+        assert_eq!(sim.goal_policy.stairs_weight, 4);
+        sim.enemies.push(test_brute(Point { x: 5, y: 2 }));
+        let d = sim.choose_dsl_decision().unwrap();
+        assert_eq!(d.action_type, "wait");
+        assert!(sim.dsl_trace[0].ends_with("unavailable"));
+        assert!(sim.dsl_trace[1].ends_with("unavailable"));
+        sim.player.equipment.weapon = Some(bow_gear(2));
+        assert_eq!(
+            sim.choose_dsl_decision().unwrap().action_type,
+            "ranged_attack"
+        );
+        let hp_before = sim.enemies[0].hp;
+        sim.run_auto_player_turn();
+        assert!(
+            sim.enemies[0].hp < hp_before,
+            "DSL shooting actually executes"
+        );
+        assert_eq!(sim.turn, 1);
+        let a = Simulation::new(item_test_simulation(Strategy::AggressiveV1).config)
+            .unwrap()
+            .run();
+        let b = Simulation::new(item_test_simulation(Strategy::AggressiveV1).config)
+            .unwrap()
+            .with_dsl("")
+            .unwrap()
+            .run();
+        assert_eq!(a, b);
+    }
+
     use super::*;
 
     #[test]

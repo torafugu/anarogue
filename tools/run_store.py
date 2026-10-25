@@ -246,7 +246,7 @@ class RunStore:
                 raise KeyError(key)
             summary = json.loads(row[0])
             summary["execution_settings"] = {field: settings[field] for field in
-                ("max_turns", "enemy_amount", "treasure_amount", "map_depth") if field in settings}
+                ("max_turns", "enemy_amount", "treasure_amount", "map_depth", "dsl") if field in settings}
             db.execute("UPDATE runs SET summary=? WHERE id=?", (canonical(summary), key))
 
     def weight_analysis(self, filters=None):
@@ -407,7 +407,7 @@ def make_server(store, host="127.0.0.1", port=8765, jobs=None, watch_enabled=Fal
                     self.reply(503, {"error": "Database is busy. Try again after all writers have stopped."})
                 return
             # Import is same-origin only. Vite proxies /api to this local server.
-            if self.path in ("/api/jobs", "/api/batches") or (self.path.startswith("/api/jobs/") and self.path.endswith("/cancel")):
+            if self.path in ("/api/jobs", "/api/batches", "/api/dsl/validate") or (self.path.startswith("/api/jobs/") and self.path.endswith("/cancel")):
                 if jobs is None:
                     self.reply(503, {"error": "Run execution is unavailable on this server"})
                     return
@@ -420,10 +420,12 @@ def make_server(store, host="127.0.0.1", port=8765, jobs=None, watch_enabled=Fal
                     return
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
-                    if not 0 < length <= 4096:
-                        raise ValueError("Run settings must be 1 byte to 4 KB")
+                    if not 0 < length <= 131072:
+                        raise ValueError("Run settings must be 1 byte to 128 KB")
                     settings = json.loads(self.rfile.read(length).decode("utf-8"))
-                    if self.path.endswith("/cancel"):
+                    if self.path == "/api/dsl/validate":
+                        self.reply(200, jobs.validate_dsl(settings))
+                    elif self.path.endswith("/cancel"):
                         key = unquote(self.path[len("/api/jobs/"):-len("/cancel")])
                         self.reply(200, jobs.cancel(key))
                     else:
