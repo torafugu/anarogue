@@ -535,6 +535,8 @@ func format_log_entry(frame: Dictionary) -> String:
 	if frame["kind"] == "decision":
 		var action: Dictionary = frame["details"].get("action", {})
 		text = "Decision for Turn %d: %s" % [frame["action_turn"], action.get("type", "unknown")] + text
+		if str(frame.get("reason", "")).contains("| DSL:"):
+			text += "\n" + str(frame["reason"])
 	elif text.strip_edges().is_empty():
 		var details: Dictionary = frame["details"]
 		var result := str(details.get("result", "")).replace("_", " ")

@@ -512,6 +512,26 @@
           "type": "string",
           "minLength": 1
         },
+        "dsl": {
+          "type": "object",
+          "required": ["version", "hash", "source"],
+          "properties": {
+            "version": {"const": 1},
+            "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "source": {"type": "string", "maxLength": 16384}
+          },
+          "additionalProperties": false
+        },
+        "map_settings": {
+          "type": "object",
+          "required": ["enemy_amount", "treasure_amount", "map_depth"],
+          "properties": {
+            "enemy_amount": {"type": "integer", "minimum": 0, "maximum": 500},
+            "treasure_amount": {"type": "integer", "minimum": 0, "maximum": 500},
+            "map_depth": {"type": "integer", "minimum": 1, "maximum": 100}
+          },
+          "additionalProperties": false
+        },
         "goal_policy": {
           "$ref": "#/$defs/goal_policy"
         },

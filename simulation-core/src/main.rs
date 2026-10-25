@@ -1,7 +1,7 @@
 use anarogue_simulation::run_store::save_run;
 use anarogue_simulation::{GoalPolicy, RunLogEvent, Simulation, SimulationConfig, Strategy};
 use std::fs::{create_dir_all, File};
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -12,7 +12,7 @@ fn main() -> ExitCode {
             eprintln!("error: {message}");
             eprintln!(
                 "usage: anarogue-sim [--strategy aggressive|cautious] [--seed N] \
-                 [--width N] [--height N] [--max-turns N] [--enemy-amount 0..500] [--treasure-amount 0..500] [--map-depth 1..100] [--output PATH] [--enemy-weight N] [--item-weight N] [--stairs-weight N] [--temperature N] [--db PATH] [--revision REV]"
+                 [--width N] [--height N] [--max-turns N] [--enemy-amount 0..500] [--treasure-amount 0..500] [--map-depth 1..100] [--output PATH] [--enemy-weight N] [--item-weight N] [--stairs-weight N] [--temperature N] [--db PATH] [--revision REV] [--dsl-stdin yes | --validate-dsl yes]"
             );
             ExitCode::FAILURE
         }
@@ -25,10 +25,21 @@ struct CliOptions {
     database: Option<PathBuf>,
     revision: Option<String>,
     policy: GoalPolicy,
+    dsl_source: String,
+    validate_dsl: bool,
 }
 
 fn run() -> Result<(), String> {
     let options = parse_options()?;
+    if options.validate_dsl {
+        let program = anarogue_simulation::dsl::Program::parse(&options.dsl_source)?;
+        let effective = program.apply(options.policy)?;
+        println!(
+            "{}",
+            serde_json::json!({"valid":true, "rules":program.rules.len(), "policy_overrides":program.policy, "effective_policy":effective})
+        );
+        return Ok(());
+    }
     if let (Some(output), Some(database)) = (&options.output, &options.database) {
         validate_destinations(output, database)?;
     }
@@ -40,9 +51,18 @@ fn run() -> Result<(), String> {
             .unwrap_or_else(|| format!("sqlite:{}", options.database.as_ref().unwrap().display()));
         let mut logged_run =
             Simulation::new_logged_with_policy(options.config, destination, options.policy)?
+                .with_dsl(&options.dsl_source)?
                 .run_logged();
         if let Some(revision) = options.revision {
-            logged_run.events[0].details["code_revision"] = revision.into();
+            let profile = logged_run.events[0].details["code_revision"]
+                .as_str()
+                .unwrap_or("");
+            logged_run.events[0].details["code_revision"] = if profile.is_empty() {
+                revision
+            } else {
+                format!("{revision}|{profile}")
+            }
+            .into();
         }
         if let Some(database) = options.database {
             let key = save_run(&database, &logged_run.events)?;
@@ -56,7 +76,9 @@ fn run() -> Result<(), String> {
             serde_json::to_string(&logged_run.summary).expect("summary is serializable")
         );
     } else {
-        let summary = Simulation::new_with_policy(options.config, options.policy)?.run();
+        let summary = Simulation::new_with_policy(options.config, options.policy)?
+            .with_dsl(&options.dsl_source)?
+            .run();
         println!(
             "{}",
             serde_json::to_string(&summary).expect("summary is serializable")
@@ -135,12 +157,27 @@ fn parse_options() -> Result<CliOptions, String> {
     let mut database = None;
     let mut revision = None;
     let mut weights = [None; 4];
+    let mut dsl_stdin = false;
+    let mut validate_dsl = false;
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
         let value = arguments
             .next()
             .ok_or_else(|| format!("missing value for {argument}"))?;
         match argument.as_str() {
+            "--dsl-stdin" => {
+                if value != "yes" {
+                    return Err("--dsl-stdin requires yes".into());
+                }
+                dsl_stdin = true;
+            }
+            "--validate-dsl" => {
+                if value != "yes" {
+                    return Err("--validate-dsl requires yes".into());
+                }
+                validate_dsl = true;
+                dsl_stdin = true;
+            }
             "--strategy" => config.strategy = value.parse()?,
             "--seed" => config.scenario_seed = parse_number(&argument, &value)?,
             "--width" => config.map_width = parse_number(&argument, &value)?,
@@ -183,9 +220,23 @@ fn parse_options() -> Result<CliOptions, String> {
     if output.is_some() && output == database {
         return Err("--db and --output must use different paths".into());
     }
+    let mut dsl_source = String::new();
+    if dsl_stdin {
+        std::io::stdin()
+            .take(16385)
+            .read_to_string(&mut dsl_source)
+            .map_err(|e| e.to_string())?;
+    }
+    // Compile and validate effective settings before opening or writing destinations.
+    let policy = anarogue_simulation::dsl::Program::parse(&dsl_source)?.apply(policy)?;
+    if validate_dsl && (output.is_some() || database.is_some()) {
+        return Err("DSL validation cannot write output or database".into());
+    }
     Ok(CliOptions {
         config: config.validate()?,
-        policy: policy.validate()?,
+        policy,
+        dsl_source,
+        validate_dsl,
         output,
         database,
         revision,

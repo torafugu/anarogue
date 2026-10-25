@@ -1,5 +1,10 @@
 # AnaRogue
 
+Player behavior can be overridden with the optional [Player DSL](docs/player-dsl.md)
+in Home → Run. Empty source uses the default AI; explicit rules run before
+automatic healing and Brute avoidance. The Validate DSL button checks programs
+without creating a Run, and Run/AutoRun also reject errors before execution.
+
 A tiny Godot 4 roguelike starter.
 
 ## Run and Replay in Godot
