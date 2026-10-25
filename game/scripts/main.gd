@@ -1,5 +1,6 @@
 extends Node2D
 
+const DungeonSprites := preload("res://scripts/dungeon_sprites.gd")
 const PortableRandom := preload("res://scripts/portable_rng.gd")
 
 enum StrategyType {
@@ -133,6 +134,7 @@ var fixed_event_time := ""
 var logged_file_path := ""
 
 func _ready() -> void:
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	metadata_rng.randomize()
 	if not headless_mode:
 		scenario_seed = create_scenario_seed()
@@ -2187,10 +2189,7 @@ func draw_entities() -> void:
 
 func draw_tile_symbol(tile: Vector2i, symbol: String, color: Color) -> void:
 	var center := Vector2(tile.x * TILE_SIZE + TILE_SIZE * 0.5, tile.y * TILE_SIZE + TILE_SIZE * 0.5)
-	draw_circle(center, TILE_SIZE * 0.42, color)
-	var symbol_size := int(TILE_SIZE * 0.75)
-	var text_size := font.get_string_size(symbol, HORIZONTAL_ALIGNMENT_CENTER, -1, symbol_size)
-	draw_string(font, center - text_size * 0.5 + Vector2(0, TILE_SIZE * 0.55), symbol, HORIZONTAL_ALIGNMENT_CENTER, -1, symbol_size, COLORS["bg"])
+	DungeonSprites.draw(self, center, TILE_SIZE, symbol, color)
 
 func draw_hud() -> void:
 	var hud_x := map_available_size().x + 16

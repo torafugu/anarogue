@@ -19,6 +19,8 @@ var request: HTTPRequest
 var poll_timer: Timer
 var request_kind := ""
 var busy := false
+var dsl_editor: CodeEdit
+var validate_dsl_button: Button
 
 func _ready() -> void:
 	# Apply an explicit offline replay launch once, preserving later Home navigation.
@@ -102,6 +104,18 @@ func _ready() -> void:
 	number_field(map_grid, "Treasure amount (%)", "treasure_amount", 0, 500)
 	number_field(map_grid, "Map depth", "map_depth", 1, 100)
 	form.add_child(label("100% = normal per-floor quantity; 0% = none. Treasure includes potions and equipment. Counts round to the nearest whole number and are limited by free tiles. Depth is the exit depth: reaching it clears the Run (existing rule). Depth 1 clears at the first stairs."))
+	form.add_child(label("Player DSL (optional)"))
+	form.add_child(label("Blank = default AI. Rules run top to bottom BEFORE automatic healing and Brute avoidance. Settings override only the fields you declare."))
+	dsl_editor = CodeEdit.new()
+	dsl_editor.name = "PlayerDSL"
+	dsl_editor.text = RunSession.dsl_source
+	dsl_editor.placeholder_text = "policy { treasure_weight = 5 }\n\nrule \"Wait\" {\n  when self.hp_percent > 90\n  do wait\n}"
+	dsl_editor.custom_minimum_size = Vector2(0, 420)
+	dsl_editor.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dsl_editor.gutters_draw_line_numbers = true
+	dsl_editor.text_changed.connect(func(): RunSession.dsl_source = dsl_editor.text)
+	form.add_child(dsl_editor)
+	validate_dsl_button = button(form, "Validate DSL", validate_dsl, "ValidateDSLButton")
 	execute_button = button(form, "Run", execute_run, "ExecuteRunButton")
 	form.add_child(label("AutoRun: test both Strategies with every combination of the values below. Uses the Seed, Max turns and Map settings above; ignores the single-Run weights."))
 	var batch_grid := GridContainer.new()
@@ -252,7 +266,11 @@ func current_settings() -> Dictionary:
 		if input.get_line_edit().has_focus():
 			input.apply()
 		RunSession.settings[field] = int(input.value)
-	return RunSession.settings.duplicate()
+	var settings := RunSession.settings.duplicate()
+	RunSession.dsl_source = dsl_editor.text
+	if not dsl_editor.text.strip_edges().is_empty():
+		settings["dsl"] = dsl_editor.text
+	return settings
 
 func set_busy(value: bool) -> void:
 	busy = value
@@ -260,6 +278,8 @@ func set_busy(value: bool) -> void:
 	autorun_button.disabled = value
 	cancel_button.visible = value and RunSession.job_kind == "batch"
 	strategy.disabled = value
+	dsl_editor.editable = not value
+	validate_dsl_button.disabled = value
 	for input in inputs.values():
 		input.editable = not value
 	for input in batch_inputs.values():
@@ -269,6 +289,8 @@ func batch_settings() -> Dictionary:
 	var settings := {"seed": RunSession.settings["seed"], "max_turns": RunSession.settings["max_turns"], "strategies": ["aggressive", "cautious"]}
 	for field in ["enemy_amount", "treasure_amount", "map_depth"]:
 		settings[field] = RunSession.settings[field]
+	if not RunSession.dsl_source.strip_edges().is_empty():
+		settings["dsl"] = RunSession.dsl_source
 	for field in batch_inputs:
 		var text: String = batch_inputs[field].text
 		RunSession.batch_values[field] = text
@@ -334,7 +356,7 @@ func execute_run() -> void:
 	if busy:
 		return
 	var settings := current_settings()
-	if int(settings["enemy_weight"]) + int(settings["item_weight"]) + int(settings["stairs_weight"]) == 0:
+	if not settings.has("dsl") and int(settings["enemy_weight"]) + int(settings["item_weight"]) + int(settings["stairs_weight"]) == 0:
 		status.text = "At least one goal weight must be positive."
 		return
 	RunSession.job_kind = "run"
@@ -350,6 +372,21 @@ func execute_run() -> void:
 		set_navigation_enabled(true)
 		set_busy(false)
 		status.text = "Could not start Run (error %d)." % error
+
+func validate_dsl() -> void:
+	if busy or not request_kind.is_empty():
+		return
+	var settings := current_settings()
+	set_busy(true)
+	request_kind = "validate_dsl"
+	set_navigation_enabled(false)
+	status.text = "Checking DSL…"
+	var error := request.request(RunSession.api_url() + "/api/dsl/validate", ["Content-Type: application/json"], HTTPClient.METHOD_POST, JSON.stringify(settings))
+	if error != OK:
+		request_kind = ""
+		set_busy(false)
+		set_navigation_enabled(true)
+		status.text = "Could not validate DSL (error %d)." % error
 
 func poll_job() -> void:
 	if not request_kind.is_empty() or RunSession.job_id.is_empty():
@@ -384,6 +421,10 @@ func request_completed(result: int, code: int, _headers: PackedStringArray, body
 			snapshot["status"] = "unavailable"
 			show_batch_progress(snapshot)
 			show_batch_notice(status.text)
+		return
+	if kind == "validate_dsl":
+		set_busy(false)
+		status.text = "DSL valid: %d rules. Effective weights: %s" % [int(data.get("rules", 0)), JSON.stringify(data.get("effective_policy", {}))]
 		return
 	if kind in ["start", "start_batch"]:
 		RunSession.job_id = str(data["id"])

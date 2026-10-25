@@ -65,5 +65,10 @@ jobs:
       - name: Validate Rust JSONL run log
         run: npm run validate:logs -- /tmp/anarogue-rust.jsonl
 
+      - name: Build and validate DSL run log
+        run: |
+          cargo run --manifest-path ../simulation-core/Cargo.toml -- --dsl-stdin yes --max-turns 20 --output /tmp/anarogue-dsl.jsonl < ../examples/player-dsl/counter-archer.dsl
+          npm run validate:logs -- /tmp/anarogue-dsl.jsonl
+
       - name: Build log viewer
         run: npm run build

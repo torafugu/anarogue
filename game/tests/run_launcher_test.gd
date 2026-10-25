@@ -40,6 +40,16 @@ func run_tests() -> void:
 		quit(0)
 		return
 	home.strategy.select(1)
+	# Validation never starts a Run, and errors are shown before acceptance.
+	home.dsl_editor.text = "rule \"Typo\" { when self.hpp < 5 do wait }"
+	home.validate_dsl_button.pressed.emit()
+	assert(await wait_for(func(): return not home.busy))
+	assert(home.status.text.contains("DSL line") and root.get_node("RunSession").job_id.is_empty())
+	home.dsl_editor.text = "rule \"Optional\" { when self.hp_percent < 0 do wait }"
+	home.validate_dsl_button.pressed.emit()
+	assert(await wait_for(func(): return not home.busy))
+	assert(home.status.text.begins_with("DSL valid: 1 rules"))
+	home.dsl_editor.text = ""
 	home.strategy.item_selected.emit(1)
 	assert(home.inputs["enemy_weight"].value == 1 and home.inputs["stairs_weight"].value == 4)
 	for field in ["enemy_weight", "item_weight", "stairs_weight"]:
@@ -54,6 +64,7 @@ func run_tests() -> void:
 	home.inputs["item_weight"].value = 7
 	home.inputs["stairs_weight"].value = 2
 	home.inputs["max_turns"].value = 20
+	home.dsl_editor.text = "rule \"Optional\" { when self.hp_percent < 0 do wait }"
 	home.inputs["enemy_amount"].value = 200
 	home.inputs["treasure_amount"].value = 50
 	home.inputs["map_depth"].value = 8
@@ -75,6 +86,7 @@ func run_tests() -> void:
 	assert(metadata["scenario_seed"] == 42 and metadata["strategy_id"] == "cautious_v1")
 	assert(metadata["goal_policy"]["item_weight"] == 7)
 	assert(metadata["turns"] <= 20)
+	assert(metadata["execution_settings"]["dsl"].contains("Optional"))
 	assert(metadata["execution_settings"]["enemy_amount"] == 200)
 	assert(metadata["execution_settings"]["treasure_amount"] == 50)
 	assert(metadata["execution_settings"]["map_depth"] == 8)
@@ -83,6 +95,7 @@ func run_tests() -> void:
 	await process_frame
 	home = current_scene
 	assert(home.menu.visible and home.inputs["seed"].value == 42)
+	assert(home.dsl_editor.text.contains("Optional"), "DSL source survives scene changes")
 	assert(home.inputs["enemy_amount"].value == 200 and home.inputs["map_depth"].value == 8)
 	home.menu.get_node("ReplayMenuButton").pressed.emit()
 	assert(await wait_for(func(): return current_scene != null and current_scene.has_method("load_catalog_run") and not current_scene.catalog_runs.is_empty()))

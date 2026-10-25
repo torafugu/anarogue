@@ -3,6 +3,7 @@ extends Node
 # Navigation and an in-flight job survive scene changes. Runs themselves live in SQLite.
 var settings := {"seed": 424242, "strategy": "aggressive", "enemy_weight": 4, "item_weight": 2, "stairs_weight": 1, "max_turns": 5000, "enemy_amount": 100, "treasure_amount": 100, "map_depth": 5}
 var launch_handled := false
+var dsl_source := ""
 var job_id := ""
 var job_kind := "run"
 var batch_snapshot: Dictionary = {}

@@ -8,6 +8,14 @@ Each action you take advances the game by one turn. Move carefully, watch your H
 
 ## Starting the Game
 
+Home → Run also provides an optional **Player DSL** editor. Leave it blank for
+the existing AI. Declare only the policy settings or ordered behavior rules you
+want to override. Explicit rules have priority over automatic healing and Brute
+evasion. **Validate DSL** checks line/column errors without starting a Run;
+Run and AutoRun validate again before accepting the job. Source survives scene
+changes and is saved with each Run. See [Player DSL v1](docs/player-dsl.md) for
+the full syntax and examples under `examples/player-dsl/`.
+
 1. Build Rust with `cargo build --release --manifest-path simulation-core/Cargo.toml`, then start the API with `python3 tools/run_store.py serve`. Open `game/` in Godot 4 and run the project.
 2. The main screen offers **Run** and **Replay**. Choose Run to set seed, strategy, enemy/treasure/stairs weights and maximum turns. Aggressive starts with weights 4/2/1; Cautious starts with 1/2/4. Changing strategy resets these weights, after which each can be customized. At least one weight must be positive.
 3. Press Run in the settings screen. The API queues the Rust simulation, which writes the result and all events directly to SQLite. The UI shows queued/running status and opens that specific Run in Replay when complete. Starting a second Run is disabled while your job is pending. Once the API has accepted the job, you may browse Replay and return to Run to resume checking it. Settings survive screen changes during the app session.
@@ -417,11 +425,14 @@ a hypothetical redraw. Old logs keep their original decisions.
 See [v8 comparison](docs/strategy-comparison-v8.md) for 50 paired seeds and
 [exact evaluation rules](docs/simulation-spec-v8.md) for estimates and limitations.
 
-### Replay arrow timing
+### Dungeon sprites
 
-During a ranged attack animation, Replay displays the recorded attack-time
-positions. A defeated target stays visible until the arrow lands; a surviving
-target is shown on its original tile before its later movement. Multiple shots
-within one Turn play in event order, then the map returns to the completed Turn
-snapshot. Turn summaries and logs retain the completed values. Existing stored
-Runs use this playback fix without being rerun.
+Player, enemies and items use Tiny Dungeon pixel-art sprites in Godot (both the
+simulator and Replay) and the browser Viewer. Melee enemies are skeletons,
+Archers wear green hoods with a bow, and Brutes are red monsters. Potions are red
+flasks, melee weapons are swords, defense gear uses a shield, and bows have a
+separate icon. The underlying enemy types, equipment effects and saved logs
+are unchanged. Existing Runs display the new artwork when opened.
+
+The original CC0 assets and their license are under `game/assets/tiny-dungeon/`.
+See `game/assets/SPRITES.md` for image assignments and extension instructions.

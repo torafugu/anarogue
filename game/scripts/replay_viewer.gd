@@ -1,5 +1,6 @@
 extends Node2D
 
+const DungeonSprites := preload("res://scripts/dungeon_sprites.gd")
 const ReplayData := preload("res://scripts/replay_log.gd")
 const DEFAULT_REPLAY := "res://../examples/reference-v8/aggressive-seed-424242.jsonl"
 const REPLAY_TILE_SIZE := 96.0
@@ -81,6 +82,7 @@ func create_controls() -> void:
 	maze_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(maze_view)
 	maze_canvas = Node2D.new()
+	maze_canvas.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	maze_canvas.name = "MazeCanvas"
 	maze_canvas.draw.connect(draw_maze)
 	maze_view.add_child(maze_canvas)
@@ -533,6 +535,8 @@ func format_log_entry(frame: Dictionary) -> String:
 	if frame["kind"] == "decision":
 		var action: Dictionary = frame["details"].get("action", {})
 		text = "Decision for Turn %d: %s" % [frame["action_turn"], action.get("type", "unknown")] + text
+		if str(frame.get("reason", "")).contains("| DSL:"):
+			text += "\n" + str(frame["reason"])
 	elif text.strip_edges().is_empty():
 		var details: Dictionary = frame["details"]
 		var result := str(details.get("result", "")).replace("_", " ")
@@ -628,21 +632,7 @@ func draw_actor(
 	if not position_value.has("x") or not position_value.has("y"):
 		return
 	var center := origin + Vector2(position_value["x"] + 0.5, position_value["y"] + 0.5) * tile_size
-	maze_canvas.draw_circle(center, tile_size * 0.42, color)
-	var symbol_size := int(tile_size * 0.75)
-	var text_size := font.get_string_size(
-		symbol, HORIZONTAL_ALIGNMENT_CENTER, -1, symbol_size
-	)
-	maze_canvas.draw_string(
-		font,
-		center - text_size * 0.5 + Vector2(0, tile_size * 0.55),
-		symbol,
-		HORIZONTAL_ALIGNMENT_CENTER,
-		-1,
-		symbol_size,
-		COLOR_BG
-	)
-
+	DungeonSprites.draw(maze_canvas, center, tile_size, symbol, color)
 
 func draw_stairs_icon(position_value: Dictionary, origin: Vector2, tile_size: float) -> void:
 	if not position_value.has("x") or not position_value.has("y"):

@@ -1126,3 +1126,6 @@ blockquote {
 #delete-dialog::backdrop { background: #000a; }
 #delete-dialog p { line-height: 1.6; }
 #delete-error, #delete-watch-note { color: #ffb3b3; }
+
+.map-sprite, .legend-sprite { image-rendering: pixelated; }
+.map-legend .legend-sprite { width: 24px; height: 24px; object-fit: contain; vertical-align: middle; }
