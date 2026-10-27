@@ -31,7 +31,7 @@ export function mountRunPresets(root: HTMLElement): void {
       </div>
       <p class="panel-note">Map amounts: 100% = normal, 0% = none. Depth is the exit depth. Blank DSL uses the Strategy unchanged; declared weights override the form.</p>
       <label class="select-label">Player DSL<textarea id="preset-dsl" rows="12" spellcheck="false" placeholder='rule "Counter Archer" {\n  target nearest enemy where type == archer and shootable\n  do shoot target\n}'></textarea></label>
-      <p class="panel-note">Rules run top to bottom before automatic healing and Brute avoidance. Actions: shoot target, attack target, move_toward target, use_potion, wait. <a href="https://github.com/torafugu/anarogue/blob/main/docs/player-dsl.md" target="_blank" rel="noopener">DSL reference</a></p>
+      <p class="panel-note">Rules run top to bottom before automatic healing and Brute avoidance. Actions: shoot target, attack target, move_toward target, keep_distance target min = 3 max = 5, use_potion, wait. Use floor.enemy_count == 0 to collect or descend after clearing. <a href="https://github.com/torafugu/anarogue/blob/main/docs/player-dsl.md" target="_blank" rel="noopener">DSL reference</a> · <a href="https://github.com/torafugu/anarogue/blob/main/examples/player-dsl/bow-sweep.dsl" target="_blank" rel="noopener">Bow sweep example</a></p>
       <div class="preset-actions">
         <button type="button" class="button button-ghost" id="preset-validate">Validate settings / DSL</button>
         <button type="submit" class="button button-primary" id="preset-save">Save preset</button>

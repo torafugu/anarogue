@@ -633,6 +633,9 @@ impl Simulation {
             "self.potions" => D::Number(self.player.inventory.health_potion as f64),
             "self.attack" => D::Number(self.effective_attack() as f64),
             "self.weapon" => D::Word(self.weapon_kind().into()),
+            "floor.enemy_count" => {
+                D::Number(self.enemies.iter().filter(|e| e.hp > 0).count() as f64)
+            }
             _ => match f {
                 "hp" => D::Number(t["hp"].as_f64().unwrap_or(0.0)),
                 "type" => D::Word(
@@ -713,6 +716,13 @@ impl Simulation {
                     direction = self.find_next_step_toward(p).unwrap_or(Point::ZERO);
                     direction != Point::ZERO
                 }),
+                "keep_distance" => pos.is_some_and(|p| {
+                    let (minimum, maximum) = rule.distance_band.expect("validated distance band");
+                    direction = self
+                        .keep_distance_step(p, minimum, maximum)
+                        .unwrap_or(Point::ZERO);
+                    direction != Point::ZERO
+                }),
                 _ => false,
             };
             if !available {
@@ -728,7 +738,7 @@ impl Simulation {
                 action_type: match rule.action.as_str() {
                     "shoot" => "ranged_attack",
                     "attack" => "attack",
-                    "move_toward" => "move",
+                    "move_toward" | "keep_distance" => "move",
                     "use_potion" => "use_item",
                     _ => "wait",
                 },
@@ -739,6 +749,75 @@ impl Simulation {
                 progression: None,
                 goal_selection: None,
             });
+        }
+        None
+    }
+
+    /// One cardinal move, never onto an enemy or stairs. No RNG is consumed.
+    fn keep_distance_step(&self, target: Point, minimum: u32, maximum: u32) -> Option<Point> {
+        let start = self.player.pos;
+        let distance = start.distance_squared(target);
+        let min_squared = (minimum * minimum) as i32;
+        let max_squared = (maximum * maximum) as i32;
+        let legal =
+            |p: Point| self.is_walkable(p) && p != self.stairs && self.enemy_at(p).is_none();
+        if distance < min_squared {
+            // An immediate retreat must make progress; do not consume a turn
+            // bumping a wall, attacking, descending or shuffling sideways.
+            return DIRECTIONS
+                .into_iter()
+                .filter(|d| legal(start + *d) && (start + *d).distance_squared(target) > distance)
+                .min_by_key(|d| {
+                    let next = start + *d;
+                    let squared = next.distance_squared(target);
+                    let error = if squared < min_squared {
+                        min_squared - squared
+                    } else {
+                        (squared - max_squared).max(0)
+                    };
+                    (
+                        error,
+                        self.danger_cost(next),
+                        !self.has_line_of_sight(next, target),
+                        self.revisit_cost(next),
+                    )
+                });
+        }
+        if distance <= max_squared && self.has_line_of_sight(start, target) {
+            // Already in position: let the next DSL rule shoot this turn.
+            return None;
+        }
+        // Seek a reachable tile in the band with clear line of sight. Routing
+        // may temporarily exceed max to go around cover, but never violates min.
+        let mut frontier = vec![start];
+        let mut came_from = HashMap::from([(start, start)]);
+        let mut costs = HashMap::from([(start, 0_i32)]);
+        while !frontier.is_empty() {
+            let best_index = (0..frontier.len())
+                .min_by_key(|i| costs[&frontier[*i]])
+                .unwrap();
+            let current = frontier.remove(best_index);
+            let squared = current.distance_squared(target);
+            if current != start
+                && (min_squared..=max_squared).contains(&squared)
+                && self.has_line_of_sight(current, target)
+            {
+                return first_step(start, current, &came_from);
+            }
+            for direction in DIRECTIONS {
+                let next = current + direction;
+                if !legal(next) || next.distance_squared(target) < min_squared {
+                    continue;
+                }
+                let cost = costs[&current] + 1 + self.danger_cost(next) + self.revisit_cost(next);
+                if costs.get(&next).is_none_or(|old| cost < *old) {
+                    costs.insert(next, cost);
+                    came_from.insert(next, current);
+                    if !frontier.contains(&next) {
+                        frontier.push(next);
+                    }
+                }
+            }
         }
         None
     }
@@ -3010,6 +3089,158 @@ fn format_utc_timestamp(seconds_since_epoch: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    const KITE_RULES: &str = "rule \"Space\" { target nearest enemy do keep_distance target min = 3 max = 5 } rule \"Fire\" { target nearest enemy where shootable do shoot target } rule \"Fallback\" { do wait }";
+
+    #[test]
+    fn dsl_distance_retreats_approaches_and_yields_to_shooting() {
+        let mut sim = item_test_simulation(Strategy::CautiousV1)
+            .with_dsl(KITE_RULES)
+            .unwrap();
+        sim.player.pos = Point { x: 8, y: 8 };
+        sim.player.equipment.weapon = Some(bow_gear(2));
+        sim.enemies.push(test_brute(Point { x: 9, y: 8 }));
+        let before = sim.player.pos;
+        let decision = sim.choose_dsl_decision().unwrap();
+        assert_eq!(decision.action_type, "move");
+        assert_eq!(decision.direction, Point { x: -1, y: 0 });
+        assert!(sim.dsl_trace.last().unwrap().contains("Space: selected"));
+        sim.run_auto_player_turn();
+        assert_eq!(sim.player.pos, before + decision.direction);
+        assert_eq!(
+            sim.turn, 1,
+            "moving uses one turn, including the enemy phase"
+        );
+        sim.enemies[0].pos = Point { x: 11, y: 8 };
+        let hp = sim.enemies[0].hp;
+        assert_eq!(
+            sim.choose_dsl_decision().unwrap().action_type,
+            "ranged_attack"
+        );
+        sim.run_auto_player_turn();
+        assert!(sim.enemies[0].hp < hp);
+        sim.player.pos = before;
+        sim.enemies[0].pos = Point { x: 15, y: 8 };
+        let direction = sim.choose_dsl_decision().unwrap().direction;
+        assert_eq!(direction, Point { x: 1, y: 0 });
+        // On a clear tile, both inclusive boundaries skip movement.
+        for x in [11, 13] {
+            sim.enemies[0].pos.x = x;
+            assert_eq!(
+                sim.choose_dsl_decision().unwrap().action_type,
+                "ranged_attack"
+            );
+        }
+    }
+
+    #[test]
+    fn dsl_distance_respects_walls_enemies_stairs_and_unavailable_actions() {
+        let mut sim = item_test_simulation(Strategy::CautiousV1)
+            .with_dsl(KITE_RULES)
+            .unwrap();
+        sim.player.pos = Point { x: 8, y: 8 };
+        sim.player.equipment.weapon = Some(bow_gear(2));
+        sim.enemies.push(test_brute(Point { x: 9, y: 8 }));
+        sim.stairs = Point { x: 7, y: 8 };
+        sim.map[7][8] = false;
+        sim.enemies.push(test_brute(Point { x: 8, y: 9 }));
+        // Every retreat is blocked: neither descend nor attack via movement.
+        assert_eq!(sim.keep_distance_step(sim.enemies[0].pos, 3, 5), None);
+        assert_eq!(
+            sim.choose_dsl_decision().unwrap().action_type,
+            "ranged_attack"
+        );
+        sim.map[7][8] = true;
+        assert_eq!(
+            sim.keep_distance_step(sim.enemies[0].pos, 3, 5),
+            Some(Point { x: 0, y: -1 })
+        );
+        sim.enemies.clear();
+        assert_eq!(sim.choose_dsl_decision().unwrap().action_type, "wait");
+        assert!(sim.dsl_trace[0].contains("no matching target"));
+
+        // Equal-distance choices prefer lower danger before fixed direction order.
+        sim.player.pos = Point { x: 8, y: 8 };
+        let mut brute = test_brute(Point { x: 9, y: 8 });
+        brute.windup_target = Some(Point { x: 8, y: 7 });
+        sim.enemies.push(brute);
+        sim.map[8][7] = false;
+        assert_eq!(
+            sim.keep_distance_step(sim.enemies[0].pos, 3, 5),
+            Some(Point { x: 0, y: 1 })
+        );
+    }
+
+    #[test]
+    fn dsl_distance_routes_around_cover_without_crossing_minimum() {
+        let mut sim = item_test_simulation(Strategy::CautiousV1);
+        let target = Point { x: 8, y: 8 };
+        sim.player.pos = Point { x: 4, y: 8 };
+        sim.enemies.push(test_brute(target));
+        sim.stairs = Point { x: 4, y: 7 };
+        sim.map[8][6] = false;
+        assert!(!sim.has_line_of_sight(sim.player.pos, target));
+        let start = sim.player.pos;
+        for _ in 0..24 {
+            let Some(direction) = sim.keep_distance_step(target, 3, 5) else {
+                break;
+            };
+            sim.player.pos = sim.player.pos + direction;
+            assert!(sim.player.pos.distance_squared(target) >= 9);
+            assert_ne!(sim.player.pos, sim.stairs);
+            assert!(sim.enemy_at(sim.player.pos).is_none());
+        }
+        assert_ne!(sim.player.pos, start);
+        assert!((9..=25).contains(&sim.player.pos.distance_squared(target)));
+        assert!(sim.has_line_of_sight(sim.player.pos, target));
+        // A sealed player has no legal route to the distance band.
+        sim.map = vec![vec![false; 24]; 18];
+        sim.player.pos = Point { x: 1, y: 1 };
+        sim.map[1][1] = true;
+        sim.map[8][8] = true;
+        assert_eq!(sim.keep_distance_step(target, 3, 5), None);
+    }
+
+    #[test]
+    fn dsl_floor_enemy_count_gates_looting_after_the_last_kill_and_resets_on_descent() {
+        let mut sim = item_test_simulation(Strategy::CautiousV1).with_dsl("rule \"Fire\" { target nearest enemy where shootable do shoot target } rule \"Collect\" { target nearest item when floor.enemy_count == 0 do move_toward target } rule \"Descend\" { target nearest stairs when floor.enemy_count == 0 do move_toward target } rule \"Hold\" { when floor.enemy_count > 0 do wait }").unwrap();
+        sim.player.equipment.weapon = Some(bow_gear(2));
+        let mut enemy = test_brute(Point { x: 6, y: 2 });
+        enemy.hp = 1;
+        sim.enemies.push(enemy);
+        sim.items
+            .push(gear_item("armor", "loot", Point { x: 2, y: 3 }, 2));
+        sim.enemies[0].pos = Point { x: 20, y: 2 };
+        assert_eq!(
+            sim.choose_dsl_decision().unwrap().action_type,
+            "wait",
+            "an out-of-range enemy still prevents looting/descent"
+        );
+        sim.enemies[0].pos = Point { x: 6, y: 2 };
+        assert_eq!(
+            sim.dsl_value("floor.enemy_count", None),
+            dsl::Value::Number(1.0)
+        );
+        sim.run_auto_player_turn();
+        assert_eq!(
+            sim.dsl_value("floor.enemy_count", None),
+            dsl::Value::Number(0.0)
+        );
+        let collect = sim.choose_dsl_decision().unwrap();
+        assert_eq!(collect.target["id"], "loot");
+        sim.run_auto_player_turn();
+        assert!(sim.items.is_empty());
+        assert_eq!(sim.choose_dsl_decision().unwrap().target["kind"], "stairs");
+        // New floors count their own enemies, regardless of visibility/range.
+        sim.player.pos = sim.stairs - DIRECTIONS[3];
+        sim.player_act(DIRECTIONS[3], "test-descent");
+        assert_eq!(sim.player.depth, 2);
+        assert!(!sim.enemies.is_empty());
+        assert_eq!(
+            sim.dsl_value("floor.enemy_count", None),
+            dsl::Value::Number(sim.enemies.len() as f64)
+        );
+    }
+
     #[test]
     fn dsl_precedes_healing_and_brute_avoidance_and_falls_back() {
         let mut sim = item_test_simulation(Strategy::CautiousV1)

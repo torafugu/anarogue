@@ -16,6 +16,13 @@ saving and execution validate again. Settings and source are saved as a named
 preset and retained with each Run. See [Run presets](docs/run-presets.md) and [Player DSL v1](docs/player-dsl.md) for
 the full syntax and examples under `examples/player-dsl/`.
 
+For Bow positioning, use `do keep_distance target min = 3 max = 5` with an enemy
+target, followed by a shoot rule. It retreats when too close, approaches/repositions
+when too far or behind cover, and skips when already in position. Collection and
+stairs rules can use `when floor.enemy_count == 0` to wait until the current floor
+has no living enemies. See [bow-sweep.dsl](examples/player-dsl/bow-sweep.dsl) for a
+complete preset source including healing and explicit handling of blocked combat.
+
 1. Build Rust with `cargo build --release --manifest-path simulation-core/Cargo.toml`, then start the API with `python3 tools/run_store.py serve`. Open `game/` in Godot 4 and run the project.
 2. In the Web Viewer, open **Run presets**, enter a name and configure Seed, Strategy, enemy/treasure/stairs weights, Max turns, Map settings and optional DSL. Aggressive starts with weights 4/2/1; Cautious starts with 1/2/4. Changing Strategy resets these base weights, after which each can be customized. At least one effective weight must be positive. **Save preset** validates and stores it in SQLite.
 3. Godot offers **Run** and **Replay**. Choose Run, select the saved preset and press **Run selected preset**. No detailed input is needed. **Reload presets** fetches Viewer changes. The API queues Rust, which writes the result and events to SQLite, then opens that Run in Replay. A second launch is disabled while pending; after acceptance you may browse Replay and return to resume progress. Each result retains the executed preset's name, version and settings even after the preset is edited or deleted.

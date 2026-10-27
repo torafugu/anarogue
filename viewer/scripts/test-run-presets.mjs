@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {mkdtempSync, rmSync} from 'node:fs';
+import {mkdtempSync, rmSync, readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {spawn} from 'node:child_process';
@@ -8,6 +8,7 @@ import {once} from 'node:events';
 import {chromium} from 'playwright';
 
 const directory = mkdtempSync(join(tmpdir(), 'anarogue-presets-'));
+const bowSweep = readFileSync(new URL('../../examples/player-dsl/bow-sweep.dsl', import.meta.url), 'utf8');
 const python = spawn(process.env.PYTHON || 'python3', ['-u', '-c', `
 import os, sys
 sys.path.insert(0, 'tools')
@@ -44,19 +45,19 @@ try {
   await page.click('#preset-save');
   await page.waitForFunction(() => document.querySelector('#preset-status').textContent.includes('DSL line'));
   assert.equal((await (await fetch(`${base}/api/presets`)).json()).presets.length, 0);
-  await page.fill('#preset-dsl', 'rule "Hold" { do wait }'); await page.click('#preset-validate');
+  await page.fill('#preset-dsl', bowSweep); await page.click('#preset-validate');
   await page.waitForFunction(() => document.querySelector('#preset-status').textContent.startsWith('Valid settings'));
   assert.equal((await (await fetch(`${base}/api/database`)).json()).runs, 0);
   await page.click('#preset-save');
   await page.waitForFunction(() => document.querySelector('#preset-status').textContent.startsWith('Saved'));
   let presets = (await (await fetch(`${base}/api/presets`)).json()).presets;
   assert.equal(presets.length, 1); const original = presets[0];
-  assert.equal(original.settings.item_weight, 7); assert.equal(original.settings.dsl, 'rule "Hold" { do wait }');
+  assert.equal(original.settings.item_weight, 7); assert.equal(original.settings.dsl, bowSweep);
   await page.reload(); await page.click('#run-presets summary');
   await page.waitForFunction(() => !document.querySelector('#preset-select').disabled);
   await page.selectOption('#preset-select', original.id);
   assert.equal(await page.inputValue('#preset-item_weight'), '7');
-  assert.equal(await page.inputValue('#preset-dsl'), 'rule "Hold" { do wait }');
+  assert.equal(await page.inputValue('#preset-dsl'), bowSweep);
   await page.fill('#preset-name', 'Renamed'); await page.click('#preset-save');
   await page.waitForFunction(() => document.querySelector('#preset-status').textContent.includes('version 2'));
   // A stale editor cannot overwrite a change from another browser.

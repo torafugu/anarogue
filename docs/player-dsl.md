@@ -73,6 +73,7 @@ or an unavailable action skips to the next rule without consuming a Turn.
 | self.potions | Number of carried health potions |
 | self.attack | Effective attack, including the Bow damage reduction |
 | self.weapon | `bow` or `melee` |
+| floor.enemy_count | Number of living enemies on the current floor, including enemies out of sight or range; no target declaration needed |
 | target.hp / hp | Enemy HP; 0 for targets without HP |
 | target.distance / distance | Straight-line distance to target |
 | target.type / type | `melee`, `archer`, `brute`, `health_potion`, `weapon`, `armor`, `stairs` |
@@ -94,6 +95,7 @@ There are no variables, loops, user functions or memory between Turns in v1.
 | shoot target | Enemy target; Bow equipped and target shootable |
 | attack target | Enemy target in a cardinally adjacent tile; attacks using current effective attack |
 | move_toward target | Take one step along the existing pathfinder; an occupied enemy destination results in a melee attack |
+| keep_distance target min = 3 max = 5 | Enemy target only; move one step to reach/keep the inclusive distance band and clear line of sight; skip when already positioned or no legal movement is available |
 | use_potion | A carried potion and missing HP; consumes one potion |
 | wait | Always available; consumes one Turn and lets enemies act |
 
@@ -101,6 +103,61 @@ Exactly one action is chosen per Turn, then every rule is evaluated again next
 Turn. Movement is not a multi-Turn commitment. An unconditional `wait` really
 does override automatic healing and Brute evasion. Put safety rules earlier if
 you want to retain them while overriding other behavior.
+
+### Keeping Bow distance and clearing a floor
+
+```text
+rule "Keep distance" {
+  target nearest enemy
+  when self.weapon == bow
+  do keep_distance target min = 3 max = 5
+}
+
+rule "Shoot" {
+  target nearest enemy where shootable
+  when self.weapon == bow
+  do shoot target
+}
+
+rule "Collect after clearing" {
+  target nearest item
+  when floor.enemy_count == 0
+  do move_toward target
+}
+```
+
+Both bounds are required integer literals, `1 <= min <= max <= 100`, in that
+order. They use the same Euclidean tile distance as `target.distance`; the bounds
+are inclusive. Unknown/missing parameters, item/stairs targets, wrong types and
+invalid ranges fail validation before saving/queueing. The additions remain
+compatible with existing DSL v1 programs and do not change blank-source behavior.
+
+When too close, `keep_distance` chooses a free cardinal neighbor that strictly
+increases distance, preferring the distance band, then lower danger, clear line
+of sight and fewer revisits. It can take multiple Turns to reach the minimum.
+When too far or when line of sight is blocked, it routes to a reachable tile in
+the band with clear line of sight, minimizing existing danger/revisit movement
+costs. That route never enters the minimum distance, but may temporarily exceed
+the maximum to go around walls. Ties use fixed direction order, not randomness.
+It never moves onto enemies or stairs, so this action cannot attack or descend.
+
+Already in the band with clear line of sight means **skip this rule**, not wait.
+Put a shoot rule next to fire in that same Turn. Blocked retreat/no reachable
+firing tile also skips to the next rule; it does not consume a Turn by itself.
+Movement and shooting are separate actions/Turns, and enemies act after each.
+This is positioning against the selected target; it does not guarantee safety
+against every other enemy or their subsequent movement. Retreating before firing
+can keep a same-speed pursuer in an endless chase; rule ordering/conditions are
+part of the strategy, and the usual Turn limit still applies.
+
+`floor.enemy_count` is read fresh at each decision, decreases when enemies die
+and switches to the new floor's count after descent. It counts all living enemies,
+not just those matching the current rule's `where` filter. Guards on collection
+and stairs rules do not disable the default AI if every rule is skipped. To forbid
+fallback descent while Bow-equipped enemies remain, add a final combat-stage
+`wait` rule as in [bow-sweep.dsl](../examples/player-dsl/bow-sweep.dsl). That complete
+example includes explicit healing and proceeds from clearing to collectible items
+and stairs; unreachable enemies may deliberately leave it waiting until the limit.
 
 ## Replay, persistence and comparison
 
