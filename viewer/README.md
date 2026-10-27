@@ -2,6 +2,12 @@
 
 A browser-based Run catalogue and analysis client backed by the local SQLite API.
 
+Open **Run presets** at the top to create, validate, save and duplicate named
+Strategy/weights/DSL configurations with Seed, Map settings and Max turns. Select
+a saved Single Run / AutoRun preset in Godot → Run. **Reload presets** picks up
+edits. Presets survive API/client restarts and Run-history deletion; executed Runs
+keep the original name/version/settings snapshot. See [Run presets](../docs/run-presets.md).
+
 ## Development
 
 From the repository root, start the data service:

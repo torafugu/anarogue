@@ -8,21 +8,21 @@ Each action you take advances the game by one turn. Move carefully, watch your H
 
 ## Starting the Game
 
-Home → Run also provides an optional **Player DSL** editor. Leave it blank for
+Web Viewer → **Run presets** provides an optional **Player DSL** editor. Leave it blank for
 the existing AI. Declare only the policy settings or ordered behavior rules you
 want to override. Explicit rules have priority over automatic healing and Brute
-evasion. **Validate DSL** checks line/column errors without starting a Run;
-Run and AutoRun validate again before accepting the job. Source survives scene
-changes and is saved with each Run. See [Player DSL v1](docs/player-dsl.md) for
+evasion. **Validate settings / DSL** checks line/column errors without starting a Run;
+saving and execution validate again. Settings and source are saved as a named
+preset and retained with each Run. See [Run presets](docs/run-presets.md) and [Player DSL v1](docs/player-dsl.md) for
 the full syntax and examples under `examples/player-dsl/`.
 
 1. Build Rust with `cargo build --release --manifest-path simulation-core/Cargo.toml`, then start the API with `python3 tools/run_store.py serve`. Open `game/` in Godot 4 and run the project.
-2. The main screen offers **Run** and **Replay**. Choose Run to set seed, strategy, enemy/treasure/stairs weights and maximum turns. Aggressive starts with weights 4/2/1; Cautious starts with 1/2/4. Changing strategy resets these weights, after which each can be customized. At least one weight must be positive.
-3. Press Run in the settings screen. The API queues the Rust simulation, which writes the result and all events directly to SQLite. The UI shows queued/running status and opens that specific Run in Replay when complete. Starting a second Run is disabled while your job is pending. Once the API has accepted the job, you may browse Replay and return to Run to resume checking it. Settings survive screen changes during the app session.
+2. In the Web Viewer, open **Run presets**, enter a name and configure Seed, Strategy, enemy/treasure/stairs weights, Max turns, Map settings and optional DSL. Aggressive starts with weights 4/2/1; Cautious starts with 1/2/4. Changing Strategy resets these base weights, after which each can be customized. At least one effective weight must be positive. **Save preset** validates and stores it in SQLite.
+3. Godot offers **Run** and **Replay**. Choose Run, select the saved preset and press **Run selected preset**. No detailed input is needed. **Reload presets** fetches Viewer changes. The API queues Rust, which writes the result and events to SQLite, then opens that Run in Replay. A second launch is disabled while pending; after acceptance you may browse Replay and return to resume progress. Each result retains the executed preset's name, version and settings even after the preset is edited or deleted.
 4. Choose Replay from the main screen to browse stored Runs. The list updates automatically. Use Home to return to the main screen. The API is required for new Runs; if execution fails, the settings remain available to retry. If the API is unavailable in Replay, the bundled v8 reference is playable while the client retries.
 5. Below the Replay buttons, the left panel shows only the selected Turn’s events and decisions; the right panel shows Level/XP, HP, ATK, DEF, potions, weapon (W), armor (D). Each player status item is a separate Label; both panels scroll independently. Each step replaces the log and resets its scroll position to the top. Previous/Next and automatic playback advance by whole Turns, showing the final state of each Turn. Decisions are grouped with the Turn in which their action executes (`action_turn`). Turn 0 shows initialization. Switching Runs returns to Turn 0. Depth and current/final Turn appear over the maze. Large fixed-size tiles follow Player and show only the surrounding area.
 
-The Run form scrolls on smaller screens. Seed accepts 0–4294967295, goal weights
+The Viewer preset form accepts Seed 0–4294967295, goal weights
 accept 0–1000, and maximum turns accepts 1–100000. Weights influence goal selection
 alongside the existing benefit/danger evaluation; they do not force every decision.
 The turn limit may leave a Run unfinished, but its events are still saved for Replay.
@@ -36,12 +36,12 @@ cannot be undone. Cancel or Escape closes the dialog without deleting anything.
 Queued/running Run and AutoRun jobs must finish before deletion. If counts have
 changed, close and reopen the dialog before retrying. The Viewer refreshes its
 analysis and clears old selections after deletion. New Runs can then be saved
-normally. Original JSONL files remain; when log watching is enabled they may be
+normally. Saved Run presets are preserved. Original JSONL files remain; when log watching is enabled they may be
 imported again after changes or an API restart.
 
 ### Map settings
 
-**Home → Run → Map settings** controls the environment separately from the player's goal weights.
+**Web Viewer → Run presets → Map settings** controls the environment separately from the player's goal weights.
 
 | Setting | Range | Default | Meaning |
 | --- | --- | --- | --- |
@@ -51,16 +51,18 @@ imported again after changes or an API restart.
 
 100% preserves normal generation; 0% removes that category. Quantities round to the nearest whole number and cannot exceed available room tiles. Gold earned from defeating enemies is unaffected by Treasure amount. More enemies can leave fewer free tiles for treasure. Depth 1 clears at the first stairs; Depth 5 retains the existing floors 1–4 followed by the exit at depth 5. Changing Strategy resets only goal weights, preserving Map settings.
 
-Both Run and AutoRun use these settings. They persist across screen changes and are stored with each completed Run. Different Map settings produce different scenario identities, keeping same-seed comparisons and correlation cohorts separate. Existing default Runs remain comparable.
+Both Run and AutoRun use these saved preset settings. They survive API/client restarts and are stored with each completed Run. Different Map settings produce different scenario identities, keeping same-seed comparisons and correlation cohorts separate. Existing default Runs remain comparable.
 
 After updating, rebuild the Rust binary and restart the API before launching the updated Godot client.
 
 ### AutoRun: compare weight combinations
 
-In **Home → Run**, set Seed and Max turns, then press **AutoRun**. The three
-AutoRun value lists default to `0,1,2,3,4`. AutoRun tests the Cartesian product
-of Enemy, Treasure and Stairs values for **both Aggressive and Cautious**,
-regardless of the single-Run Strategy selection. All-zero weights are excluded;
+In **Web Viewer → Run presets**, choose **Mode: AutoRun**, configure Seed, Max turns,
+Map settings, Strategies and weight lists, then save with a name. Select that preset
+in Godot → Run and press **Run selected AutoRun preset**. The three
+value lists default to `0,1,2,3,4`. AutoRun tests the Cartesian product
+of Enemy, Treasure and Stairs values for the selected Strategies (default **both Aggressive and Cautious**).
+All-zero weights are excluded;
 the default is **248 Runs**. Enter other comma-separated integer values from
 0 to 1000 in each list. Duplicate values are removed. The count is shown before
 execution; a batch must contain 1–2,000 Runs.

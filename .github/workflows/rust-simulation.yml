@@ -44,6 +44,20 @@ jobs:
           ANAROGUE_RUST_BINARY: ${{ github.workspace }}/simulation-core/target/debug/anarogue-sim
         run: python3 ../tools/test_run_launcher_api.py
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify Viewer preset authoring with Rust and SQLite API
+        working-directory: viewer
+        env:
+          ANAROGUE_RUST_BINARY: ${{ github.workspace }}/simulation-core/target/debug/anarogue-sim
+        run: |
+          npm ci
+          npm run build
+          npx playwright install --with-deps chromium
+          npm run test:presets
+
       - name: Reproduce 50-seed strategy comparison
         run: |
           cargo build --release

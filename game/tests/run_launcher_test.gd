@@ -9,120 +9,90 @@ func wait_for(condition: Callable) -> bool:
 		await process_frame
 	return condition.call()
 
+func change_preset(preset: Dictionary, method: int) -> int:
+	var request := HTTPRequest.new()
+	root.add_child(request)
+	var value: Dictionary = {"version": int(preset["version"])}
+	if method == HTTPClient.METHOD_PUT:
+		var settings: Dictionary = preset["settings"].duplicate(true)
+		for field in settings:
+			if settings[field] is float:
+				settings[field] = int(settings[field])
+		value.merge({"name": preset["name"], "kind": preset["kind"], "settings": settings})
+	assert(request.request(OS.get_environment("ANAROGUE_TEST_API") + "/api/presets/" + preset["id"], ["Content-Type: application/json"], method, JSON.stringify(value)) == OK)
+	var response: Array = await request.request_completed
+	request.queue_free()
+	return response[1]
+
 func run_tests() -> void:
-	var url := OS.get_environment("ANAROGUE_TEST_API")
-	assert(not url.is_empty(), "Run through tools/test_run_launcher_api.py")
-	OS.set_environment("ANAROGUE_RUN_API", url)
+	OS.set_environment("ANAROGUE_RUN_API", OS.get_environment("ANAROGUE_TEST_API"))
 	assert(change_scene_to_file("res://scenes/home.tscn") == OK)
 	await process_frame
 	await process_frame
 	var home = current_scene
 	assert(home.menu.visible and not home.form.visible)
-	assert(home.menu.get_node("RunMenuButton").custom_minimum_size.y >= 88)
-	home.menu.get_node("ReplayMenuButton").pressed.emit()
-	assert(await wait_for(func(): return current_scene != null and current_scene.has_method("load_catalog_run") and not current_scene.selected_catalog_run.is_empty()))
-	var old_key: String = current_scene.selected_catalog_run
-	current_scene.get_node("SimulatorButton").pressed.emit()
-	await process_frame
-	await process_frame
-	home = current_scene
-	assert(home.menu.visible)
-	home.menu.get_node("RunMenuButton").pressed.emit()
-	assert(home.form.visible and not home.menu.visible)
-	if OS.get_environment("ANAROGUE_EXPECT_FAILURE") == "1":
+	assert(await wait_for(func(): return not home.busy))
+	assert(home.presets.size() == 2)
+	assert(home.find_children("*", "SpinBox", true, false).is_empty())
+	assert(home.find_children("*", "CodeEdit", true, false).is_empty())
+	home.show_form()
+	for index in range(home.presets.size()):
+		if home.presets[index]["name"] == "Cautious counter":
+			home.preset_selector.select(index)
+			home.select_preset(index)
+	assert(home.preset_summary.text.contains("Cautious counter"))
+	assert(home.preset_summary.text.contains("Treasure 7"))
+	if OS.get_environment("ANAROGUE_EXPECT_FAILURE") != "1":
+		assert(await change_preset(home.selected_preset(), HTTPClient.METHOD_PUT) == 200)
 		home.execute_button.pressed.emit()
 		assert(await wait_for(func(): return not home.busy))
-		assert(home.status.text.begins_with("Run failed:"))
-		assert(not home.execute_button.disabled and root.get_node("RunSession").job_id.is_empty())
-		home.form.get_node("FormReplayButton").pressed.emit()
+		assert(home.status.text.contains("Preset changed"), home.status.text)
+		assert(root.get_node("RunSession").job_id.is_empty())
+		home.reload_button.pressed.emit()
+		assert(await wait_for(func(): return not home.busy))
+	home.execute_button.pressed.emit()
+	assert(home.busy and home.execute_button.disabled and home.reload_button.disabled)
+	assert(home.form.get_node("BackButton").disabled)
+	if OS.get_environment("ANAROGUE_EXPECT_FAILURE") == "1":
+		assert(await wait_for(func(): return not home.busy))
+		assert(home.status.text.begins_with("Run failed:"), home.status.text)
+		assert(not home.execute_button.disabled)
+		home.open_replay()
 		assert(await wait_for(func(): return current_scene != null and current_scene.has_method("load_catalog_run") and not current_scene.selected_catalog_run.is_empty()))
-		print("Failed Run remains recoverable; existing Replay remains available.")
+		print("Preset launcher recovers from simulator failure and keeps Replay available.")
 		quit(0)
 		return
-	home.strategy.select(1)
-	# Validation never starts a Run, and errors are shown before acceptance.
-	home.dsl_editor.text = "rule \"Typo\" { when self.hpp < 5 do wait }"
-	home.validate_dsl_button.pressed.emit()
-	assert(await wait_for(func(): return not home.busy))
-	assert(home.status.text.contains("DSL line") and root.get_node("RunSession").job_id.is_empty())
-	home.dsl_editor.text = "rule \"Optional\" { when self.hp_percent < 0 do wait }"
-	home.validate_dsl_button.pressed.emit()
-	assert(await wait_for(func(): return not home.busy))
-	assert(home.status.text.begins_with("DSL valid: 1 rules"))
-	home.dsl_editor.text = ""
-	home.strategy.item_selected.emit(1)
-	assert(home.inputs["enemy_weight"].value == 1 and home.inputs["stairs_weight"].value == 4)
-	for field in ["enemy_weight", "item_weight", "stairs_weight"]:
-		home.inputs[field].value = 0
-	home.execute_button.pressed.emit()
-	assert(not home.busy and root.get_node("RunSession").job_id.is_empty())
-	assert(home.status.text.contains("positive"))
-	# Typed seed is committed even before focus leaves the input.
-	home.inputs["seed"].get_line_edit().grab_focus()
-	home.inputs["seed"].get_line_edit().text = "42"
-	home.inputs["enemy_weight"].value = 3
-	home.inputs["item_weight"].value = 7
-	home.inputs["stairs_weight"].value = 2
-	home.inputs["max_turns"].value = 20
-	home.dsl_editor.text = "rule \"Optional\" { when self.hp_percent < 0 do wait }"
-	home.inputs["enemy_amount"].value = 200
-	home.inputs["treasure_amount"].value = 50
-	home.inputs["map_depth"].value = 8
-	var batch: Dictionary = home.batch_settings()
-	assert(batch["enemy_amount"] == 200 and batch["treasure_amount"] == 50 and batch["map_depth"] == 8)
-	home.execute_button.pressed.emit()
-	assert(home.busy and home.execute_button.disabled)
 	assert(await wait_for(func(): return current_scene != null and current_scene.has_method("load_catalog_run") and not current_scene.selected_catalog_run.is_empty()))
 	var viewer = current_scene
-	assert(viewer.selected_catalog_run != old_key)
-	assert(viewer.replay.turns.size() > 0 and viewer.turn_index == 0)
-	assert(root.get_node("RunSession").job_id.is_empty())
-	var wanted: String = viewer.selected_catalog_run
 	assert(await wait_for(func(): return not viewer.catalog_runs.is_empty()))
 	var metadata: Dictionary = {}
 	for entry in viewer.catalog_runs:
-		if entry["id"] == wanted:
+		if entry["id"] == viewer.selected_catalog_run:
 			metadata = entry
 	assert(metadata["scenario_seed"] == 42 and metadata["strategy_id"] == "cautious_v1")
+	assert(metadata["preset"]["name"] == "Cautious counter" and metadata["preset"]["version"] == 2)
 	assert(metadata["goal_policy"]["item_weight"] == 7)
-	assert(metadata["turns"] <= 20)
 	assert(metadata["execution_settings"]["dsl"].contains("Optional"))
 	assert(metadata["execution_settings"]["enemy_amount"] == 200)
-	assert(metadata["execution_settings"]["treasure_amount"] == 50)
 	assert(metadata["execution_settings"]["map_depth"] == 8)
-	viewer.get_node("SimulatorButton").pressed.emit()
+	viewer.open_home()
 	await process_frame
 	await process_frame
 	home = current_scene
-	assert(home.menu.visible and home.inputs["seed"].value == 42)
-	assert(home.dsl_editor.text.contains("Optional"), "DSL source survives scene changes")
-	assert(home.inputs["enemy_amount"].value == 200 and home.inputs["map_depth"].value == 8)
-	home.menu.get_node("ReplayMenuButton").pressed.emit()
-	assert(await wait_for(func(): return current_scene != null and current_scene.has_method("load_catalog_run") and not current_scene.catalog_runs.is_empty()))
-	viewer = current_scene
-	for index in range(viewer.run_selector.item_count):
-		if viewer.run_selector.get_item_metadata(index) == old_key:
-			viewer.select_run_at(index)
-	assert(await wait_for(func(): return viewer.selected_catalog_run == old_key))
-	# Once accepted, changing scenes preserves the running job and its settings.
-	viewer.get_node("SimulatorButton").pressed.emit()
-	await process_frame
-	await process_frame
-	home = current_scene
-	home.show_form()
+	assert(await wait_for(func(): return not home.busy))
+	assert(home.selected_preset()["name"] == "Cautious counter")
+	home.reload_button.pressed.emit()
+	assert(await wait_for(func(): return not home.busy))
+	assert(home.presets.size() == 2 and not home.execute_button.disabled)
+	# A deleted selection cannot silently launch an outdated local copy.
+	for preset in home.presets:
+		assert(await change_preset(preset, HTTPClient.METHOD_DELETE) == 200)
 	home.execute_button.pressed.emit()
-	assert(home.form.get_node("BackButton").disabled)
-	assert(await wait_for(func(): return not root.get_node("RunSession").job_id.is_empty()))
-	var job_id: String = root.get_node("RunSession").job_id
-	home.form.get_node("FormReplayButton").pressed.emit()
-	assert(await wait_for(func(): return current_scene != null and current_scene.has_method("load_catalog_run") and not current_scene.selected_catalog_run.is_empty()))
-	assert(root.get_node("RunSession").job_id == job_id)
-	current_scene.get_node("SimulatorButton").pressed.emit()
-	await process_frame
-	await process_frame
-	home = current_scene
-	assert(home.form.visible and home.busy)
-	assert(await wait_for(func(): return current_scene != null and current_scene.has_method("load_catalog_run") and root.get_node("RunSession").job_id.is_empty() and not current_scene.selected_catalog_run.is_empty()))
-	assert(current_scene.selected_catalog_run != wanted)
-	print("Run launcher integration passed: home, Replay, settings, Rust/API/DB, selected result and navigation.")
+	assert(await wait_for(func(): return not home.busy))
+	assert(home.status.text.contains("Preset not found"))
+	home.reload_button.pressed.emit()
+	assert(await wait_for(func(): return not home.busy))
+	assert(home.presets.is_empty() and home.execute_button.disabled)
+	assert(home.preset_summary.text.contains("Create one in the Web Viewer"))
+	print("Preset launcher passed: shared presets, read-only selection, Rust/API/SQLite/Replay, snapshot and navigation.")
 	quit(0)

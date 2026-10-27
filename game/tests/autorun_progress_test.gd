@@ -14,6 +14,10 @@ func run_tests() -> void:
 		root.add_child(viewport)
 		var home = load("res://scripts/home.gd").new()
 		viewport.add_child(home)
+		# Progress layout is independent of the preset catalogue's HTTP request.
+		home.request.cancel_request()
+		home.request_kind = ""
+		home.presets = [{"id": "layout", "kind": "batch", "name": "Layout", "version": 1, "settings": {}}]
 		home.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		home.show_form()
 		session.job_kind = "batch"

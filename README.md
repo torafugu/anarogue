@@ -1,7 +1,8 @@
 # AnaRogue
 
 Player behavior can be overridden with the optional [Player DSL](docs/player-dsl.md)
-in Home → Run. Empty source uses the default AI; explicit rules run before
+in Web Viewer → **Run presets**. Save a named Strategy/weights/DSL combination,
+then select it in Godot → Run. Empty source uses the default AI; explicit rules run before
 automatic healing and Brute avoidance. The Validate DSL button checks programs
 without creating a Run, and Run/AutoRun also reject errors before execution.
 
@@ -18,10 +19,11 @@ python3 tools/run_store.py serve
 ```
 
 Open `game/` in Godot 4 and run the project. The main screen offers **Run**
-and **Replay**. Run opens settings for seed, strategy, enemy/treasure/stairs
-weights and maximum turns. Start a Run to execute Rust through the API; the
-result is saved to SQLite and opens in Replay when complete. Strategy changes
-restore its preset weights, which can then be adjusted individually.
+and **Replay**. In the Web Viewer, open **Run presets** and save a named configuration
+with Strategy, weights, DSL, Seed, Map settings and Max turns. Godot → Run lists
+these saved presets with a read-only summary; select one and press **Run selected
+preset**. **Reload presets** picks up Viewer edits. Results are saved to SQLite
+and a completed single Run opens in Replay. See [Run presets](docs/run-presets.md).
 
 Replay lets you select a saved Run by strategy, seed,
 result and short ID. The list updates automatically; there is no file selector
@@ -30,8 +32,8 @@ The original JSONL events remain available for export and offline replay.
 
 Controls:
 
-- Home → Run → **AutoRun**: test both Strategies with all combinations of the
-  configured Enemy/Treasure/Stairs value lists (default 0–4: 248 Runs, excluding
+- Viewer → **Run presets → Mode: AutoRun**: save Strategies and combinations of the
+  Enemy/Treasure/Stairs value lists, then select the preset in Godot (default 0–4: 248 Runs, excluding
   all-zero weights). Sequential API execution, progress and stop-after-current
   controls preserve completed results in SQLite. Viewer ranks combinations by
   mean score, clear rate or mean depth; see [the manual](USER_MANUAL.md#autorun-compare-weight-combinations).

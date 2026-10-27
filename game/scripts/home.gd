@@ -2,13 +2,12 @@ extends Control
 
 var menu: VBoxContainer
 var form: VBoxContainer
-var strategy: OptionButton
-var inputs: Dictionary = {}
+var preset_selector: OptionButton
+var preset_summary: Label
+var presets: Array = []
+var reload_button: Button
 var execute_button: Button
-var autorun_button: Button
 var cancel_button: Button
-var batch_inputs: Dictionary = {}
-var batch_count: Label
 var batch_panel: VBoxContainer
 var batch_progress: ProgressBar
 var batch_summary: Label
@@ -19,8 +18,6 @@ var request: HTTPRequest
 var poll_timer: Timer
 var request_kind := ""
 var busy := false
-var dsl_editor: CodeEdit
-var validate_dsl_button: Button
 
 func _ready() -> void:
 	# Apply an explicit offline replay launch once, preserving later Home navigation.
@@ -71,74 +68,21 @@ func _ready() -> void:
 	contents.add_child(form)
 	form.hide()
 	button(form, "Back", show_menu, "BackButton")
-	form.add_child(label("Run settings"))
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 24)
-	grid.add_theme_constant_override("v_separation", 16)
-	form.add_child(grid)
-	grid.add_child(label("Strategy"))
-	strategy = OptionButton.new()
-	strategy.get_popup().theme = ui_theme
-	strategy.name = "Strategy"
-	strategy.add_item("Aggressive")
-	strategy.add_item("Cautious")
-	strategy.custom_minimum_size.y = 88
-	strategy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	grid.add_child(strategy)
-	strategy.select(1 if RunSession.settings["strategy"] == "cautious" else 0)
-	strategy.item_selected.connect(strategy_changed)
-	number_field(grid, "Seed", "seed", 0, 4294967295)
-	number_field(grid, "Enemy weight", "enemy_weight", 0, 1000)
-	number_field(grid, "Treasure weight", "item_weight", 0, 1000)
-	number_field(grid, "Stairs weight", "stairs_weight", 0, 1000)
-	number_field(grid, "Max turns", "max_turns", 1, 100000)
-	form.add_child(label("Weights affect goal selection alongside benefit and danger. At least one weight must be positive."))
-	form.add_child(label("Map settings"))
-	var map_grid := GridContainer.new()
-	map_grid.columns = 2
-	map_grid.add_theme_constant_override("h_separation", 24)
-	map_grid.add_theme_constant_override("v_separation", 16)
-	form.add_child(map_grid)
-	number_field(map_grid, "Enemy amount (%)", "enemy_amount", 0, 500)
-	number_field(map_grid, "Treasure amount (%)", "treasure_amount", 0, 500)
-	number_field(map_grid, "Map depth", "map_depth", 1, 100)
-	form.add_child(label("100% = normal per-floor quantity; 0% = none. Treasure includes potions and equipment. Counts round to the nearest whole number and are limited by free tiles. Depth is the exit depth: reaching it clears the Run (existing rule). Depth 1 clears at the first stairs."))
-	form.add_child(label("Player DSL (optional)"))
-	form.add_child(label("Blank = default AI. Rules run top to bottom BEFORE automatic healing and Brute avoidance. Settings override only the fields you declare."))
-	dsl_editor = CodeEdit.new()
-	dsl_editor.name = "PlayerDSL"
-	dsl_editor.text = RunSession.dsl_source
-	dsl_editor.placeholder_text = "policy { treasure_weight = 5 }\n\nrule \"Wait\" {\n  when self.hp_percent > 90\n  do wait\n}"
-	dsl_editor.custom_minimum_size = Vector2(0, 420)
-	dsl_editor.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	dsl_editor.gutters_draw_line_numbers = true
-	dsl_editor.text_changed.connect(func(): RunSession.dsl_source = dsl_editor.text)
-	form.add_child(dsl_editor)
-	validate_dsl_button = button(form, "Validate DSL", validate_dsl, "ValidateDSLButton")
-	execute_button = button(form, "Run", execute_run, "ExecuteRunButton")
-	form.add_child(label("AutoRun: test both Strategies with every combination of the values below. Uses the Seed, Max turns and Map settings above; ignores the single-Run weights."))
-	var batch_grid := GridContainer.new()
-	batch_grid.columns = 2
-	batch_grid.add_theme_constant_override("h_separation", 24)
-	batch_grid.add_theme_constant_override("v_separation", 16)
-	form.add_child(batch_grid)
-	for entry in [["Enemy values", "enemy_weights"], ["Treasure values", "item_weights"], ["Stairs values", "stairs_weights"]]:
-		batch_grid.add_child(label(entry[0]))
-		var input := LineEdit.new()
-		input.name = str(entry[1]).to_pascal_case()
-		input.text = RunSession.batch_values[entry[1]]
-		input.placeholder_text = "0,1,2,3,4"
-		input.custom_minimum_size = Vector2(360, 88)
-		input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		batch_grid.add_child(input)
-		batch_inputs[entry[1]] = input
-		input.text_changed.connect(func(_text): update_batch_count())
-	batch_count = label("")
-	batch_count.name = "AutoRunCount"
-	form.add_child(batch_count)
-	autorun_button = button(form, "AutoRun", execute_autorun, "AutoRunButton")
-	update_batch_count()
+	form.add_child(label("Select a Run preset"))
+	form.add_child(label("Create and edit named settings in the Web Viewer → Run presets. Select one here to run it."))
+	preset_selector = OptionButton.new()
+	preset_selector.name = "PresetSelector"
+	preset_selector.custom_minimum_size.y = 88
+	preset_selector.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	preset_selector.get_popup().theme = ui_theme
+	preset_selector.item_selected.connect(select_preset)
+	form.add_child(preset_selector)
+	reload_button = button(form, "Reload presets", load_presets, "ReloadPresetsButton")
+	preset_summary = label("")
+	preset_summary.name = "PresetSummary"
+	form.add_child(preset_summary)
+	execute_button = button(form, "Run selected preset", execute_run, "ExecuteRunButton")
+	execute_button.disabled = true
 	button(form, "Replay", open_replay, "FormReplayButton")
 	status = label("")
 	status.name = "RunStatus"
@@ -160,6 +104,8 @@ func _ready() -> void:
 		show_batch_notice("Checking latest progress…")
 		poll_timer.start()
 		poll_job()
+	else:
+		load_presets()
 
 func create_progress_panel(parent: Node) -> void:
 	batch_panel = VBoxContainer.new()
@@ -229,118 +175,52 @@ func button(parent: Node, text: String, callback: Callable, node_name: String) -
 	parent.add_child(control)
 	return control
 
-func number_field(grid: GridContainer, text: String, field: String, minimum: int, maximum: int) -> void:
-	grid.add_child(label(text))
-	var input := SpinBox.new()
-	input.name = field.to_pascal_case()
-	input.min_value = minimum
-	input.max_value = maximum
-	input.step = 1
-	input.value = RunSession.settings[field]
-	input.custom_minimum_size = Vector2(360, 88)
-	input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	grid.add_child(input)
-	inputs[field] = input
-	input.value_changed.connect(func(value): RunSession.settings[field] = int(value))
-
 func show_form() -> void:
 	menu.hide()
 	form.show()
 
 func show_menu() -> void:
-	if request_kind in ["start", "start_batch"]:
+	if request_kind != "start":
+		form.hide()
+		menu.show()
+
+func load_presets() -> void:
+	if busy or not request_kind.is_empty():
 		return
-	form.hide()
-	menu.show()
+	request_kind = "presets"
+	set_busy(true)
+	status.text = "Loading presets…"
+	if request.request(RunSession.api_url() + "/api/presets") != OK:
+		request_kind = ""
+		set_busy(false)
+		status.text = "Could not load presets. Start the Run API and retry."
 
-func strategy_changed(index: int) -> void:
-	RunSession.settings["strategy"] = "cautious" if index == 1 else "aggressive"
-	inputs["enemy_weight"].value = 1 if index == 1 else 4
-	inputs["item_weight"].value = 2
-	inputs["stairs_weight"].value = 4 if index == 1 else 1
+func selected_preset() -> Dictionary:
+	var index := preset_selector.selected
+	return presets[index] if index >= 0 and index < presets.size() else {}
 
-func current_settings() -> Dictionary:
-	# Commit typed text even when the virtual keyboard still has focus.
-	for field in inputs:
-		var input: SpinBox = inputs[field]
-		if input.get_line_edit().has_focus():
-			input.apply()
-		RunSession.settings[field] = int(input.value)
-	var settings := RunSession.settings.duplicate()
-	RunSession.dsl_source = dsl_editor.text
-	if not dsl_editor.text.strip_edges().is_empty():
-		settings["dsl"] = dsl_editor.text
-	return settings
+func select_preset(_index: int) -> void:
+	var preset := selected_preset()
+	if preset.is_empty():
+		preset_summary.text = "No presets yet. Create one in the Web Viewer, then Reload presets."
+		execute_button.disabled = true
+		return
+	RunSession.preset_id = str(preset["id"])
+	var settings: Dictionary = preset["settings"]
+	var policy: String
+	if preset["kind"] == "batch":
+		policy = "AutoRun · %s\nEnemy %s / Treasure %s / Stairs %s" % [", ".join(settings["strategies"]), str(settings["enemy_weights"]), str(settings["item_weights"]), str(settings["stairs_weights"])]
+	else:
+		policy = "%s · Enemy %d / Treasure %d / Stairs %d" % [str(settings["strategy"]).capitalize(), settings["enemy_weight"], settings["item_weight"], settings["stairs_weight"]]
+	preset_summary.text = "%s · v%d\n%s\nSeed %d · Max turns %d\nMap: Enemy %d%% / Treasure %d%% / Depth %d\nDSL: %s" % [preset["name"], preset["version"], policy, settings["seed"], settings["max_turns"], settings["enemy_amount"], settings["treasure_amount"], settings["map_depth"], "Default AI" if str(settings.get("dsl", "")).strip_edges().is_empty() else "Enabled; declared DSL weights override base values"]
+	execute_button.text = "Run selected AutoRun preset" if preset["kind"] == "batch" else "Run selected preset"
+	execute_button.disabled = busy
 
 func set_busy(value: bool) -> void:
 	busy = value
-	execute_button.disabled = value
-	autorun_button.disabled = value
-	cancel_button.visible = value and RunSession.job_kind == "batch"
-	strategy.disabled = value
-	dsl_editor.editable = not value
-	validate_dsl_button.disabled = value
-	for input in inputs.values():
-		input.editable = not value
-	for input in batch_inputs.values():
-		input.editable = not value
-
-func batch_settings() -> Dictionary:
-	var settings := {"seed": RunSession.settings["seed"], "max_turns": RunSession.settings["max_turns"], "strategies": ["aggressive", "cautious"]}
-	for field in ["enemy_amount", "treasure_amount", "map_depth"]:
-		settings[field] = RunSession.settings[field]
-	if not RunSession.dsl_source.strip_edges().is_empty():
-		settings["dsl"] = RunSession.dsl_source
-	for field in batch_inputs:
-		var text: String = batch_inputs[field].text
-		RunSession.batch_values[field] = text
-		var values: Array[int] = []
-		for token in text.split(","):
-			var cleaned := token.strip_edges()
-			if not cleaned.is_valid_int() or int(cleaned) < 0 or int(cleaned) > 1000:
-				return {}
-			if not values.has(int(cleaned)):
-				values.append(int(cleaned))
-		if values.is_empty():
-			return {}
-		settings[field] = values
-	return settings
-
-func batch_total(settings: Dictionary) -> int:
-	if settings.is_empty():
-		return 0
-	var total: int = settings["enemy_weights"].size() * settings["item_weights"].size() * settings["stairs_weights"].size()
-	if settings["enemy_weights"].has(0) and settings["item_weights"].has(0) and settings["stairs_weights"].has(0):
-		total -= 1
-	return total * 2
-
-func update_batch_count() -> void:
-	var total := batch_total(batch_settings())
-	batch_count.text = "%d Runs · both Strategies · excludes all-zero weights · limit 2,000" % total if total > 0 and total <= 2000 else "Enter comma-separated integers (0–1000) for 1–2,000 Runs."
-
-func execute_autorun() -> void:
-	if busy:
-		return
-	current_settings()
-	var settings := batch_settings()
-	var total := batch_total(settings)
-	if total < 1 or total > 2000:
-		status.text = "Enter comma-separated weights (0–1000). AutoRun must contain 1–2,000 Runs; all-zero weights are excluded."
-		return
-	RunSession.job_kind = "batch"
-	set_busy(true)
-	show_batch_progress({"status": "starting", "total": total, "completed": 0, "failed": 0})
-	cancel_button.disabled = true
-	status.text = "Starting AutoRun (%d Runs)…" % total
-	request_kind = "start_batch"
-	set_navigation_enabled(false)
-	var error := request.request(RunSession.api_url() + "/api/batches", ["Content-Type: application/json"], HTTPClient.METHOD_POST, JSON.stringify(settings))
-	if error != OK:
-		request_kind = ""
-		set_navigation_enabled(true)
-		set_busy(false)
-		status.text = "Could not start AutoRun (error %d)." % error
-		show_batch_notice(status.text)
+	preset_selector.disabled = value
+	reload_button.disabled = value
+	execute_button.disabled = value or selected_preset().is_empty()
 
 func cancel_autorun() -> void:
 	if not request_kind.is_empty() or RunSession.job_id.is_empty():
@@ -353,40 +233,24 @@ func cancel_autorun() -> void:
 		show_batch_notice(status.text)
 
 func execute_run() -> void:
-	if busy:
+	if busy or not request_kind.is_empty():
 		return
-	var settings := current_settings()
-	if not settings.has("dsl") and int(settings["enemy_weight"]) + int(settings["item_weight"]) + int(settings["stairs_weight"]) == 0:
-		status.text = "At least one goal weight must be positive."
+	var preset := selected_preset()
+	if preset.is_empty():
 		return
-	RunSession.job_kind = "run"
+	RunSession.job_kind = str(preset["kind"])
 	RunSession.batch_snapshot.clear()
 	batch_panel.hide()
 	set_busy(true)
-	status.text = "Starting Run…"
+	status.text = "Starting %s…" % preset["name"]
 	request_kind = "start"
 	set_navigation_enabled(false)
-	var error := request.request(RunSession.api_url() + "/api/jobs", ["Content-Type: application/json"], HTTPClient.METHOD_POST, JSON.stringify(settings))
+	var error := request.request(RunSession.api_url() + "/api/presets/" + str(preset["id"]).uri_encode() + "/run", ["Content-Type: application/json"], HTTPClient.METHOD_POST, JSON.stringify({"version": int(preset["version"])}))
 	if error != OK:
 		request_kind = ""
 		set_navigation_enabled(true)
 		set_busy(false)
 		status.text = "Could not start Run (error %d)." % error
-
-func validate_dsl() -> void:
-	if busy or not request_kind.is_empty():
-		return
-	var settings := current_settings()
-	set_busy(true)
-	request_kind = "validate_dsl"
-	set_navigation_enabled(false)
-	status.text = "Checking DSL…"
-	var error := request.request(RunSession.api_url() + "/api/dsl/validate", ["Content-Type: application/json"], HTTPClient.METHOD_POST, JSON.stringify(settings))
-	if error != OK:
-		request_kind = ""
-		set_busy(false)
-		set_navigation_enabled(true)
-		status.text = "Could not validate DSL (error %d)." % error
 
 func poll_job() -> void:
 	if not request_kind.is_empty() or RunSession.job_id.is_empty():
@@ -415,18 +279,33 @@ func request_completed(result: int, code: int, _headers: PackedStringArray, body
 		poll_timer.stop()
 		RunSession.job_id = ""
 		set_busy(false)
+		if kind == "presets":
+			presets.clear()
+			preset_selector.clear()
+			select_preset(-1)
 		status.text = str(data.get("error", "Run API unavailable. Start tools/run_store.py serve.")) if data is Dictionary else "Run API unavailable. Start tools/run_store.py serve."
-		if RunSession.job_kind == "batch" and not RunSession.batch_snapshot.is_empty():
+		if kind in ["poll", "start"] and RunSession.job_kind == "batch" and not RunSession.batch_snapshot.is_empty():
 			var snapshot: Dictionary = RunSession.batch_snapshot.duplicate(true)
 			snapshot["status"] = "unavailable"
 			show_batch_progress(snapshot)
 			show_batch_notice(status.text)
 		return
-	if kind == "validate_dsl":
+	if kind == "presets":
+		presets = data.get("presets", [])
+		preset_selector.clear()
+		var selection := 0
+		for index in range(presets.size()):
+			var preset: Dictionary = presets[index]
+			preset_selector.add_item("%s · %s · v%d" % [preset["name"], "AutoRun" if preset["kind"] == "batch" else "Run", preset["version"]])
+			if preset["id"] == RunSession.preset_id:
+				selection = index
+		if not presets.is_empty():
+			preset_selector.select(selection)
 		set_busy(false)
-		status.text = "DSL valid: %d rules. Effective weights: %s" % [int(data.get("rules", 0)), JSON.stringify(data.get("effective_policy", {}))]
+		select_preset(selection)
+		status.text = "%d presets loaded. Settings are edited in the Web Viewer." % presets.size()
 		return
-	if kind in ["start", "start_batch"]:
+	if kind == "start":
 		RunSession.job_id = str(data["id"])
 		poll_timer.start()
 	if str(data.get("kind", "run")) == "batch":
@@ -466,12 +345,14 @@ func update_autorun_status(data: Dictionary) -> void:
 			status.text += "\n" + str(data.get("error", "Unknown error"))
 		status.text += "\nSaved results are available in Replay and Viewer."
 		show_batch_notice((str(data.get("error", "Unknown error")) + "\n" if state == "failed" else "") + "Saved results are available in Replay and Viewer.")
+		if presets.is_empty():
+			load_presets()
 
 func set_navigation_enabled(value: bool) -> void:
 	form.get_node("BackButton").disabled = not value
 	form.get_node("FormReplayButton").disabled = not value
 
 func open_replay() -> void:
-	if request_kind in ["start", "start_batch"]:
+	if request_kind == "start":
 		return
 	get_tree().change_scene_to_file("res://scenes/replay.tscn")

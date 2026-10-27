@@ -108,24 +108,28 @@ class RunJobs:
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="run-simulator")
         self.closed = False
 
-    def submit(self, value):
-        settings = validate_settings(value)
+    def validate_launch(self, kind, value):
+        settings, total = validate_batch(value) if kind == "batch" else (validate_settings(value), 1)
         if settings.get("dsl", "").strip():
-            self.validate_dsl(settings)
-        return self.enqueue({"kind": "run", "settings": settings, "run_id": None, "error": None})
-
-    def submit_batch(self, value):
-        settings, total = validate_batch(value)
-        if settings.get("dsl", "").strip():
-            first = next(batch_combinations(settings))
+            first = next(batch_combinations(settings)) if kind == "batch" else settings
             overrides = self.validate_dsl(first)["policy_overrides"]
-            for combination in batch_combinations(settings):
+            for combination in batch_combinations(settings) if kind == "batch" else [settings]:
                 if not sum(overrides.get(dsl_key, combination[key]) for dsl_key, key in
                            (("enemy_weight", "enemy_weight"), ("treasure_weight", "item_weight"), ("stairs_weight", "stairs_weight"))):
                     raise ValueError("DSL makes all goal weights zero in an AutoRun combination")
+        return settings, total
+
+    def submit(self, value, preset=None):
+        settings, _total = self.validate_launch("run", value)
+        return self.enqueue({"kind": "run", "settings": settings, "run_id": None, "error": None,
+                             **({"preset": preset} if preset is not None else {})})
+
+    def submit_batch(self, value, preset=None):
+        settings, total = self.validate_launch("batch", value)
         return self.enqueue({"kind": "batch", "settings": settings, "total": total,
                              "completed": 0, "failed": 0, "current_settings": None,
-                             "run_id": None, "error": None, "cancel_requested": False})
+                             "run_id": None, "error": None, "cancel_requested": False,
+                             **({"preset": preset} if preset is not None else {})})
 
     def enqueue(self, fields):
         with self.lock:
@@ -171,6 +175,8 @@ class RunJobs:
             return
         try:
             run_id, summary = self.simulate(settings)
+            if "preset" in job:
+                self.store.record_run_preset(run_id, job["preset"])
             with self.lock:
                 job.update(status="completed", run_id=run_id, summary=summary)
         except Exception as exc:
@@ -185,6 +191,8 @@ class RunJobs:
                 job["current_settings"] = combination
             try:
                 run_id, _summary = self.simulate(combination)
+                if "preset" in job:
+                    self.store.record_run_preset(run_id, job["preset"])
                 with self.lock:
                     job["completed"] += 1
                     job["run_id"] = run_id

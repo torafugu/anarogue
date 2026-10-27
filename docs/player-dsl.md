@@ -1,6 +1,7 @@
 # Player DSL v1
 
-Home → Run has an optional **Player DSL** editor and **Validate DSL** button.
+Web Viewer → **Run presets** has a **Player DSL** editor and **Validate settings / DSL** button.
+Save a named preset, then select it in Godot → Run. See [Run presets](run-presets.md).
 An empty editor uses the existing strategy unchanged. Only declared settings
 are overridden. Rules are evaluated in source order BEFORE default healing,
 Brute avoidance, adjacent combat and weighted goal selection. If no rule is
@@ -33,15 +34,15 @@ rule "Counter Archer" {
 
 | Setting | Range | Inherits when omitted |
 | --- | --- | --- |
-| enemy_weight | integer 0..1000 | Strategy / Run form Enemy weight |
-| treasure_weight | integer 0..1000 | Strategy / Run form Treasure weight |
-| stairs_weight | integer 0..1000 | Strategy / Run form Stairs weight |
+| enemy_weight | integer 0..1000 | Strategy / preset Enemy weight |
+| treasure_weight | integer 0..1000 | Strategy / preset Treasure weight |
+| stairs_weight | integer 0..1000 | Strategy / preset Stairs weight |
 | temperature | integer 1..100 | Default policy temperature |
 
 `treasure_weight` maps to the engine/log field `item_weight`. Zero is an explicit
 override, not an omitted value. At least one effective goal weight must remain
 positive, even if the program contains an unconditional rule. Map settings and
-max turns remain controlled by the Run form. AutoRun applies the same source
+max turns remain controlled by the saved preset. AutoRun applies the same source
 to every combination; a fixed DSL weight overrides the corresponding sweep
 value, so avoid sweeping that weight if duplicate effective policies are unwanted.
 
