@@ -188,12 +188,20 @@ class RunStore:
 
     def stats(self, filters=None):
         where, params = self.where(filters or {})
+        # Use the same recorded calendar date as the Godot selector, without
+        # converting time zones or inventing a date for imported legacy logs.
+        date = "CASE WHEN started_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*' THEN substr(started_at,1,10) END"
         with closing(self.connect()) as db:
-            rows = db.execute("""SELECT strategy_id,simulation_version,schema_version,code_revision,
+            rows = db.execute(f"""SELECT strategy_id,simulation_version,schema_version,code_revision,
                 goal_policy,COUNT(*) AS runs,
+                json_group_array(DISTINCT json_extract(summary, '$.preset.name')) AS preset_names,
+                MIN(max_depth) AS depth_min, MAX(max_depth) AS depth_max,
+                MIN({date}) AS first_run_date, MAX({date}) AS last_run_date,
+                COUNT({date}) AS dated_runs,
                 SUM(status!='unfinished') AS finished,
                 SUM(status='cleared') AS cleared,
                 SUM(status='defeated') AS defeated,
+                SUM(status='restarted') AS restarted,
                 AVG(CASE WHEN status!='unfinished' THEN score END) AS mean_score,
                 AVG(CASE WHEN status!='unfinished' THEN max_depth END) AS mean_depth,
                 AVG(CASE WHEN status!='unfinished' THEN turns END) AS mean_turns
@@ -201,6 +209,10 @@ class RunStore:
             result = []
             for row in rows:
                 group = dict(row)
+                names = json.loads(group["preset_names"])
+                group["preset_names"] = sorted({name for name in names if isinstance(name, str) and name.strip()})
+                group["has_legacy_runs"] = any(not isinstance(name, str) or not name.strip() for name in names)
+                group["undated_runs"] = group["runs"] - group.pop("dated_runs")
                 group["goal_policy"] = json.loads(group["goal_policy"])
                 group["clear_rate"] = group["cleared"] / group["finished"] if group["finished"] else None
                 result.append(group)

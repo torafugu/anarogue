@@ -20,6 +20,15 @@ export interface StoredRun {
 }
 
 export interface RunGroup {
+  preset_names?: string[];
+  has_legacy_runs?: boolean;
+  depth_min?: number;
+  depth_max?: number;
+  first_run_date?: string | null;
+  last_run_date?: string | null;
+  undated_runs?: number;
+  defeated?: number;
+  restarted?: number;
   strategy_id: string;
   simulation_version: number;
   schema_version: number;

@@ -2,6 +2,12 @@
 
 A browser-based Run catalogue and analysis client backed by the local SQLite API.
 
+Rank rows show **Run preset name / Depth / Result / YYYYMMDD**, matching the Godot
+selector. Aggregated rows list all saved names, depth/date ranges and result counts;
+unnamed legacy Runs fall back to Strategy. Expand **Settings** for the original
+policy/version/revision details. These labels do not change ranking or comparison
+identities, and cover all filtered Runs rather than just the catalogue page.
+
 Open **Run presets** at the top to create, validate, save and duplicate named
 Strategy/weights/DSL configurations with Seed, Map settings and Max turns. Select
 a saved Single Run / AutoRun preset in Godot → Run. **Reload presets** picks up

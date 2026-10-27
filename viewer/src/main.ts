@@ -2,7 +2,7 @@ import "./style.css";
 import { mountRunPresets } from "./run-presets.ts";
 import { sprites, enemySprite, itemSprite } from "./sprites.ts";
 import { meanMetricFields, meanMetricsDelimited, type MeanMetrics } from "./filtered-metrics.ts";
-import { policyGroupKey, comparisonConditions, loadRankRuns, type ComparisonCondition } from "./rank-comparison.ts";
+import { policyGroupKey, comparisonConditions, loadRankRuns, rankRunLabel, type ComparisonCondition } from "./rank-comparison.ts";
 import { updateWeightAnalysis, type WeightAnalysis } from "./weight-analysis.ts";
 import { api, type StoredRun, type RunGroup } from "./catalog.ts";
 import sampleLog from "../../examples/sample-run-v1.jsonl?raw";
@@ -1120,11 +1120,12 @@ function renderStoredStats(groups: RunGroup[]): void {
     || a.strategy_id.localeCompare(b.strategy_id) || JSON.stringify(a.goal_policy).localeCompare(JSON.stringify(b.goal_policy)));
   let rank = 0;
   const display = (value: number | null) => value === null ? "—" : value.toFixed(1);
-  getElement("#catalog-stats").innerHTML = `<p class="panel-note">Ranked within the current Strategy/Policy/result/Seed filters. Select one or more rows, then Compare selected. Completed Runs only for averages and clear rate; unfinished Runs have no rank. Groups keep simulation/schema versions, code revision and policy weights separate.</p><div class="table-scroll"><table><thead><tr><th>Select</th><th>Rank</th><th>Strategy / policy</th><th>Version / revision</th><th>Runs / finished</th><th>Clear rate</th><th>Mean depth</th><th>Mean score</th><th>Mean turns</th></tr></thead><tbody>${ranked.map(group => {
+  getElement("#catalog-stats").innerHTML = `<p class="panel-note">Ranked within the current filters. Select rows, then Compare selected. Labels follow the Run selector: saved preset names / depth range / result counts / YYYYMMDD date range. Labels cover all filtered Runs; averages and clear rate use finished Runs only. Unfinished groups have no rank. Settings shows the Strategy, weights and versions that keep groups separate.</p><div class="table-scroll"><table><thead><tr><th>Select</th><th>Rank</th><th>Run preset / Depth / Result / Date</th><th>Runs / finished</th><th>Clear rate</th><th>Mean depth</th><th>Mean score</th><th>Mean turns</th></tr></thead><tbody>${ranked.map(group => {
     const key = policyGroupKey(group);
     const rankLabel = group[metric] === null ? "—" : String(++rank);
     if (selectedRanks.has(key)) selectedRanks.set(key, { group, rank: rankLabel });
-    return `<tr><td><input type="checkbox" class="rank-checkbox" data-rank-key="${escapeHtml(key)}" aria-label="Select Rank ${rankLabel} ${escapeHtml(strategyLabel(group.strategy_id))}" ${selectedRanks.has(key) ? "checked" : ""}></td><td>${rankLabel}</td><td>${escapeHtml(strategyLabel(group.strategy_id))}<br><small>${escapeHtml(JSON.stringify(group.goal_policy))}</small></td><td>sim ${group.simulation_version} / schema ${group.schema_version}<br>${escapeHtml(group.code_revision || "revision unknown")}</td><td>${group.runs} / ${group.finished}</td><td>${group.clear_rate === null ? "—" : `${(group.clear_rate * 100).toFixed(1)}%`}</td><td>${display(group.mean_depth)}</td><td>${display(group.mean_score)}</td><td>${display(group.mean_turns)}</td></tr>`; }).join("")}</tbody></table></div>`;
+    const runLabel = rankRunLabel(group, strategyLabel(group.strategy_id));
+    return `<tr><td><input type="checkbox" class="rank-checkbox" data-rank-key="${escapeHtml(key)}" aria-label="Select Rank ${rankLabel} ${escapeHtml(runLabel)}" ${selectedRanks.has(key) ? "checked" : ""}></td><td>${rankLabel}</td><td class="rank-run"><span class="rank-run-label">${escapeHtml(runLabel)}</span><details class="rank-settings"><summary>Settings</summary><small>${escapeHtml(strategyLabel(group.strategy_id))} · ${escapeHtml(JSON.stringify(group.goal_policy))}<br>sim ${group.simulation_version} / schema ${group.schema_version}<br>${escapeHtml(group.code_revision || "revision unknown")}</small></details></td><td>${group.runs} / ${group.finished}</td><td>${group.clear_rate === null ? "—" : `${(group.clear_rate * 100).toFixed(1)}%`}</td><td>${display(group.mean_depth)}</td><td>${display(group.mean_score)}</td><td>${display(group.mean_turns)}</td></tr>`; }).join("")}</tbody></table></div>`;
   updateRankSelection();
 }
 
