@@ -51,6 +51,7 @@ func run_tests() -> void:
 		quit(1)
 		return
 	assert(not viewer.has_node("LogSelector") and not viewer.has_node("RefreshButton"))
+	assert(viewer.run_selector.get_item_text(viewer.run_selector.selected).begins_with("Aggressive / D"), "Runs without a preset keep the Strategy label")
 	viewer.set_turn(1)
 	viewer.playing = true
 	viewer.auto_elapsed = -100  # Hold playback while checking background refresh.
