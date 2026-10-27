@@ -6,6 +6,15 @@ AnaRogue is a small turn-based roguelike made with Godot 4. You explore procedur
 
 Each action you take advances the game by one turn. Move carefully, watch your HP, and use the stairs to continue to the next depth.
 
+Viewer's Rank table labels each group like the Godot Run selector:
+**Run preset name / Depth / Result / YYYYMMDD**. Since a row aggregates Runs,
+multiple saved names are listed, Depth and dates use ranges, and Result shows
+counts (for example `cleared 3, defeated 1`). Legacy Runs use the Strategy name.
+**Settings** expands the Strategy, weights, simulation/schema version and revision.
+Ranking, filters and comparison grouping are unchanged; the labels cover every
+filtered Run rather than just the current catalogue page. Averages still use
+finished Runs only.
+
 ## Starting the Game
 
 Web Viewer → **Run presets** provides an optional **Player DSL** editor. Leave it blank for

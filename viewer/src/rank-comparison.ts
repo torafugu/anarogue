@@ -1,6 +1,24 @@
 import { api, type RunGroup, type StoredRun } from "./catalog.ts";
 
 type PolicyGroup = Pick<RunGroup, "strategy_id" | "simulation_version" | "schema_version" | "code_revision" | "goal_policy">;
+
+/** Human label only: never use names/results/dates as comparison identity. */
+export function rankRunLabel(group: RunGroup, strategyName: string): string {
+  const names = [...new Set(group.preset_names ?? [])];
+  if (!names.length || group.has_legacy_runs) names.push(strategyName);
+  const depth = group.depth_min === undefined || group.depth_max === undefined ? "Depth unknown"
+    : group.depth_min === group.depth_max ? `D${group.depth_min}` : `D${group.depth_min}–${group.depth_max}`;
+  const results = [
+    ["cleared", group.cleared], ["defeated", group.defeated ?? 0], ["restarted", group.restarted ?? 0],
+    ["unfinished", group.runs - group.finished],
+    ["other finished", Math.max(0, group.finished - group.cleared - (group.defeated ?? 0) - (group.restarted ?? 0))],
+  ] as const;
+  const result = results.filter(([, count]) => count > 0).map(([name, count]) => `${name} ${count}`).join(", ") || "No results";
+  const formatDate = (value?: string | null) => value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.replaceAll("-", "") : null;
+  const first = formatDate(group.first_run_date), last = formatDate(group.last_run_date);
+  const date = first && last ? (first === last ? first : `${first}–${last}`) + (group.undated_runs ? " + date unknown" : "") : "Date unknown";
+  return `${[...new Set(names)].join(", ")} / ${depth} / ${result} / ${date}`;
+}
 export function policyGroupKey(group: PolicyGroup): string {
   return JSON.stringify([group.strategy_id, group.simulation_version, group.schema_version, group.code_revision,
     Object.entries(group.goal_policy).sort(([a], [b]) => a.localeCompare(b))]);

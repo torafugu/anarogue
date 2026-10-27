@@ -81,6 +81,16 @@ try {
   assert.equal(job.status, 'completed', JSON.stringify(job));
   const run = await (await fetch(`${base}/api/runs/${job.run_id}`)).json();
   assert.equal(run.preset.name, 'External edit'); assert.equal(run.preset.version, 3);
+  await page.waitForFunction(() => document.querySelector('.rank-run-label')?.textContent.startsWith('External edit / D1 / unfinished 1 / '));
+  const rankLabel = await page.textContent('.rank-run-label');
+  assert.match(rankLabel, /^External edit \/ D1 \/ unfinished 1 \/ \d{8}$/);
+  const headers = await page.locator('#catalog-stats th').allTextContents();
+  assert(headers.includes('Run preset / Depth / Result / Date'));
+  assert(!headers.includes('Strategy / policy') && !headers.includes('Version / revision'));
+  assert.equal(await page.locator('.rank-settings[open]').count(), 0);
+  await page.click('.rank-settings summary');
+  assert((await page.textContent('.rank-settings')).includes('sim 8 / schema 8'));
+  await page.click('.rank-settings summary');
   await page.setViewportSize({width: 390, height: 844});
   assert(await page.locator('#preset-dsl').evaluate(el => el.getBoundingClientRect().right <= window.innerWidth));
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));

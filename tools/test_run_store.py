@@ -112,6 +112,29 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(len(self.store.stats()["groups"]), 3)
         self.assertEqual(self.store.list_runs({"status": "unfinished"})["total"], 1)
 
+    def test_rank_labels_aggregate_saved_names_depth_results_and_dates_without_splitting_groups(self):
+        for index, (date, name) in enumerate([("2026-10-25T12:00:00Z", "弓反撃 <test>"),
+                                               ("2026-10-27T12:00:00Z", "Renamed"), ("", None)]):
+            events = copy.deepcopy(self.events[:20] if index == 1 else self.events)
+            for event in events:
+                event["run_id"] = f"rank-label-{index}"
+            events[0]["time"] = date
+            key = self.store.import_text(text(events))[0]
+            if name:
+                self.store.record_run_preset(key, {"id": "preset", "name": name, "version": index + 1})
+        group = self.store.stats()["groups"][0]
+        self.assertEqual(len(self.store.stats()["groups"]), 1, "Names/dates must not change ranking identity")
+        self.assertEqual(group["preset_names"], ["Renamed", "弓反撃 <test>"])
+        self.assertTrue(group["has_legacy_runs"])
+        self.assertEqual((group["depth_min"], group["depth_max"]), (1, 5))
+        self.assertEqual((group["cleared"], group["defeated"], group["restarted"], group["runs"] - group["finished"]), (2, 0, 0, 1))
+        self.assertEqual((group["first_run_date"], group["last_run_date"], group["undated_runs"]), ("2026-10-25", "2026-10-27", 1))
+        filtered = self.store.stats({"status": "unfinished"})["groups"][0]
+        self.assertEqual(filtered["preset_names"], ["Renamed"])
+        self.assertFalse(filtered["has_legacy_runs"])
+        self.assertEqual((filtered["depth_min"], filtered["depth_max"]), (1, 1))
+        self.assertEqual((filtered["first_run_date"], filtered["last_run_date"], filtered["undated_runs"]), ("2026-10-27", "2026-10-27", 0))
+
     def test_concurrent_imports_do_not_duplicate_events(self):
         errors = []
         def import_run():

@@ -1140,3 +1140,6 @@ blockquote {
 .run-presets textarea { width: 100%; resize: vertical; min-height: 220px; padding: 14px; font: 14px/1.6 monospace; color: inherit; background: var(--surface, #161d2a); border: 1px solid #596275; border-radius: 8px; tab-size: 2; }
 .run-presets [hidden] { display: none !important; }
 #preset-status { white-space: pre-wrap; overflow-wrap: anywhere; }
+.rank-run { min-width: 240px; max-width: 560px; white-space: normal; overflow-wrap: anywhere; }
+.rank-settings { margin-top: 8px; color: var(--muted); }
+.rank-settings summary { cursor: pointer; }
