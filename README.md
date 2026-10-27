@@ -5,6 +5,9 @@ in Web Viewer → **Run presets**. Save a named Strategy/weights/DSL combination
 then select it in Godot → Run. Empty source uses the default AI; explicit rules run before
 automatic healing and Brute avoidance. The Validate DSL button checks programs
 without creating a Run, and Run/AutoRun also reject errors before execution.
+Use `keep_distance target min = 3 max = 5` for positioning and
+`floor.enemy_count == 0` to gate collection/descent after clearing. See the
+[Bow sweep example](examples/player-dsl/bow-sweep.dsl).
 
 A tiny Godot 4 roguelike starter.
 

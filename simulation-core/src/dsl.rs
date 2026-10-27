@@ -48,7 +48,7 @@ impl Expr {
     }
     fn needs_target(&self) -> bool {
         match self {
-            Self::Field(f) => !f.starts_with("self."),
+            Self::Field(f) => !f.starts_with("self.") && !f.starts_with("floor."),
             Self::Not(e) => e.needs_target(),
             Self::Binary(_, a, b) => a.needs_target() || b.needs_target(),
             _ => false,
@@ -62,6 +62,7 @@ pub struct Rule {
     pub filter: Option<Expr>,
     pub condition: Option<Expr>,
     pub action: String,
+    pub distance_band: Option<(u32, u32)>,
 }
 #[derive(Clone, Debug, Default)]
 pub struct Program {
@@ -281,6 +282,7 @@ impl Parser {
                     filter: None,
                     condition: None,
                     action: String::new(),
+                    distance_band: None,
                 };
                 if self.eat("target") {
                     self.expect("nearest")?;
@@ -304,21 +306,43 @@ impl Parser {
                     r.condition = Some(e);
                 }
                 self.expect("do")?;
-                if !["shoot", "attack", "move_toward", "use_potion", "wait"]
-                    .iter()
-                    .any(|k| self.at(k))
+                if ![
+                    "shoot",
+                    "attack",
+                    "move_toward",
+                    "keep_distance",
+                    "use_potion",
+                    "wait",
+                ]
+                .iter()
+                .any(|k| self.at(k))
                 {
                     return Err(self.error("unknown action"));
                 }
                 r.action = self.take();
-                if ["shoot", "attack", "move_toward"].contains(&r.action.as_str()) {
+                if ["shoot", "attack", "move_toward", "keep_distance"].contains(&r.action.as_str())
+                {
                     self.expect("target")?;
                     if r.target.is_none() {
                         return Err(self.error("action requires a target declaration"));
                     }
                     if r.action != "move_toward" && r.target.as_deref() != Some("enemy") {
-                        return Err(self.error("shoot/attack require an enemy target"));
+                        return Err(
+                            self.error("shoot/attack/keep_distance require an enemy target")
+                        );
                     }
+                }
+                if r.action == "keep_distance" {
+                    self.expect("min")?;
+                    self.expect("=")?;
+                    let minimum = self.distance_bound()?;
+                    self.expect("max")?;
+                    self.expect("=")?;
+                    let maximum = self.distance_bound()?;
+                    if minimum > maximum {
+                        return Err(self.error("keep_distance requires min <= max"));
+                    }
+                    r.distance_band = Some((minimum, maximum));
                 }
                 if r.target.is_none() && r.condition.as_ref().is_some_and(Expr::needs_target) {
                     return Err(self.error("target field requires a target declaration"));
@@ -336,6 +360,16 @@ impl Parser {
             }
         }
         Ok(p)
+    }
+
+    fn distance_bound(&mut self) -> Result<u32, String> {
+        let token = &self.tokens[self.index];
+        let number = token.text.parse::<u32>().ok();
+        if token.quoted || !number.is_some_and(|n| (1..=100).contains(&n)) {
+            return Err(self.error("distance bound must be an unquoted integer in 1..100"));
+        }
+        self.take();
+        Ok(number.unwrap())
     }
     fn expr(&mut self, min: u8) -> Result<(Expr, &'static str), String> {
         self.depth += 1;
@@ -360,7 +394,9 @@ impl Parser {
             let text = token.text.as_str();
             let field_type = match text {
                 "self.hp" | "self.max_hp" | "self.hp_percent" | "self.potions" | "self.attack"
-                | "target.hp" | "hp" | "target.distance" | "distance" => Some("number"),
+                | "target.hp" | "hp" | "target.distance" | "distance" | "floor.enemy_count" => {
+                    Some("number")
+                }
                 "self.weapon" => Some("weapon"),
                 "target.type" | "type" => Some("kind"),
                 "target.shootable" | "shootable" | "target.visible" | "visible" => Some("bool"),
@@ -447,6 +483,35 @@ mod tests {
             "rule \"x\" { do wait",
             "rule \"x\" { target nearest item do shoot target }",
             "policy { temperature = 0 }",
+        ] {
+            assert!(
+                Program::parse(source).unwrap_err().contains("line"),
+                "{source}"
+            );
+        }
+    }
+    #[test]
+    fn distance_action_and_floor_conditions_are_checked_before_execution() {
+        let program = Program::parse("rule \"Space\" { target nearest enemy when floor.enemy_count > 0 do keep_distance target min = 3 max = 5 } rule \"Clear\" { when floor.enemy_count == 0 do wait }").unwrap();
+        assert_eq!(program.rules[0].distance_band, Some((3, 5)));
+        assert_eq!(program.rules[1].target, None);
+        assert!(!program.rules[1].condition.as_ref().unwrap().needs_target());
+        for source in [
+            "rule \"x\" { do keep_distance target min = 3 max = 5 }",
+            "rule \"x\" { target nearest item do keep_distance target min = 3 max = 5 }",
+            "rule \"x\" { target nearest stairs do keep_distance target min = 3 max = 5 }",
+            "rule \"x\" { target nearest enemy do keep_distance target }",
+            "rule \"x\" { target nearest enemy do keep_distance target min = 0 max = 5 }",
+            "rule \"x\" { target nearest enemy do keep_distance target min = 6 max = 5 }",
+            "rule \"x\" { target nearest enemy do keep_distance target min = 1 max = 101 }",
+            "rule \"x\" { target nearest enemy do keep_distance target min = 2.5 max = 5 }",
+            "rule \"x\" { target nearest enemy do keep_distance target min = \"3\" max = 5 }",
+            "rule \"x\" { target nearest enemy do keep_distance target min = 3 }",
+            "rule \"x\" { target nearest enemy do keep_distance target max = 5 min = 3 }",
+            "rule \"x\" { when floor.enemy_count do wait }",
+            "rule \"x\" { when floor.enemy_count == bow do wait }",
+            "rule \"x\" { when floor.enemies_count == 0 do wait }",
+            "rule \"x\" { when enemy_count == 0 do wait }",
         ] {
             assert!(
                 Program::parse(source).unwrap_err().contains("line"),

@@ -34,11 +34,28 @@ class DslTests(unittest.TestCase):
         self.fail('Run did not finish')
 
     def test_invalid_dsl_is_rejected_before_acceptance_and_persistence(self):
-        for source in ['policy { treasure_weigth = 4 }', 'rule "x" { when self.hp == bow do wait }', 'rule "x" { when self.weapon == archer do wait }', 'rule "x" { do shoot target }']:
+        for source in ['policy { treasure_weigth = 4 }', 'rule "x" { when self.hp == bow do wait }', 'rule "x" { when self.weapon == archer do wait }', 'rule "x" { do shoot target }',
+                       'rule "x" { target nearest enemy do keep_distance target min = 5 max = 3 }',
+                       'rule "x" { target nearest item do keep_distance target min = 3 max = 5 }',
+                       'rule "x" { when floor.enemy_count == bow do wait }']:
             with self.subTest(source=source), self.assertRaisesRegex(ValueError, 'line .*column'):
                 self.jobs.submit({'dsl': source})
         self.assertEqual(self.jobs.jobs, {})
         self.assertEqual(self.store.database_counts(), {'runs': 0, 'events': 0})
+
+    def test_floor_count_without_target_and_distance_example_execute_through_api_worker(self):
+        source = 'rule "Clear" { when floor.enemy_count == 0 do wait }'
+        job = self.finish(self.jobs.submit({'dsl': source, 'enemy_amount': 0, 'max_turns': 3}))
+        decisions = [event for event in self.store.events(job['run_id']) if event['event'] == 'decision']
+        self.assertEqual(len(decisions), 3)
+        self.assertTrue(all('Clear: selected' in event['details']['reason'] for event in decisions))
+        source = (ROOT / 'examples/player-dsl/bow-sweep.dsl').read_text()
+        self.assertEqual(self.jobs.validate_dsl({'dsl': source})['rules'], 6)
+        job = self.finish(self.jobs.submit({'dsl': source, 'strategy': 'cautious', 'max_turns': 120}))
+        self.assertEqual(self.store.get_run(job['run_id'])['execution_settings']['dsl'], source)
+        events = self.store.events(job['run_id'])
+        self.assertEqual(events[0]['details']['dsl']['source'], source)
+        self.assertTrue(any('DSL:' in event['details'].get('reason', '') for event in events))
 
     def test_partial_overrides_source_trace_and_profile_separation(self):
         source = 'policy { treasure_weight = 7 } rule "Hold" { do wait }'
