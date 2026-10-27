@@ -285,7 +285,11 @@ func update_catalog(runs: Array) -> void:
 	var selected := -1
 	var wanted := pending_catalog_run if not pending_catalog_run.is_empty() else selected_catalog_run
 	for entry in catalog_runs:
-		run_selector.add_item("%s / D%d / %s / %s" % [str(entry["strategy_id"]).trim_suffix("_v1").capitalize(), entry["max_depth"], entry["status"], str(entry["started_at"]).left(10).replace("-", "")])
+		var run_name := str(entry["strategy_id"]).trim_suffix("_v1").capitalize()
+		var preset = entry.get("preset", {})
+		if preset is Dictionary and preset.get("name") is String and not str(preset["name"]).strip_edges().is_empty():
+			run_name = preset["name"]
+		run_selector.add_item("%s / D%d / %s / %s" % [run_name, entry["max_depth"], entry["status"], str(entry["started_at"]).left(10).replace("-", "")])
 		var index := run_selector.item_count - 1
 		run_selector.set_item_metadata(index, entry["id"])
 		run_selector.set_item_tooltip(index, "%s · %s · simulation v%s" % [entry["run_id"], entry["started_at"], entry["simulation_version"]])

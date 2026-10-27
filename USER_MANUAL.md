@@ -143,7 +143,9 @@ The replay uses 40 px text for selectors, buttons, logs, Player information,
 and the depth/turn badge. The Run selector occupies a full
 row. Previous (`|◀`), Play (`▶`), Next (`▶|`), and `Home` share the next row.
 During playback, Play becomes Pause (`⏸`); tooltips identify the controls.
-Strategy is shown in the Run selector. The depth/turn badge stays on one
+The Run selector shows **Run preset name / Depth / Result / YYYYMMDD** using the
+preset name saved at execution time. Older Runs without preset information show
+their Strategy name instead. The depth/turn badge stays on one
 line with a fixed height, reducing its font size when needed on narrow screens. The information panels are taller so larger text can be read
 without crowding the controls. The maze viewport is smaller, while its tile
 size and Player-following behavior stay the same.

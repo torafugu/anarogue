@@ -71,6 +71,7 @@ func run_tests() -> void:
 			metadata = entry
 	assert(metadata["scenario_seed"] == 42 and metadata["strategy_id"] == "cautious_v1")
 	assert(metadata["preset"]["name"] == "Cautious counter" and metadata["preset"]["version"] == 2)
+	assert(viewer.run_selector.get_item_text(viewer.run_selector.selected).begins_with("Cautious counter / D"))
 	assert(metadata["goal_policy"]["item_weight"] == 7)
 	assert(metadata["execution_settings"]["dsl"].contains("Optional"))
 	assert(metadata["execution_settings"]["enemy_amount"] == 200)
