@@ -5,6 +5,12 @@ existing JSONL into SQLite, watches new/changed logs, and serves Godot and the W
 viewer. The Rust simulator can also save directly to the same SQLite database;
 JSONL remains available as an optional output and exchange format.
 
+Godot Home → Run selects saved configurations. Create and validate named
+Single Run / AutoRun presets in **Web Viewer → Run presets**. The API stores them
+in an additional `run_presets` table and launches a copied snapshot through
+`/api/presets/{id}/run`. See [Run presets](run-presets.md) for CRUD, version
+conflicts and persistence. Direct job/batch endpoints remain available for scripts.
+
 ## Start
 
 From the repository root, with Python 3.10 or newer:
@@ -123,19 +129,19 @@ local development service without authentication; use it on a trusted network.
 
 ## Run execution from Godot
 
-AutoRun on the Godot Run form submits `POST /api/batches`, sharing the same
+Godot launches a saved Single Run or AutoRun through `POST /api/presets/{id}/run`, sharing the same
 single Rust worker as individual Runs. Defaults cover both Strategies and
 weights 0–4, excluding `(0,0,0)`: 248 Runs. Each execution is committed to the
 ordinary Runs/events tables, and normal Viewer polling discovers results.
 
-Example batch request:
+Example direct batch request to `POST /api/batches`:
 
 ```json
 {"seed":424242,"max_turns":5000,"strategies":["aggressive","cautious"],"enemy_weights":[0,1,2,3,4],"item_weights":[0,1,2,3,4],"stairs_weights":[0,1,2,3,4]}
 ```
 
 Each list contains integers in 0–1000; duplicate values/Strategies are removed.
-A request is limited to 4 KB and 1–2,000 valid combinations. A batch occupies
+A request is limited to 128 KB and 1–2,000 valid combinations. A batch occupies
 one queue slot, generates combinations lazily and executes them sequentially.
 Poll `GET /api/jobs/<id>` for `kind: batch`, `total`, `completed`, `failed`,
 `current_settings`, the latest saved `run_id`, and status. Submit an empty JSON
@@ -158,12 +164,11 @@ python3 tools/run_store.py serve
 producer revision. Request bodies cannot override executable, database or revision.
 A missing/outdated binary fails the job with a message; existing Replay is available.
 
-Godot starts on a main screen. Run opens a scrolling settings form; Replay opens
-the existing catalogue/replay screen. The form accepts seed (u32), strategy
-(`aggressive` or `cautious`), three integer goal weights (0–1000, at least one
-positive), and maximum turns (1–100000). Strategy changes reset weights to 4/2/1
-or 1/2/4; custom weights can then override them. Map size remains 24×18 and policy
-temperature remains 8, matching the Rust defaults.
+Godot starts on a main screen. Run opens a saved-preset selector and read-only
+summary; Replay opens the existing catalogue/replay screen. Viewer edits Seed
+(u32), Strategy (`aggressive` or `cautious`), three integer weights (0–1000, at
+least one effective weight positive), Max turns (1–100000), Map settings and DSL.
+Map size remains 24×18; default policy temperature is 8 (overridable by DSL).
 
 - `POST /api/jobs` with `Content-Type: application/json` accepts the settings and
   returns HTTP 202 with `{id, status, settings, run_id, error}`. Status starts
@@ -173,7 +178,7 @@ temperature remains 8, matching the Rust defaults.
   Failure includes an error. Unknown or expired IDs return 404.
 - HTTP 400 rejects invalid/unknown settings; 415 rejects wrong content type;
   429 rejects a full queue; 503 indicates execution is unavailable on that server.
-  Browser requests with an Origin header must match the request Host.
+  Browser requests must be same-origin (including same-origin reverse proxies).
 
 One worker executes jobs sequentially, with at most 16 outstanding jobs and a
 120-second limit per process. The service retains the latest 64 job records in
@@ -186,8 +191,9 @@ The UI polls the job each second, disables duplicate submission while pending,
 and opens the completed Run at frame zero. Navigation is held only until the
 start request is acknowledged, so it cannot discard the job ID. Afterwards users
 can browse Replay and return to Run to resume polling. Temporary polling failures
-retry without restarting the simulation. The form/settings and job ID survive
-scene changes within the app session, but are not saved across app restarts.
+retry without restarting the simulation. The selection and job ID survive
+scene changes within the app session. Saved presets persist across app/API restarts;
+in-flight job tracking does not.
 No events stream during execution; Replay loads the completed snapshot.
 Explicit `--replay=/absolute/path/run.jsonl` still bypasses the home screen.
 

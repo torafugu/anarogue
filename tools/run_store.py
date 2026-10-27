@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from run_jobs import QueueFull, RunJobs
+from run_presets import PresetConflict, RunPresets
 from weight_analysis import analyze_runs
 
 LOG = logging.getLogger(__name__)
@@ -249,6 +250,15 @@ class RunStore:
                 ("max_turns", "enemy_amount", "treasure_amount", "map_depth", "dsl") if field in settings}
             db.execute("UPDATE runs SET summary=? WHERE id=?", (canonical(summary), key))
 
+    def record_run_preset(self, key, preset):
+        with closing(self.connect()) as db, db:
+            row = db.execute("SELECT summary FROM runs WHERE id=?", (key,)).fetchone()
+            if row is None:
+                raise KeyError(key)
+            summary = json.loads(row[0])
+            summary["preset"] = preset
+            db.execute("UPDATE runs SET summary=? WHERE id=?", (canonical(summary), key))
+
     def weight_analysis(self, filters=None):
         # Outcome filtering would select on the result being studied. Include
         # unfinished Runs and use their last saved Score, unlike ranking stats.
@@ -318,6 +328,7 @@ def log_paths(paths):
 
 
 def make_server(store, host="127.0.0.1", port=8765, jobs=None, watch_enabled=False):
+    presets = RunPresets(store)
     class Handler(BaseHTTPRequestHandler):
         def reply(self, status, value, content_type="application/json"):
             payload = (canonical(value) if content_type == "application/json" else value).encode()
@@ -332,7 +343,11 @@ def make_server(store, host="127.0.0.1", port=8765, jobs=None, watch_enabled=Fal
             try:
                 url = urlsplit(self.path)
                 query = {k: v[-1] for k, v in parse_qs(url.query, keep_blank_values=True).items()}
-                if url.path == "/api/database":
+                if url.path == "/api/presets":
+                    self.reply(200, {"presets": presets.list()})
+                elif url.path.startswith("/api/presets/"):
+                    self.reply(200, presets.get(url.path[len("/api/presets/"):]))
+                elif url.path == "/api/database":
                     self.reply(200, {**store.database_counts(), "watch_enabled": watch_enabled})
                 elif url.path == "/api/runs":
                     limit, offset = int(query.get("limit", 200)), int(query.get("offset", 0))
@@ -362,11 +377,14 @@ def make_server(store, host="127.0.0.1", port=8765, jobs=None, watch_enabled=Fal
                 else:
                     self.reply(404, {"error": "Unknown endpoint"})
             except KeyError:
-                self.reply(404, {"error": "Run not found"})
+                self.reply(404, {"error": "Preset not found" if url.path.startswith("/api/presets/") else "Run not found"})
             except (ValueError, TypeError) as exc:
                 self.reply(400, {"error": str(exc)})
 
         def do_POST(self):
+            if self.path == "/api/presets" or self.path.startswith("/api/presets/"):
+                self.change_preset()
+                return
             if self.path == "/api/database/clear":
                 origin = self.headers.get("Origin")
                 # A same-origin browser fetch may arrive through Vite/reverse
@@ -412,7 +430,7 @@ def make_server(store, host="127.0.0.1", port=8765, jobs=None, watch_enabled=Fal
                     self.reply(503, {"error": "Run execution is unavailable on this server"})
                     return
                 origin = self.headers.get("Origin")
-                if origin and urlsplit(origin).netloc != self.headers.get("Host"):
+                if origin and urlsplit(origin).netloc != self.headers.get("Host") and self.headers.get("Sec-Fetch-Site") != "same-origin":
                     self.reply(403, {"error": "Run execution requires a same-origin request"})
                     return
                 if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
@@ -452,6 +470,74 @@ def make_server(store, host="127.0.0.1", port=8765, jobs=None, watch_enabled=Fal
                 self.reply(200, {"run_ids": keys})
             except (ValueError, TypeError, OverflowError, sqlite3.Error) as exc:
                 self.reply(400, {"error": str(exc)})
+
+        def do_PUT(self):
+            self.change_preset()
+
+        def do_DELETE(self):
+            self.change_preset()
+
+        def change_preset(self):
+            origin = self.headers.get("Origin")
+            if origin and urlsplit(origin).netloc != self.headers.get("Host") and self.headers.get("Sec-Fetch-Site") != "same-origin":
+                self.reply(403, {"error": "Preset changes require a same-origin request"})
+                return
+            if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
+                self.reply(415, {"error": "Use application/json"})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 131072:
+                    raise ValueError("Preset request must be 1 byte to 128 KB")
+                value = json.loads(self.rfile.read(length).decode("utf-8"))
+                if not isinstance(value, dict):
+                    raise ValueError("Expected a JSON object")
+                key, _, action = self.path.removeprefix("/api/presets/").partition("/")
+                if self.path == "/api/presets/validate" and self.command == "POST":
+                    if jobs is None:
+                        self.reply(503, {"error": "Run validation is unavailable"})
+                        return
+                    kind = value.get("kind", "run")
+                    if kind not in ("run", "batch") or set(value) - {"kind", "settings"}:
+                        raise ValueError("Expected kind and settings")
+                    settings, total = jobs.validate_launch(kind, value.get("settings"))
+                    self.reply(200, {"valid": True, "total": total, "settings": settings})
+                elif self.path == "/api/presets" and self.command == "POST":
+                    if jobs is None:
+                        self.reply(503, {"error": "Start the Run service to validate and save presets"})
+                        return
+                    self.reply(201, presets.save(value, jobs))
+                elif self.path.startswith("/api/presets/") and key and not action and self.command in ("PUT", "DELETE"):
+                    if self.command == "DELETE":
+                        presets.delete(key, value.get("version"))
+                        self.reply(200, {"deleted": key})
+                    elif jobs is None:
+                        self.reply(503, {"error": "Run validation is unavailable"})
+                    else:
+                        self.reply(200, presets.save(value, jobs, key))
+                elif action == "run" and self.command == "POST":
+                    if jobs is None:
+                        self.reply(503, {"error": "Run execution is unavailable"})
+                        return
+                    if set(value) != {"version"} or type(value["version"]) is not int:
+                        raise ValueError("Select a saved preset version; inline settings are not accepted")
+                    preset = presets.get(key)
+                    if preset["version"] != value["version"]:
+                        raise PresetConflict("Preset changed. Reload and review the settings before running.")
+                    submit = jobs.submit_batch if preset["kind"] == "batch" else jobs.submit
+                    self.reply(202, submit(preset["settings"], preset=preset))
+                else:
+                    self.reply(404, {"error": "Unknown preset endpoint"})
+            except KeyError:
+                self.reply(404, {"error": "Preset not found"})
+            except PresetConflict as exc:
+                self.reply(409, {"error": str(exc)})
+            except QueueFull as exc:
+                self.reply(429, {"error": str(exc)})
+            except (ValueError, TypeError, UnicodeError) as exc:
+                self.reply(400, {"error": str(exc)})
+            except sqlite3.Error:
+                self.reply(503, {"error": "Database is busy. Try again."})
 
         def log_message(self, format, *args):
             LOG.debug(format, *args)

@@ -6,6 +6,7 @@ export interface StoredRun {
   scenario_seed: number | null;
   scenario_id?: string;
   execution_settings?: { max_turns: number };
+  preset?: { id: string; name: string; version: number; kind: string; settings: Record<string, unknown> };
   simulation_version: number;
   schema_version: number;
   code_revision: string;

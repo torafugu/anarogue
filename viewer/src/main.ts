@@ -1,4 +1,5 @@
 import "./style.css";
+import { mountRunPresets } from "./run-presets.ts";
 import { sprites, enemySprite, itemSprite } from "./sprites.ts";
 import { meanMetricFields, meanMetricsDelimited, type MeanMetrics } from "./filtered-metrics.ts";
 import { policyGroupKey, comparisonConditions, loadRankRuns, type ComparisonCondition } from "./rank-comparison.ts";
@@ -62,6 +63,7 @@ app.innerHTML = `
     </div>
   </header>
   <main>
+    <details class="panel run-presets" id="run-presets"><summary>Run presets</summary></details>
     <div id="analysis-screen">
     <section class="panel catalogue" aria-label="Stored Runs">
       <div class="panel-heading">
@@ -224,6 +226,8 @@ app.innerHTML = `
   </main>
 `;
 
+mountRunPresets(document.querySelector<HTMLElement>("#run-presets")!);
+
 const getElement = <T extends HTMLElement>(selector: string): T => {
   const element = document.querySelector<T>(selector);
   if (!element) throw new Error(`Missing element: ${selector}`);
@@ -323,7 +327,7 @@ function render(): void {
   const strategy = strategyForRun(events);
   const scenario = scenarioForRun(events);
   const policy = runStart(events)?.details.goal_policy ?? activeStoredRun?.goal_policy;
-  getElement("#inspection-policy").textContent = policy ? `Policy ${JSON.stringify(policy)}` : "Policy not recorded";
+  getElement("#inspection-policy").textContent = (activeStoredRun?.preset ? `Preset ${activeStoredRun.preset.name} · v${activeStoredRun.preset.version} · ` : "") + (policy ? `Policy ${JSON.stringify(policy)}` : "Policy not recorded");
 
   getElement("#run-title").textContent = state.runId;
   getElement("#source-label").textContent =
