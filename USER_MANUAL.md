@@ -17,6 +17,14 @@ finished Runs only.
 
 ## Starting the Game
 
+The Viewer is the main workspace for preset/DSL editing, execution, analysis and
+embedded Godot Replay. Select a saved preset and press **Run saved preset**.
+**Jobs** shows the shared queue/history across devices. In the native Godot
+client, **Home → Jobs** discovers jobs started elsewhere; select **Monitor** to
+follow progress/stop a batch, or **Replay latest Run** for a quick look.
+History persists across API restarts, with unfinished jobs marked interrupted.
+See [setup and workflow](docs/shared-viewer.md) for Web Replay export and serving.
+
 Web Viewer → **Run presets** provides an optional **Player DSL** editor. Leave it blank for
 the existing AI. Declare only the policy settings or ordered behavior rules you
 want to override. Explicit rules have priority over automatic healing and Brute
@@ -143,8 +151,8 @@ show a reason instead of a coefficient. Repeated trials count again, and uneven
 sampling of other weights can influence the results. Compare balanced sweeps
 first; a single Seed describes that dungeon rather than performance in general.
 
-AutoRun progress records last only while the Python API is running. Restarting
-the API stops the batch; saved Runs remain in SQLite. Restarted batches start
+AutoRun progress records persist in SQLite. Restarting
+the API marks unfinished jobs interrupted; saved Runs remain available. Restarted batches start
 from the beginning rather than automatically resuming.
 The legacy live simulator remains available by opening `res://scenes/main.tscn` directly.
 

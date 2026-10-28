@@ -16,6 +16,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 config/name="anarogue"
 run/main_scene="res://scenes/home.tscn"
+run/main_scene.web="res://scenes/replay.tscn"
 config/features=PackedStringArray("4.5")
 config/icon="res://icon.svg"
 
@@ -27,8 +28,14 @@ RunSession="*res://scripts/run_session.gd"
 
 window/size/viewport_width=1080
 window/size/viewport_height=1920
+window/size/viewport_width.web=390
+window/size/viewport_height.web=640
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
+
+[rendering]
+
+renderer/rendering_method.web="gl_compatibility"
 
 [input]
 

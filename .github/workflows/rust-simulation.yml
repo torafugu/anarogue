@@ -48,6 +48,15 @@ jobs:
         with:
           node-version: 22
 
+      - name: Export shared Godot Web Replay
+        env:
+          GODOT: /tmp/anarogue-godot/Godot_v4.5-stable_linux.x86_64
+        run: |
+          curl --fail --location --retry 3 -o /tmp/templates.tpz https://github.com/godotengine/godot/releases/download/4.5-stable/Godot_v4.5-stable_export_templates.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.5.stable"
+          unzip -jo /tmp/templates.tpz templates/web_nothreads_release.zip templates/web_nothreads_debug.zip templates/version.txt -d "$HOME/.local/share/godot/export_templates/4.5.stable"
+          python3 ../tools/export_web_replay.py
+
       - name: Verify Viewer preset authoring with Rust and SQLite API
         working-directory: viewer
         env:
@@ -57,6 +66,13 @@ jobs:
           npm run build
           npx playwright install --with-deps chromium
           npm run test:presets
+          npm run test:shared
+
+      - name: Upload Viewer with Web Replay
+        uses: actions/upload-artifact@v4
+        with:
+          name: anarogue-viewer-web
+          path: viewer/dist
 
       - name: Reproduce 50-seed strategy comparison
         run: |

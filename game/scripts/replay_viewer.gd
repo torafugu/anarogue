@@ -50,9 +50,15 @@ var play_button: Button
 var result_popup: PanelContainer
 var result_title: Label
 var result_stats: Label
+var embedded_web := false
+var web_start_turn := 0
 
 
 func _ready() -> void:
+	embedded_web = OS.has_feature("web")
+	if embedded_web:
+		var turn_text := str(JavaScriptBridge.eval("new URLSearchParams(window.location.search).get('turn') || '0'"))
+		web_start_turn = clampi(int(turn_text), 0, 100000) if turn_text.is_valid_int() else 0
 	create_controls()
 	get_viewport().size_changed.connect(layout_controls)
 	layout_controls()
@@ -61,6 +67,14 @@ func _ready() -> void:
 	catalog.catalog_updated.connect(update_catalog)
 	catalog.run_loaded.connect(load_catalog_run)
 	catalog.request_failed.connect(catalog_failed)
+	if embedded_web:
+		catalog.api_url = str(JavaScriptBridge.eval("window.location.origin"))
+		pending_catalog_run = str(JavaScriptBridge.eval("new URLSearchParams(window.location.search).get('run') || ''"))
+		if pending_catalog_run.length() == 64 and pending_catalog_run.is_valid_hex_number(false):
+			catalog.load_run(pending_catalog_run)
+		else:
+			status_label.text = "Select a Run in Viewer to open Replay."
+		return
 	var replay_path := command_line_replay_path()
 	if not replay_path.is_empty():
 		load_replay(replay_path)
@@ -195,6 +209,11 @@ func make_info_text(text_name: String) -> RichTextLabel:
 
 func map_rect() -> Rect2:
 	var viewport_size := get_viewport_rect().size
+	if embedded_web:
+		if viewport_size.x < 700:
+			return Rect2(Vector2(16, 350), Vector2(maxf(1, viewport_size.x - 32), maxf(1, viewport_size.y - 366)))
+		var left := viewport_size.x * 0.36 + 24
+		return Rect2(Vector2(left, 80), Vector2(maxf(1, viewport_size.x - left - 16), maxf(1, viewport_size.y - 96)))
 	return Rect2(Vector2(16, MAP_TOP), Vector2(maxf(1, viewport_size.x - 32), maxf(1, viewport_size.y - MAP_TOP - 16)))
 
 func camera_origin(frame: Dictionary) -> Vector2:
@@ -238,6 +257,34 @@ func make_button(text: String, callback: Callable) -> Button:
 func layout_controls() -> void:
 	var width := get_viewport_rect().size.x
 	var available_width := width - 32
+	if embedded_web:
+		ui_theme.default_font_size = 24
+		run_selector.hide()
+		get_node("SimulatorButton").hide()
+		var controls := ["PreviousButton", "PlayButton", "NextButton"]
+		var labels := ["Previous", "Pause" if playing else "Play", "Next"]
+		for index in range(controls.size()):
+			var control: Button = get_node(controls[index])
+			control.position = Vector2(16 + index * (available_width / 3), 12)
+			control.size = Vector2(available_width / 3 - 8, 56)
+			control.text = labels[index]
+		status_label.add_theme_font_size_override("normal_font_size", 22)
+		if width < 700:
+			log_panel.position = Vector2(16, 80)
+			log_panel.size = Vector2(available_width * 0.5 - 6, 250)
+			player_panel.position = Vector2(22 + available_width * 0.5, 80)
+			player_panel.size = Vector2(available_width * 0.5 - 6, 250)
+		else:
+			var panel_width := width * 0.36 - 8
+			var height := maxf(160, (get_viewport_rect().size.y - 108) * 0.5)
+			log_panel.position = Vector2(16, 80)
+			log_panel.size = Vector2(panel_width, height)
+			player_panel.position = Vector2(16, 92 + height)
+			player_panel.size = Vector2(panel_width, height)
+		layout_map_overlay()
+		layout_result_popup()
+		queue_redraw()
+		return
 	run_selector.position = Vector2(16, 16)
 	run_selector.size = Vector2(available_width, CONTROL_HEIGHT)
 	var buttons := ["PreviousButton", "PlayButton", "NextButton", "SimulatorButton"]
@@ -302,6 +349,10 @@ func update_catalog(runs: Array) -> void:
 		select_run_at(0)
 
 func catalog_failed(kind: String, message: String) -> void:
+	if embedded_web:
+		status_label.text = message
+		JavaScriptBridge.eval("window.parent.postMessage(" + JSON.stringify({"type": "anarogue-replay-error", "message": message}) + ", window.location.origin)")
+		return
 	if kind == "run":
 		pending_catalog_run = ""
 	run_selector.tooltip_text = ("API offline. " if kind == "catalog" else "Run load failed. ") + message
@@ -318,12 +369,20 @@ func load_catalog_run(run_key: String, events: Array) -> void:
 	selected_catalog_run = run_key
 	pending_catalog_run = ""
 	reset_playback()
+	if embedded_web:
+		var wanted_index := replay.turns.size() - 1
+		for index in range(replay.turns.size()):
+			if int(replay.turns[index]["turn"]) >= web_start_turn:
+				wanted_index = index
+				break
+		set_turn(wanted_index)
+		JavaScriptBridge.eval("window.parent.postMessage(" + JSON.stringify({"type": "anarogue-replay-ready", "run_id": run_key}) + ", window.location.origin)")
 
 func reset_playback() -> void:
 	reset_turn_log()
 	turn_index = 0
 	playing = false
-	play_button.text = "▶"
+	play_button.text = "Play" if embedded_web else "▶"
 	update_status()
 	queue_redraw()
 
@@ -342,7 +401,7 @@ func load_replay(path: String) -> void:
 	run_selector.select(replay.run_ids.size() - 1)
 	turn_index = 0
 	playing = false
-	play_button.text = "▶"
+	play_button.text = "Play" if embedded_web else "▶"
 	update_status()
 	queue_redraw()
 
@@ -353,7 +412,7 @@ func select_run_at(index: int) -> void:
 	var key := str(run_selector.get_item_metadata(index))
 	if not catalog_runs.is_empty():
 		playing = false
-		play_button.text = "▶"
+		play_button.text = "Play" if embedded_web else "▶"
 		pending_catalog_run = key
 		catalog.load_run(key)
 	elif replay.select_run(key):
@@ -375,7 +434,7 @@ func set_turn(index: int) -> void:
 	arrow_elapsed = 0.0
 	if turn_index == replay.turns.size() - 1:
 		playing = false
-		play_button.text = "▶"
+		play_button.text = "Play" if embedded_web else "▶"
 	update_status()
 	queue_redraw()
 
@@ -386,7 +445,7 @@ func toggle_playing() -> void:
 	if turn_index == replay.turns.size() - 1:
 		turn_index = 0
 	playing = not playing
-	play_button.text = "⏸" if playing else "▶"
+	play_button.text = ("Pause" if playing else "Play") if embedded_web else ("⏸" if playing else "▶")
 	auto_elapsed = 0.0
 	update_status()
 	queue_redraw()
@@ -438,6 +497,8 @@ func command_line_replay_path() -> String:
 
 
 func update_status() -> void:
+	if embedded_web and not replay.turns.is_empty():
+		JavaScriptBridge.eval("window.anaReplayState = " + JSON.stringify({"run_id": selected_catalog_run, "turn": replay.turns[turn_index]["turn"], "playing": playing}) + ";")
 	result_popup.hide()
 	if replay.turns.is_empty():
 		status_label.text = "No replay Turns."

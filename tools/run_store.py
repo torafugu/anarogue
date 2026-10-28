@@ -145,6 +145,9 @@ class RunStore:
             if key in filters and (filters[key] != "" or key == "code_revision"):
                 clauses.append(f"{key}=?")
                 params.append(filters[key])
+        if filters.get("job_id"):
+            clauses.append("json_extract(summary, '$.job_id')=?")
+            params.append(filters["job_id"])
         for key in ("enemy_weight", "item_weight", "stairs_weight", "temperature"):
             value = filters.get(key, "")
             if value == "":
@@ -249,6 +252,8 @@ class RunStore:
                 raise ClearConflict("Database changed. Review the updated counts before deleting.")
             db.execute("DELETE FROM events")
             db.execute("DELETE FROM runs")
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='run_jobs'").fetchone():
+                db.execute("DELETE FROM run_jobs")
         return {"deleted_runs": row[0], "deleted_events": row[1]}
 
     def record_execution_settings(self, key, settings):
@@ -269,6 +274,15 @@ class RunStore:
                 raise KeyError(key)
             summary = json.loads(row[0])
             summary["preset"] = preset
+            db.execute("UPDATE runs SET summary=? WHERE id=?", (canonical(summary), key))
+
+    def record_run_job(self, key, job_id):
+        with closing(self.connect()) as db, db:
+            row = db.execute("SELECT summary FROM runs WHERE id=?", (key,)).fetchone()
+            if row is None:
+                raise KeyError(key)
+            summary = json.loads(row[0])
+            summary["job_id"] = job_id
             db.execute("UPDATE runs SET summary=? WHERE id=?", (canonical(summary), key))
 
     def weight_analysis(self, filters=None):
@@ -366,6 +380,11 @@ def make_server(store, host="127.0.0.1", port=8765, jobs=None, watch_enabled=Fal
                     if not 1 <= limit <= 500 or offset < 0:
                         raise ValueError("Invalid pagination")
                     self.reply(200, store.list_runs(query, limit, offset))
+                elif url.path == "/api/jobs" and jobs is not None:
+                    limit, offset = int(query.get("limit", 100)), int(query.get("offset", 0))
+                    if not 1 <= limit <= 200 or offset < 0:
+                        raise ValueError("Invalid job pagination")
+                    self.reply(200, jobs.list(limit, offset))
                 elif url.path.startswith("/api/jobs/") and jobs is not None:
                     self.reply(200, jobs.get(url.path[len("/api/jobs/"):]))
                 elif url.path == "/api/stats":

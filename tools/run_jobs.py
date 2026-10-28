@@ -8,6 +8,7 @@ import re
 import subprocess
 import threading
 import uuid
+from job_history import JobHistory, timestamp
 
 
 class QueueFull(Exception):
@@ -89,10 +90,10 @@ def validate_settings(value):
 
 
 class RunJobs:
-    """One worker, at most 16 outstanding jobs, and 64 retained job records.
+    """One worker, at most 16 outstanding jobs, and 64 cached job records.
 
     The executable and database are server configuration, never request fields.
-    Job records are ephemeral; completed Runs remain in SQLite across restarts.
+    Job snapshots persist in SQLite; interrupted execution is not auto-restarted.
     """
     def __init__(self, store, binary, revision="", timeout=120, capacity=16):
         self.store = store
@@ -104,6 +105,8 @@ class RunJobs:
             raise ValueError("Run queue capacity must be 1..16")
         self.capacity = capacity
         self.jobs = {}
+        self.history = JobHistory(store)
+        self.history.recover()
         self.lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="run-simulator")
         self.closed = False
@@ -141,7 +144,8 @@ class RunJobs:
                 oldest = next(key for key, job in self.jobs.items() if job["status"] in TERMINAL_JOBS)
                 del self.jobs[oldest]
             job_id = uuid.uuid4().hex
-            job = {"id": job_id, "status": "queued", **fields}
+            job = {"id": job_id, "status": "queued", "created_at": timestamp(), **fields}
+            self.history.save(job)
             self.jobs[job_id] = job
             # Return an acceptance snapshot even if the worker finishes immediately.
             accepted = deepcopy(job)
@@ -150,17 +154,22 @@ class RunJobs:
 
     def get(self, job_id):
         with self.lock:
-            return deepcopy(self.jobs[job_id])
+            return deepcopy(self.jobs[job_id]) if job_id in self.jobs else self.history.get(job_id)
+
+    def list(self, limit=100, offset=0):
+        with self.lock:
+            return self.history.list(limit, offset)
 
     def cancel(self, job_id):
         with self.lock:
-            job = self.jobs[job_id]
+            job = self.jobs[job_id] if job_id in self.jobs else self.history.get(job_id)
             if job["kind"] != "batch":
                 raise ValueError("Only AutoRun jobs can be cancelled")
             if job["status"] not in TERMINAL_JOBS:
                 job["cancel_requested"] = True
                 if job["status"] == "queued":
                     job["status"] = "cancelled"
+                self.history.save(job)
             return deepcopy(job)
 
     def execute(self, job_id):
@@ -169,6 +178,7 @@ class RunJobs:
             if self.closed or job["status"] in TERMINAL_JOBS:
                 return
             job["status"] = "running"
+            self.history.save(job)
             settings = dict(job["settings"])
         if job["kind"] == "batch":
             self.execute_batch(job, settings)
@@ -177,8 +187,10 @@ class RunJobs:
             run_id, summary = self.simulate(settings)
             if "preset" in job:
                 self.store.record_run_preset(run_id, job["preset"])
+            self.store.record_run_job(run_id, job_id)
             with self.lock:
                 job.update(status="completed", run_id=run_id, summary=summary)
+                self.history.save(job)
         except Exception as exc:
             self.fail(job, str(exc))
 
@@ -187,15 +199,19 @@ class RunJobs:
             with self.lock:
                 if self.closed or job["cancel_requested"]:
                     job.update(status="cancelled", current_settings=None)
+                    self.history.save(job)
                     return
                 job["current_settings"] = combination
+                self.history.save(job)
             try:
                 run_id, _summary = self.simulate(combination)
                 if "preset" in job:
                     self.store.record_run_preset(run_id, job["preset"])
+                self.store.record_run_job(run_id, job["id"])
                 with self.lock:
                     job["completed"] += 1
                     job["run_id"] = run_id
+                    self.history.save(job)
             except Exception as exc:
                 with self.lock:
                     job["failed"] += 1
@@ -205,6 +221,7 @@ class RunJobs:
                 return
         with self.lock:
             job.update(status="cancelled" if job["cancel_requested"] else "completed", current_settings=None)
+            self.history.save(job)
 
     def simulate(self, settings):
         command = [self.binary, "--db", self.database]
@@ -261,11 +278,15 @@ class RunJobs:
     def fail(self, job, message):
         with self.lock:
             job.update(status="failed", error=message)
+            self.history.save(job)
 
     def close(self):
         with self.lock:
+            if self.closed:
+                return
             self.closed = True
             for job in self.jobs.values():
                 if job["status"] == "queued":
                     job.update(status="failed", error="Run service stopped before execution")
+                    self.history.save(job)
         self.executor.shutdown(wait=True, cancel_futures=True)

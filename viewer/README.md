@@ -2,6 +2,13 @@
 
 A browser-based Run catalogue and analysis client backed by the local SQLite API.
 
+Save/select a preset, then **Run saved preset**. The shared **Jobs** panel shows
+progress/history and stop-after-current controls for jobs started on any device.
+Open **Replay latest Run**, or **Replay selected Turn** in inspection, for the
+embedded Godot player. Build it once with `npm run build:replay` (Godot plus matching
+export templates required); re-export after Godot changes. `npm run build` includes
+the player in the production bundle. See [setup and shared mobile workflow](../docs/shared-viewer.md).
+
 Rank rows show **Run preset name / Depth / Result / YYYYMMDD**, matching the Godot
 selector. Aggregated rows list all saved names, depth/date ranges and result counts;
 unnamed legacy Runs fall back to Strategy. Expand **Settings** for the original

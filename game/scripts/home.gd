@@ -18,6 +18,20 @@ var request: HTTPRequest
 var poll_timer: Timer
 var request_kind := ""
 var busy := false
+var jobs_panel: VBoxContainer
+var jobs_selector: OptionButton
+var jobs_summary: Label
+var jobs_status: Label
+var jobs_request: HTTPRequest
+var jobs_timer: Timer
+var shared_jobs: Array = []
+var jobs_loading := false
+var jobs_offset := 0
+var jobs_total := 0
+var monitor_button: Button
+var job_replay_button: Button
+var jobs_previous: Button
+var jobs_next: Button
 
 func _ready() -> void:
 	# Apply an explicit offline replay launch once, preserving later Home navigation.
@@ -61,6 +75,7 @@ func _ready() -> void:
 	contents.add_child(menu)
 	menu.add_child(label("Create a new Run or replay a saved Run."))
 	button(menu, "Run", show_form, "RunMenuButton")
+	button(menu, "Jobs", show_jobs, "JobsMenuButton")
 	button(menu, "Replay", open_replay, "ReplayMenuButton")
 	form = VBoxContainer.new()
 	form.name = "RunForm"
@@ -95,6 +110,7 @@ func _ready() -> void:
 	add_child(poll_timer)
 	poll_timer.wait_time = 1
 	poll_timer.timeout.connect(poll_job)
+	create_jobs_panel(contents)
 	if not RunSession.batch_snapshot.is_empty():
 		show_batch_progress(RunSession.batch_snapshot)
 	if not RunSession.job_id.is_empty():
@@ -176,13 +192,136 @@ func button(parent: Node, text: String, callback: Callable, node_name: String) -
 	return control
 
 func show_form() -> void:
+	jobs_panel.hide()
 	menu.hide()
 	form.show()
 
 func show_menu() -> void:
 	if request_kind != "start":
 		form.hide()
+		jobs_panel.hide()
 		menu.show()
+
+func create_jobs_panel(parent: Node) -> void:
+	jobs_panel = VBoxContainer.new()
+	jobs_panel.name = "SharedJobs"
+	jobs_panel.add_theme_constant_override("separation", 20)
+	parent.add_child(jobs_panel)
+	jobs_panel.hide()
+	button(jobs_panel, "Back", show_menu, "JobsBackButton")
+	jobs_panel.add_child(label("Shared jobs · all devices"))
+	jobs_selector = OptionButton.new()
+	jobs_selector.name = "JobSelector"
+	jobs_selector.theme = preset_selector.theme
+	jobs_selector.custom_minimum_size.y = 88
+	jobs_selector.item_selected.connect(select_shared_job)
+	jobs_panel.add_child(jobs_selector)
+	jobs_summary = label("")
+	jobs_panel.add_child(jobs_summary)
+	monitor_button = button(jobs_panel, "Monitor selected job", monitor_shared_job, "MonitorJobButton")
+	job_replay_button = button(jobs_panel, "Replay latest Run", replay_shared_job, "ReplayJobButton")
+	button(jobs_panel, "Refresh jobs", refresh_jobs, "RefreshJobsButton")
+	jobs_previous = button(jobs_panel, "Previous jobs", previous_jobs, "PreviousJobsButton")
+	jobs_next = button(jobs_panel, "Next jobs", next_jobs, "NextJobsButton")
+	jobs_status = label("")
+	jobs_status.name = "JobsStatus"
+	jobs_panel.add_child(jobs_status)
+	jobs_request = HTTPRequest.new()
+	jobs_request.timeout = 10
+	jobs_request.request_completed.connect(shared_jobs_completed)
+	add_child(jobs_request)
+	jobs_timer = Timer.new()
+	jobs_timer.wait_time = 2
+	jobs_timer.timeout.connect(refresh_jobs)
+	add_child(jobs_timer)
+	monitor_button.disabled = true
+	job_replay_button.disabled = true
+
+func show_jobs() -> void:
+	menu.hide()
+	form.hide()
+	jobs_panel.show()
+	jobs_timer.start()
+	refresh_jobs()
+
+func refresh_jobs() -> void:
+	if jobs_loading or not jobs_panel.visible:
+		return
+	jobs_loading = true
+	if jobs_request.request(RunSession.api_url() + "/api/jobs?limit=20&offset=%d" % jobs_offset) != OK:
+		jobs_loading = false
+		jobs_status.text = "Jobs unavailable. Please retry."
+
+func shared_jobs_completed(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	jobs_loading = false
+	var data = JSON.parse_string(body.get_string_from_utf8())
+	if result != HTTPRequest.RESULT_SUCCESS or code != 200 or not data is Dictionary:
+		jobs_status.text = "Jobs unavailable. Retrying…"
+		return
+	var wanted := ""
+	if jobs_selector.selected >= 0 and jobs_selector.selected < shared_jobs.size():
+		wanted = str(shared_jobs[jobs_selector.selected]["id"])
+	shared_jobs = data.get("jobs", [])
+	jobs_total = int(data.get("total", 0))
+	jobs_selector.clear()
+	var selected := 0
+	for index in range(shared_jobs.size()):
+		var job: Dictionary = shared_jobs[index]
+		var preset: Dictionary = job.get("preset", {})
+		var name := str(preset.get("name", str(job["kind"]).capitalize()))
+		jobs_selector.add_item("%s · %s" % [name, "interrupted" if job.get("interrupted", false) else job["status"]])
+		if job["id"] == wanted:
+			selected = index
+	if not shared_jobs.is_empty():
+		jobs_selector.select(selected)
+	select_shared_job(selected)
+	jobs_previous.disabled = jobs_offset == 0
+	jobs_next.disabled = jobs_offset + 20 >= jobs_total
+	jobs_status.text = "%d shared jobs · refreshed automatically" % jobs_total
+
+func select_shared_job(index: int) -> void:
+	monitor_button.disabled = shared_jobs.is_empty()
+	job_replay_button.disabled = true
+	if shared_jobs.is_empty():
+		jobs_summary.text = "No jobs yet. Start a saved preset in Viewer or Run."
+		return
+	var job: Dictionary = shared_jobs[index]
+	jobs_summary.text = "%s\n%s\n%s" % [job["id"], job["status"], job.get("created_at", "")]
+	if job["kind"] == "batch":
+		jobs_summary.text += "\n%d/%d saved · %d failed" % [int(job.get("completed", 0)), int(job.get("total", 0)), int(job.get("failed", 0))]
+	if job.get("error") is String:
+		jobs_summary.text += "\n" + job["error"]
+	job_replay_button.disabled = not job.get("run_id") is String or str(job.get("run_id", "")).is_empty()
+
+func monitor_shared_job() -> void:
+	if shared_jobs.is_empty() or not request_kind.is_empty():
+		return
+	var job: Dictionary = shared_jobs[jobs_selector.selected]
+	RunSession.job_id = str(job["id"])
+	RunSession.job_kind = str(job["kind"])
+	RunSession.batch_snapshot.clear()
+	show_form()
+	set_busy(true)
+	poll_timer.start()
+	poll_job()
+
+func replay_shared_job() -> void:
+	if shared_jobs.is_empty():
+		return
+	var run = shared_jobs[jobs_selector.selected].get("run_id")
+	if run is String and not run.is_empty():
+		RunSession.replay_run_key = run
+		open_replay()
+
+func previous_jobs() -> void:
+	if not jobs_loading:
+		jobs_offset = maxi(0, jobs_offset - 20)
+		refresh_jobs()
+
+func next_jobs() -> void:
+	if not jobs_loading and jobs_offset + 20 < jobs_total:
+		jobs_offset += 20
+		refresh_jobs()
 
 func load_presets() -> void:
 	if busy or not request_kind.is_empty():
