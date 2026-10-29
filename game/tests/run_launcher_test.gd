@@ -42,6 +42,8 @@ func run_tests() -> void:
 			home.select_preset(index)
 	assert(home.preset_summary.text.contains("Cautious counter"))
 	assert(home.preset_summary.text.contains("Treasure 7"))
+	assert(home.preset_summary.text.contains(home.selected_preset()["map_preset"]["name"]))
+	assert(home.preset_summary.text.contains("Enemy 200% / Treasure 50% / Depth 8"))
 	if OS.get_environment("ANAROGUE_EXPECT_FAILURE") != "1":
 		assert(await change_preset(home.selected_preset(), HTTPClient.METHOD_PUT) == 200)
 		home.execute_button.pressed.emit()

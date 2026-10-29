@@ -16,7 +16,8 @@ policy/version/revision details. These labels do not change ranking or compariso
 identities, and cover all filtered Runs rather than just the catalogue page.
 
 Open **Run presets** at the top to create, validate, save and duplicate named
-Strategy/weights/DSL configurations with Seed, Map settings and Max turns. Select
+Strategy/weights/DSL configurations with Seed, a saved Map preset and Max turns.
+Use **Map presets** to create reusable Enemy/Treasure amount and Depth settings. Select
 a saved Single Run / AutoRun preset in Godot → Run. **Reload presets** picks up
 edits. Presets survive API/client restarts and Run-history deletion; executed Runs
 keep the original name/version/settings snapshot. See [Run presets](../docs/run-presets.md).

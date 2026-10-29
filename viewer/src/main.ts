@@ -1,4 +1,5 @@
 import "./style.css";
+import { mountMapPresets, mapSummary } from "./map-presets.ts";
 import { mountRunPresets } from "./run-presets.ts";
 import { mountSharedJobs } from "./shared-jobs.ts";
 import { createWebReplay } from "./web-replay.ts";
@@ -65,6 +66,7 @@ app.innerHTML = `
     </div>
   </header>
   <main>
+    <details class="panel run-presets" id="map-presets"><summary>Map presets</summary></details>
     <details class="panel run-presets" id="run-presets"><summary>Run presets</summary></details>
     <section class="panel shared-jobs" id="shared-jobs" aria-label="Shared jobs"></section>
     <div id="analysis-screen">
@@ -230,6 +232,7 @@ app.innerHTML = `
   </main>
 `;
 
+mountMapPresets(document.querySelector<HTMLElement>("#map-presets")!);
 mountRunPresets(document.querySelector<HTMLElement>("#run-presets")!);
 const openWebReplay = createWebReplay();
 mountSharedJobs(document.querySelector<HTMLElement>("#shared-jobs")!, async id => {
@@ -342,7 +345,7 @@ function render(): void {
   const strategy = strategyForRun(events);
   const scenario = scenarioForRun(events);
   const policy = runStart(events)?.details.goal_policy ?? activeStoredRun?.goal_policy;
-  getElement("#inspection-policy").textContent = (activeStoredRun?.preset ? `Preset ${activeStoredRun.preset.name} · v${activeStoredRun.preset.version} · ` : "") + (policy ? `Policy ${JSON.stringify(policy)}` : "Policy not recorded");
+  getElement("#inspection-policy").textContent = (activeStoredRun?.preset ? `Preset ${activeStoredRun.preset.name} · v${activeStoredRun.preset.version} · ` : "") + (activeStoredRun?.preset?.map_preset ? `Map ${mapSummary(activeStoredRun.preset.map_preset)} · ` : "") + (policy ? `Policy ${JSON.stringify(policy)}` : "Policy not recorded");
 
   getElement("#run-title").textContent = state.runId;
   getElement("#source-label").textContent =
