@@ -1147,8 +1147,8 @@ blockquote {
 .job-card { border-top: 1px solid var(--border); padding: 16px 0; overflow-wrap: anywhere; }
 .job-card progress { width: 100%; accent-color: var(--lime); }
 .job-progress { color: var(--muted); }
-#web-replay-dialog { width: min(1400px, 98vw); max-width: 98vw; padding: 16px; color: #e9ede4; background: var(--surface); border: 1px solid var(--border); }
+#web-replay-dialog { width: 98vw; max-width: 98vw; max-height: 98dvh; padding: 16px; color: #e9ede4; background: var(--surface); border: 1px solid var(--border); }
 #web-replay-dialog::backdrop { background: #000b; }
 .web-replay-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .web-replay-bar h2 { margin: 0; font-size: 24px; }
-.web-replay-frame iframe { display: block; width: 100%; height: min(720px, 75vh); min-height: 500px; border: 0; }
+.web-replay-frame iframe { display: block; width: 100%; height: calc(98dvh - 130px); min-height: 300px; border: 0; }

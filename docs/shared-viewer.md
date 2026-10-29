@@ -27,6 +27,14 @@ and releases its player. The embedded mode hides the native Home/Run selector
 and adapts the information/map layout to the available space. A missing or failed
 Run shows an error rather than substituting an unrelated sample.
 
+Web Replay uses the browser's actual viewport instead of scaling a phone-sized
+canvas. On desktop (700 px and wider), a capped sidebar leaves the remaining
+space for the whole floor, with square tiles fitted below the Turn badge.
+The dialog grows with the browser, including large desktop monitors. Narrow
+browsers keep the compact panels and player-following camera. Native Replay
+retains its existing layout and tile scale. Re-export the Web player after
+updating these settings; refreshing Viewer alone cannot update the WASM/PCK.
+
 ## Build and serve the Web player
 
 1. Install Godot and the **matching export templates** through the editor's
