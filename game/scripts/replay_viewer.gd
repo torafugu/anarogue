@@ -212,25 +212,43 @@ func map_rect() -> Rect2:
 	if embedded_web:
 		if viewport_size.x < 700:
 			return Rect2(Vector2(16, 350), Vector2(maxf(1, viewport_size.x - 32), maxf(1, viewport_size.y - 366)))
-		var left := viewport_size.x * 0.36 + 24
+		var left := web_sidebar_width() + 32
 		return Rect2(Vector2(left, 80), Vector2(maxf(1, viewport_size.x - left - 16), maxf(1, viewport_size.y - 96)))
 	return Rect2(Vector2(16, MAP_TOP), Vector2(maxf(1, viewport_size.x - 32), maxf(1, viewport_size.y - MAP_TOP - 16)))
+
+func web_sidebar_width() -> float:
+	return clampf(get_viewport_rect().size.x * 0.25, 260, 360)
+
+func replay_tile_size(frame: Dictionary) -> float:
+	if not embedded_web or get_viewport_rect().size.x < 700:
+		return REPLAY_TILE_SIZE
+	var rows: Array = frame["map_rows"]
+	if rows.is_empty() or str(rows[0]).is_empty():
+		return REPLAY_TILE_SIZE
+	# Fit the whole floor below the status badge; keep original sprite pixels sharp.
+	var area := map_rect().size - Vector2(16, 64)
+	return maxf(1, floor(minf(REPLAY_TILE_SIZE, minf(area.x / str(rows[0]).length(), area.y / rows.size()))))
 
 func camera_origin(frame: Dictionary) -> Vector2:
 	var area := map_rect()
 	var rows: Array = frame["map_rows"]
 	if rows.is_empty() or str(rows[0]).is_empty():
 		return Vector2.ZERO
-	var world_size := Vector2(str(rows[0]).length(), rows.size()) * REPLAY_TILE_SIZE
+	var tile_size := replay_tile_size(frame)
+	var world_size := Vector2(str(rows[0]).length(), rows.size()) * tile_size
 	var position: Dictionary = frame["player_state"].get("pos", {})
-	var player_center := Vector2(position.get("x", 0) + 0.5, position.get("y", 0) + 0.5) * REPLAY_TILE_SIZE
+	var player_center := Vector2(position.get("x", 0) + 0.5, position.get("y", 0) + 0.5) * tile_size
 	var origin := Vector2.ZERO
+	var inset := Vector2.ZERO
+	if embedded_web and get_viewport_rect().size.x >= 700:
+		inset = Vector2(8, 56)
+		area.size -= Vector2(16, 64)
 	for axis in [0, 1]:
 		if world_size[axis] <= area.size[axis]:
 			origin[axis] = (area.size[axis] - world_size[axis]) * 0.5
 		else:
 			origin[axis] = -clampf(player_center[axis] - area.size[axis] * 0.5, 0, world_size[axis] - area.size[axis])
-	return origin
+	return origin + inset
 
 func layout_map_overlay() -> void:
 	var area := map_rect()
@@ -258,7 +276,7 @@ func layout_controls() -> void:
 	var width := get_viewport_rect().size.x
 	var available_width := width - 32
 	if embedded_web:
-		ui_theme.default_font_size = 24
+		ui_theme.default_font_size = 20 if width >= 700 else 24
 		run_selector.hide()
 		get_node("SimulatorButton").hide()
 		var controls := ["PreviousButton", "PlayButton", "NextButton"]
@@ -275,7 +293,7 @@ func layout_controls() -> void:
 			player_panel.position = Vector2(22 + available_width * 0.5, 80)
 			player_panel.size = Vector2(available_width * 0.5 - 6, 250)
 		else:
-			var panel_width := width * 0.36 - 8
+			var panel_width := web_sidebar_width()
 			var height := maxf(160, (get_viewport_rect().size.y - 108) * 0.5)
 			log_panel.position = Vector2(16, 80)
 			log_panel.size = Vector2(panel_width, height)
@@ -283,6 +301,7 @@ func layout_controls() -> void:
 			player_panel.size = Vector2(panel_width, height)
 		layout_map_overlay()
 		layout_result_popup()
+		publish_web_state()
 		queue_redraw()
 		return
 	run_selector.position = Vector2(16, 16)
@@ -496,9 +515,19 @@ func command_line_replay_path() -> String:
 	return ""
 
 
+func publish_web_state() -> void:
+	if not OS.has_feature("web") or replay.turns.is_empty():
+		return
+	var frame: Dictionary = replay.turns[turn_index]
+	JavaScriptBridge.eval("window.anaReplayState = " + JSON.stringify({
+		"run_id": selected_catalog_run, "turn": frame["turn"], "playing": playing,
+		"viewport": [get_viewport_rect().size.x, get_viewport_rect().size.y], "tile_size": replay_tile_size(frame),
+		"map_size": [str(frame["map_rows"][0]).length() * replay_tile_size(frame), frame["map_rows"].size() * replay_tile_size(frame)],
+		"map_area": [map_rect().size.x, map_rect().size.y],
+	}) + ";")
+
 func update_status() -> void:
-	if embedded_web and not replay.turns.is_empty():
-		JavaScriptBridge.eval("window.anaReplayState = " + JSON.stringify({"run_id": selected_catalog_run, "turn": replay.turns[turn_index]["turn"], "playing": playing}) + ";")
+	publish_web_state()
 	result_popup.hide()
 	if replay.turns.is_empty():
 		status_label.text = "No replay Turns."
@@ -653,7 +682,7 @@ func draw_maze() -> void:
 	var map_height := rows.size()
 	var map_width: int = str(rows[0]).length()
 	var area := map_rect()
-	var tile_size := REPLAY_TILE_SIZE
+	var tile_size := replay_tile_size(frame)
 	var origin := camera_origin(frame)
 	var first_x := clampi(int(floor(-origin.x / tile_size)), 0, map_width)
 	var first_y := clampi(int(floor(-origin.y / tile_size)), 0, map_height)

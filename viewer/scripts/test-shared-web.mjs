@@ -63,13 +63,27 @@ try {
   const frame = desktop.frame({url:/\/replay\/index.html/}); assert(frame);
   await frame.waitForFunction(id=>window.anaReplayState?.run_id===id,job.run_id,{timeout:60000});
   assert.equal((await frame.evaluate(()=>window.anaReplayState)).turn,0);
+  // Web uses the real browser dimensions rather than enlarging a phone viewport.
+  for (const dimensions of [{width:1400,height:1000},{width:2560,height:1440}]) {
+    await desktop.setViewportSize(dimensions);
+    await frame.waitForFunction(()=>Math.abs(window.anaReplayState.viewport[0]-innerWidth)<2);
+    const geometry = await frame.evaluate(()=>({...window.anaReplayState,width:innerWidth,height:innerHeight,canvasWidth:document.querySelector('#canvas').width}));
+    assert(geometry.viewport[0]>1000);
+    assert(Math.abs(geometry.viewport[1]-geometry.height)<2);
+    assert(geometry.canvasWidth>=geometry.width);
+    assert(geometry.map_size[0]<=geometry.map_area[0]-16);
+    assert(geometry.map_size[1]<=geometry.map_area[1]-64);
+    if(dimensions.width===2560) await desktop.locator('.web-replay-frame').screenshot({path:'/tmp/anarogue-web-replay-desktop.png'});
+  }
+  await desktop.setViewportSize({width:1400,height:1000});
   await frame.locator('#canvas').click();
   await frame.locator('#canvas').press('ArrowRight');
   await frame.waitForFunction(()=>window.anaReplayState.turn>=1);
   await desktop.locator('.web-replay-frame').screenshot({path:'/tmp/anarogue-web-replay.png'});
   await frame.goto(`${base}/replay/index.html?run=${job.run_id}&turn=2`);
   await frame.waitForFunction(()=>window.anaReplayState?.turn===2,{},{timeout:60000});
-  await desktop.locator('.web-replay-bar button').click();assert.equal(await desktop.locator('#web-replay-dialog iframe').count(),0);
+  await desktop.locator('.web-replay-bar button').click();
+  await desktop.waitForSelector('#web-replay-dialog iframe',{state:'detached'});
   await desktop.getByRole('button',{name:'Inspect latest Run',exact:true}).click();
   await desktop.waitForFunction(id=>document.querySelector('#viewer').dataset.runKey===id,job.run_id);
   await desktop.locator('#run-inspection').evaluate(el=>el.open=true);
@@ -89,6 +103,16 @@ try {
   await desktop.unroute('**/replay/index.html');
   await phone.reload(); await phone.waitForFunction(()=>document.querySelector('.job-progress')?.textContent.startsWith('cancelled'));
   assert.equal(await phone.locator('.job-card').getAttribute('data-job-id'),jobId);
+  await phone.getByRole('button',{name:'Replay latest Run',exact:true}).click();
+  await phone.waitForSelector('#web-replay-dialog iframe');
+  await phone.waitForFunction(()=>document.querySelector('#web-replay-dialog iframe')?.contentWindow?.location.pathname==='/replay/index.html');
+  const phoneFrame = phone.frame({url:/\/replay\/index.html/}); assert(phoneFrame);
+  await phoneFrame.waitForFunction(()=>window.anaReplayState?.viewport[0]<700,{},{timeout:60000});
+  const mobileGeometry = await phoneFrame.evaluate(()=>({...window.anaReplayState,width:innerWidth}));
+  assert(Math.abs(mobileGeometry.viewport[0]-mobileGeometry.width)<2);
+  assert.equal(mobileGeometry.tile_size,96);
+  await phone.locator('.web-replay-frame').screenshot({path:'/tmp/anarogue-web-replay-phone.png'});
+  await phone.locator('.web-replay-bar button').click();
   assert(await phone.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   assert.deepEqual(errors,[]);
   console.log('Shared Web passed: Viewer launch, independent mobile progress/cancel, durable history, job results, actual Godot WASM loading/stepping/seek, lazy unload and responsive UI.');
