@@ -1,8 +1,12 @@
 # Named Run presets
 
-The **Web Viewer creates settings; Godot selects and runs them**. Presets live
+The **Web Viewer creates/runs settings; Godot selects runs and monitors them**. Presets live
 in SQLite alongside Runs and are shared by clients using the same API/database.
 They survive API and application restarts. No browser-local storage is used.
+
+Viewer can also launch **Run saved preset** directly. Its **Jobs** panel and
+Godot **Home → Jobs** share history, progress and cancellation across devices.
+See [shared jobs and embedded Web Replay](shared-viewer.md).
 
 1. Start the Run API and Web Viewer as usual (`python3 tools/run_store.py serve`,
    then `cd viewer && npm ci && npm run dev`).

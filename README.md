@@ -11,6 +11,13 @@ Use `keep_distance target min = 3 max = 5` for positioning and
 
 A tiny Godot 4 roguelike starter.
 
+The Viewer is the full workspace: save presets, **Run saved preset**, monitor
+shared **Jobs**, analyze results and open embedded Godot Replay. Native Godot
+offers lightweight preset execution, **Home → Jobs** monitoring and Replay.
+Job history persists across restarts; interrupted work is marked explicitly.
+See [shared Viewer / mobile workflow](docs/shared-viewer.md), including the
+one-command Web Replay export and production bundle.
+
 ## Run and Replay in Godot
 
 The replay client selects Runs from a persistent SQLite catalogue. From the
@@ -21,7 +28,7 @@ cargo build --release --manifest-path simulation-core/Cargo.toml
 python3 tools/run_store.py serve
 ```
 
-Open `game/` in Godot 4 and run the project. The main screen offers **Run**
+Open `game/` in Godot 4 and run the project. The main screen offers **Run**, **Jobs**
 and **Replay**. In the Web Viewer, open **Run presets** and save a named configuration
 with Strategy, weights, DSL, Seed, Map settings and Max turns. Godot → Run lists
 these saved presets with a read-only summary; select one and press **Run selected

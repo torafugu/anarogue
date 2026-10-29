@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 from run_jobs import RunJobs
@@ -20,6 +21,7 @@ def main():
     for failure in (False, True):
         exercise(root, godot, binary, failure)
     exercise(root, godot, binary, False, "res://tests/autorun_test.gd")
+    exercise(root, godot, binary, False, "res://tests/shared_jobs_test.gd")
 
 
 def exercise(root, godot, binary, failure, script="res://tests/run_launcher_test.gd"):
@@ -31,6 +33,13 @@ def exercise(root, godot, binary, failure, script="res://tests/run_launcher_test
         presets.save({"name": "Cautious counter", "settings": {"seed": 42, "strategy": "cautious", "enemy_weight": 3, "item_weight": 7, "stairs_weight": 2, "max_turns": 20, "enemy_amount": 200, "treasure_amount": 50, "map_depth": 8,
                      **({"dsl": 'rule "Optional" { when self.hp_percent < 0 do wait }'} if not failure else {})}}, jobs)
         presets.save({"name": "Sweep 14", "kind": "batch", "settings": {"seed": 42, "max_turns": 2, "enemy_weights": [0, 1], "item_weights": [0, 1], "stairs_weights": [0, 1]}}, jobs)
+        if script.endswith("shared_jobs_test.gd"):
+            simulate = jobs.simulate
+            def slow(settings):
+                time.sleep(.1)
+                return simulate(settings)
+            jobs.simulate = slow
+            jobs.submit_batch({"max_turns": 2, "enemy_weights": [0, 1, 2], "item_weights": [0, 1, 2], "stairs_weights": [0, 1, 2]})
         server = make_server(store, port=0, jobs=jobs)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:

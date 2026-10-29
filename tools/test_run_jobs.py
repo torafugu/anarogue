@@ -113,7 +113,7 @@ class RunJobTests(unittest.TestCase):
             entered.set()
             self.assertTrue(release.wait(5))
             return "saved-key", {}
-        with patch.object(runner, "simulate", side_effect=blocked) as simulate:
+        with patch.object(runner, "simulate", side_effect=blocked) as simulate, patch.object(self.store, "record_run_job"):
             accepted = runner.submit_batch({})
             self.assertTrue(entered.wait(5))
             snapshot = runner.get(accepted["id"])

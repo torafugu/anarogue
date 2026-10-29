@@ -7,8 +7,8 @@ export function mountRunPresets(root: HTMLElement): void {
   const fields = ["seed", "max_turns", "enemy_amount", "treasure_amount", "map_depth", "enemy_weight", "item_weight", "stairs_weight"];
   const numberFields = (entries: (string | number)[][]) => entries.map(([key, label, min, max, value]) => `<label class="select-label">${label}<input id="preset-${key}" type="number" required min="${min}" max="${max}" step="1" value="${value}" /></label>`).join("");
   root.innerHTML = `
-    <summary>Run presets — create settings for the Godot launcher</summary>
-    <p class="panel-note">Save a named Strategy, weights and DSL with Seed and Map settings. In Godot, select the preset and Run. Saving validates the configuration without starting a Run.</p>
+    <summary>Run presets — Strategy, weights and DSL</summary>
+    <p class="panel-note">Save a named Strategy, weights and DSL with Seed and Map settings. Run it here or select it in the Godot companion. Saving validates the configuration without starting a Run.</p>
     <div class="preset-actions">
       <label class="select-label">Saved preset<select id="preset-select"><option value="">New preset</option></select></label>
       <button type="button" class="button button-ghost" id="preset-reload">Reload list</button>
@@ -35,6 +35,7 @@ export function mountRunPresets(root: HTMLElement): void {
       <div class="preset-actions">
         <button type="button" class="button button-ghost" id="preset-validate">Validate settings / DSL</button>
         <button type="submit" class="button button-primary" id="preset-save">Save preset</button>
+        <button type="button" class="button button-primary" id="preset-run">Run saved preset</button>
         <button type="button" class="button button-danger" id="preset-delete">Delete preset</button>
         <span id="preset-version" class="panel-note"></span>
       </div>
@@ -46,6 +47,7 @@ export function mountRunPresets(root: HTMLElement): void {
   const status = root.querySelector<HTMLElement>("#preset-status")!;
   const dsl = root.querySelector<HTMLTextAreaElement>("textarea")!;
   let presets: Preset[] = [], current: Preset | null = null, dirty = false, busy = false;
+  const updateLaunch = () => { root.querySelector<HTMLButtonElement>("#preset-run")!.disabled = busy || dirty || !current; };
   const message = (value: string) => { status.textContent = value; };
   const body = (value: unknown, method = "POST"): RequestInit => ({ method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) });
   const settings = (): Settings => {
@@ -67,6 +69,7 @@ export function mountRunPresets(root: HTMLElement): void {
     return result;
   };
   const mode = () => {
+    updateLaunch();
     const batch = select("kind").value === "batch";
     select("strategy").parentElement!.hidden = batch;
     root.querySelector<HTMLElement>("#preset-batch-strategies-label")!.hidden = !batch;
@@ -111,7 +114,7 @@ export function mountRunPresets(root: HTMLElement): void {
   };
   const reload = async () => { presets = (await api<{presets: Preset[]}>("/api/presets")).presets; renderList(); };
   const discard = () => !dirty || window.confirm("Discard unsaved preset changes?");
-  form.addEventListener("input", () => { dirty = true; message("Unsaved changes. Save to make these settings available in Godot."); mode(); });
+  form.addEventListener("input", () => { dirty = true; message("Unsaved changes. Save before running this configuration."); mode(); });
   select("kind").addEventListener("change", mode);
   select("strategy").addEventListener("change", () => {
     const cautious = select("strategy").value === "cautious";
@@ -126,6 +129,7 @@ export function mountRunPresets(root: HTMLElement): void {
     current = null; input("name").value = `${input("name").value || "Preset"} copy`.slice(0, 80); dirty = true;
     renderList(); root.querySelector<HTMLElement>("#preset-version")!.textContent = "New copy — not saved";
     root.querySelector<HTMLButtonElement>("#preset-delete")!.disabled = true; message("Choose a name and save the copy.");
+    updateLaunch();
   });
   root.querySelector("#preset-reload")!.addEventListener("click", () => {
     if (discard()) void operation(async () => { const id = current?.id; await reload(); fill(presets.find(p => p.id === id) ?? null); message("Preset list reloaded."); });
@@ -139,13 +143,21 @@ export function mountRunPresets(root: HTMLElement): void {
   form.addEventListener("submit", event => {
     event.preventDefault(); void operation(async () => {
       const saved = await api<Preset>(current ? `/api/presets/${current.id}` : "/api/presets", body({ name: input("name").value, kind: select("kind").value, settings: settings(), ...(current ? {version: current.version} : {}) }, current ? "PUT" : "POST"));
-      current = saved; await reload(); fill(saved); message(`Saved “${saved.name}” · version ${saved.version}. Select it in Godot; use Reload presets if needed.`);
+      current = saved; await reload(); fill(saved); message(`Saved “${saved.name}” · version ${saved.version}. Run it here or select it in the Godot companion.`);
     });
   });
   root.querySelector("#preset-delete")!.addEventListener("click", () => {
     if (current && window.confirm(`Delete preset “${current.name}”? Stored Runs will remain.`)) void operation(async () => {
       await api(`/api/presets/${current!.id}`, body({version: current!.version}, "DELETE"));
       current = null; await reload(); fill(null); message("Preset deleted. Stored Runs are unchanged.");
+    });
+  });
+  root.querySelector("#preset-run")!.addEventListener("click", () => {
+    if (!current || dirty) return;
+    void operation(async () => {
+      const job = await api<{id: string}>(`/api/presets/${current!.id}/run`, body({version: current!.version}));
+      message(`Started “${current!.name}”. Follow progress in Jobs on any device. Job ${job.id.slice(0, 8)}.`);
+      window.dispatchEvent(new Event("anarogue-job-started"));
     });
   });
   window.addEventListener("beforeunload", event => { if (dirty) event.preventDefault(); });

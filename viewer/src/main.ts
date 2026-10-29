@@ -1,5 +1,7 @@
 import "./style.css";
 import { mountRunPresets } from "./run-presets.ts";
+import { mountSharedJobs } from "./shared-jobs.ts";
+import { createWebReplay } from "./web-replay.ts";
 import { sprites, enemySprite, itemSprite } from "./sprites.ts";
 import { meanMetricFields, meanMetricsDelimited, type MeanMetrics } from "./filtered-metrics.ts";
 import { policyGroupKey, comparisonConditions, loadRankRuns, rankRunLabel, type ComparisonCondition } from "./rank-comparison.ts";
@@ -64,6 +66,7 @@ app.innerHTML = `
   </header>
   <main>
     <details class="panel run-presets" id="run-presets"><summary>Run presets</summary></details>
+    <section class="panel shared-jobs" id="shared-jobs" aria-label="Shared jobs"></section>
     <div id="analysis-screen">
     <section class="panel catalogue" aria-label="Stored Runs">
       <div class="panel-heading">
@@ -141,6 +144,7 @@ app.innerHTML = `
     <button id="inspection-retry" class="button button-ghost" hidden>Retry selected Run</button>
     <section class="viewer" id="viewer" hidden>
       <div class="run-bar">
+        <button class="button button-primary" id="open-web-replay" type="button" disabled>Replay selected Turn</button>
         <div>
           <p class="eyebrow">ACTIVE RUN</p>
           <div class="run-title-row">
@@ -227,6 +231,16 @@ app.innerHTML = `
 `;
 
 mountRunPresets(document.querySelector<HTMLElement>("#run-presets")!);
+const openWebReplay = createWebReplay();
+mountSharedJobs(document.querySelector<HTMLElement>("#shared-jobs")!, async id => {
+  const run = await api<StoredRun>(`/api/runs/${id}`);
+  openStoredComparison(run, new URLSearchParams());
+}, id => openWebReplay(id));
+document.querySelector("#open-web-replay")!.addEventListener("click", () => {
+  if (!activeStoredRun) return;
+  const event = eventsForRun().find(e => e.sequence === state.selectedSequence);
+  void openWebReplay(activeStoredRun.id, event?.turn ?? 0).catch(error => showToast(String(error)));
+});
 
 const getElement = <T extends HTMLElement>(selector: string): T => {
   const element = document.querySelector<T>(selector);
@@ -320,6 +334,7 @@ function render(): void {
   viewer.hidden = !hasRun;
   dropZone.hidden = hasRun;
   if (!hasRun) return;
+  getElement<HTMLButtonElement>("#open-web-replay").disabled = !activeStoredRun;
 
   const events = eventsForRun();
   const summary = summarizeRun(events);
@@ -1043,6 +1058,7 @@ function renderCatalogueSelect(): void {
 }
 
 function clearRunInspection(): void {
+  getElement<HTMLButtonElement>("#open-web-replay").disabled = true;
   state.parsed = null;
   state.runId = "";
   state.selectedSequence = null;

@@ -147,8 +147,8 @@ Poll `GET /api/jobs/<id>` for `kind: batch`, `total`, `completed`, `failed`,
 `current_settings`, the latest saved `run_id`, and status. Submit an empty JSON
 object to `POST /api/jobs/<id>/cancel` to stop after the current Run. Queued
 batches cancel before execution. Execution failure stops the batch immediately;
-already saved results remain readable. Job progress is ephemeral across API
-restarts, while all committed Runs persist. Starting the same batch again makes
+already saved results remain readable. Job snapshots persist in SQLite across API
+restarts; unfinished work is marked interrupted and is not auto-resumed. Starting the same batch again makes
 new trials rather than skipping prior results.
 
 Build the Rust binary, then start the service (from the repository root):
@@ -182,7 +182,8 @@ Map size remains 24×18; default policy temperature is 8 (overridable by DSL).
 
 One worker executes jobs sequentially, with at most 16 outstanding jobs and a
 120-second limit per process. The service retains the latest 64 job records in
-memory; restarting it loses job tracking, while committed Runs remain in SQLite.
+memory, with older records available in SQLite; restarting retains history and
+marks unfinished work interrupted. Committed Runs remain in SQLite.
 Queued jobs are cancelled during shutdown; an already running process is allowed
 to finish within its execution limit. A timeout or interrupted process can occur
 after SQLite commit; check Replay for a saved Run before retrying.
@@ -193,7 +194,7 @@ start request is acknowledged, so it cannot discard the job ID. Afterwards users
 can browse Replay and return to Run to resume polling. Temporary polling failures
 retry without restarting the simulation. The selection and job ID survive
 scene changes within the app session. Saved presets persist across app/API restarts;
-in-flight job tracking does not.
+interrupted job snapshots persist too. See [shared jobs and Web Replay](shared-viewer.md).
 No events stream during execution; Replay loads the completed snapshot.
 Explicit `--replay=/absolute/path/run.jsonl` still bypasses the home screen.
 
