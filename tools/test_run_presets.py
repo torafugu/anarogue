@@ -110,6 +110,32 @@ class RunPresetTests(unittest.TestCase):
         self.assertTrue(all(run["preset"] == preset for run in self.store.list_runs()["runs"]))
         self.request(value={"name": "Bad sweep", "kind": "batch", "settings": {**settings, "dsl": "policy { enemy_weight = 0 treasure_weight = 0 stairs_weight = 0 }"}}, expected=400)
 
+    def test_map_api_shared_run_batch_snapshots_and_clear(self):
+        maps = self.request("/api/map-presets", method="GET")["presets"]
+        self.assertEqual(len(maps), 1)
+        m = self.request("/api/map-presets", {"name": "敵なし / 8F", "settings": {
+            "enemy_amount": 0, "treasure_amount": 200, "map_depth": 8}}, expected=201)
+        ref = {"id": m["id"], "version": m["version"]}
+        self.request("/api/map-presets", {"name": "Bad", "settings": {}}, expected=400)
+        self.request("/api/map-presets", {"name": "Other", "settings": m["settings"]}, expected=403, headers={"Origin": "https://other.example"})
+        run = self.request(value={"name": "Map Run", "settings": {"max_turns": 2}, "map_preset": ref}, expected=201)
+        batch = self.request(value={"name": "Map Batch", "kind": "batch", "settings": {
+            "max_turns": 1, "strategies": ["cautious"], "enemy_weights": [1], "item_weights": [2], "stairs_weights": [1]}, "map_preset": ref}, expected=201)
+        updated = self.request(f'/api/map-presets/{m["id"]}', {"name": m["name"], "settings": {
+            **m["settings"], "map_depth": 20}, "version": 1}, "PUT")
+        self.assertEqual(updated["version"], 2)
+        self.request(f'/api/map-presets/{m["id"]}', {"version": 2}, "DELETE", 409)
+        for preset in (run, batch):
+            job = self.finish(self.request(f'/api/presets/{preset["id"]}/run', {"version": 1}, expected=202))
+            stored = self.store.get_run(job["run_id"])
+            self.assertEqual(stored["preset"]["map_preset"], m)
+            self.assertEqual(stored["execution_settings"]["map_depth"], 8)
+            self.assertEqual(stored["execution_settings"]["enemy_amount"], 0)
+        self.request("/api/presets/validate", {"settings": {}, "map_preset": {"id": "missing", "version": 1}}, expected=404)
+        self.store.clear_runs(self.store.database_counts())
+        self.assertEqual(len(self.presets.list()), 2)
+        self.assertEqual(len(self.request("/api/map-presets", method="GET")["presets"]), 2)
+
     def test_mutations_reject_cross_origin_and_allow_same_origin_proxy(self):
         self.request(value={"name": "Wrong", "settings": {}}, expected=403, headers={"Origin": "https://other.example"})
         self.request(value={"name": "Proxy", "settings": {}}, expected=201, headers={"Origin": "http://127.0.0.1:5173", "Sec-Fetch-Site": "same-origin"})

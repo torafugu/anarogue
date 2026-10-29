@@ -1,3 +1,5 @@
+import type { MapPreset } from "./map-presets.ts";
+
 export interface StoredRun {
   id: string;
   run_id: string;
@@ -6,7 +8,7 @@ export interface StoredRun {
   scenario_seed: number | null;
   scenario_id?: string;
   execution_settings?: { max_turns: number };
-  preset?: { id: string; name: string; version: number; kind: string; settings: Record<string, unknown> };
+  preset?: { id: string; name: string; version: number; kind: string; settings: Record<string, unknown>; map_preset?: MapPreset };
   simulation_version: number;
   schema_version: number;
   code_revision: string;

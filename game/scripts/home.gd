@@ -351,7 +351,9 @@ func select_preset(_index: int) -> void:
 		policy = "AutoRun · %s\nEnemy %s / Treasure %s / Stairs %s" % [", ".join(settings["strategies"]), str(settings["enemy_weights"]), str(settings["item_weights"]), str(settings["stairs_weights"])]
 	else:
 		policy = "%s · Enemy %d / Treasure %d / Stairs %d" % [str(settings["strategy"]).capitalize(), settings["enemy_weight"], settings["item_weight"], settings["stairs_weight"]]
-	preset_summary.text = "%s · v%d\n%s\nSeed %d · Max turns %d\nMap: Enemy %d%% / Treasure %d%% / Depth %d\nDSL: %s" % [preset["name"], preset["version"], policy, settings["seed"], settings["max_turns"], settings["enemy_amount"], settings["treasure_amount"], settings["map_depth"], "Default AI" if str(settings.get("dsl", "")).strip_edges().is_empty() else "Enabled; declared DSL weights override base values"]
+	var map_preset: Dictionary = preset.get("map_preset", {})
+	var map_name := "%s · v%d" % [map_preset.get("name", "Map"), int(map_preset.get("version", 1))]
+	preset_summary.text = "%s · v%d\n%s\nSeed %d · Max turns %d\n%s\nEnemy %d%% / Treasure %d%% / Depth %d\nDSL: %s" % [preset["name"], preset["version"], policy, settings["seed"], settings["max_turns"], map_name, settings["enemy_amount"], settings["treasure_amount"], settings["map_depth"], "Default AI" if str(settings.get("dsl", "")).strip_edges().is_empty() else "Enabled; declared DSL weights override base values"]
 	execute_button.text = "Run selected AutoRun preset" if preset["kind"] == "batch" else "Run selected preset"
 	execute_button.disabled = busy
 

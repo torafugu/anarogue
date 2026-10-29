@@ -41,7 +41,7 @@ has no living enemies. See [bow-sweep.dsl](examples/player-dsl/bow-sweep.dsl) fo
 complete preset source including healing and explicit handling of blocked combat.
 
 1. Build Rust with `cargo build --release --manifest-path simulation-core/Cargo.toml`, then start the API with `python3 tools/run_store.py serve`. Open `game/` in Godot 4 and run the project.
-2. In the Web Viewer, open **Run presets**, enter a name and configure Seed, Strategy, enemy/treasure/stairs weights, Max turns, Map settings and optional DSL. Aggressive starts with weights 4/2/1; Cautious starts with 1/2/4. Changing Strategy resets these base weights, after which each can be customized. At least one effective weight must be positive. **Save preset** validates and stores it in SQLite.
+2. In the Web Viewer, open **Run presets**, enter a name and configure Seed, Strategy, enemy/treasure/stairs weights, Max turns, a saved Map preset and optional DSL. Create reusable Enemy/Treasure amount and Depth combinations in **Map presets** first. Aggressive starts with weights 4/2/1; Cautious starts with 1/2/4. Changing Strategy resets these base weights, after which each can be customized. At least one effective weight must be positive. **Save preset** validates and stores it in SQLite.
 3. Godot offers **Run** and **Replay**. Choose Run, select the saved preset and press **Run selected preset**. No detailed input is needed. **Reload presets** fetches Viewer changes. The API queues Rust, which writes the result and events to SQLite, then opens that Run in Replay. A second launch is disabled while pending; after acceptance you may browse Replay and return to resume progress. Each result retains the executed preset's name, version and settings even after the preset is edited or deleted.
 4. Choose Replay from the main screen to browse stored Runs. The list updates automatically. Use Home to return to the main screen. The API is required for new Runs; if execution fails, the settings remain available to retry. If the API is unavailable in Replay, the bundled v8 reference is playable while the client retries.
 5. Below the Replay buttons, the left panel shows only the selected Turn’s events and decisions; the right panel shows Level/XP, HP, ATK, DEF, potions, weapon (W), armor (D). Each player status item is a separate Label; both panels scroll independently. Each step replaces the log and resets its scroll position to the top. Previous/Next and automatic playback advance by whole Turns, showing the final state of each Turn. Decisions are grouped with the Turn in which their action executes (`action_turn`). Turn 0 shows initialization. Switching Runs returns to Turn 0. Depth and current/final Turn appear over the maze. Large fixed-size tiles follow Player and show only the surrounding area.
@@ -60,12 +60,12 @@ cannot be undone. Cancel or Escape closes the dialog without deleting anything.
 Queued/running Run and AutoRun jobs must finish before deletion. If counts have
 changed, close and reopen the dialog before retrying. The Viewer refreshes its
 analysis and clears old selections after deletion. New Runs can then be saved
-normally. Saved Run presets are preserved. Original JSONL files remain; when log watching is enabled they may be
+normally. Saved Run and Map presets are preserved. Original JSONL files remain; when log watching is enabled they may be
 imported again after changes or an API restart.
 
 ### Map settings
 
-**Web Viewer → Run presets → Map settings** controls the environment separately from the player's goal weights.
+**Web Viewer → Map presets** saves named Enemy/Treasure amount and Depth combinations. **Run presets → Map preset** selects one of them and shows a read-only summary. This controls the environment separately from the player's goal weights.
 
 | Setting | Range | Default | Meaning |
 | --- | --- | --- | --- |
@@ -75,14 +75,14 @@ imported again after changes or an API restart.
 
 100% preserves normal generation; 0% removes that category. Quantities round to the nearest whole number and cannot exceed available room tiles. Gold earned from defeating enemies is unaffected by Treasure amount. More enemies can leave fewer free tiles for treasure. Depth 1 clears at the first stairs; Depth 5 retains the existing floors 1–4 followed by the exit at depth 5. Changing Strategy resets only goal weights, preserving Map settings.
 
-Both Run and AutoRun use these saved preset settings. They survive API/client restarts and are stored with each completed Run. Different Map settings produce different scenario identities, keeping same-seed comparisons and correlation cohorts separate. Existing default Runs remain comparable.
+Both Run and AutoRun use the selected Map preset version. Editing a Map creates a new version; existing Run presets retain their saved version. Select the updated Map version and save the Run preset to adopt it. Existing Run presets are migrated automatically, reusing identical Map combinations. They survive API/client restarts and are stored with each completed Run. Different Map settings produce different scenario identities, keeping same-seed comparisons and correlation cohorts separate. Existing default Runs remain comparable.
 
 After updating, rebuild the Rust binary and restart the API before launching the updated Godot client.
 
 ### AutoRun: compare weight combinations
 
 In **Web Viewer → Run presets**, choose **Mode: AutoRun**, configure Seed, Max turns,
-Map settings, Strategies and weight lists, then save with a name. Select that preset
+a saved Map preset, Strategies and weight lists, then save with a name. Select that preset
 in Godot → Run and press **Run selected AutoRun preset**. The three
 value lists default to `0,1,2,3,4`. AutoRun tests the Cartesian product
 of Enemy, Treasure and Stairs values for the selected Strategies (default **both Aggressive and Cautious**).

@@ -369,7 +369,11 @@ def make_server(store, host="127.0.0.1", port=8765, jobs=None, watch_enabled=Fal
             try:
                 url = urlsplit(self.path)
                 query = {k: v[-1] for k, v in parse_qs(url.query, keep_blank_values=True).items()}
-                if url.path == "/api/presets":
+                if url.path == "/api/map-presets":
+                    self.reply(200, {"presets": presets.maps.list()})
+                elif url.path.startswith("/api/map-presets/"):
+                    self.reply(200, presets.maps.get(url.path[len("/api/map-presets/"):]))
+                elif url.path == "/api/presets":
                     self.reply(200, {"presets": presets.list()})
                 elif url.path.startswith("/api/presets/"):
                     self.reply(200, presets.get(url.path[len("/api/presets/"):]))
@@ -408,12 +412,12 @@ def make_server(store, host="127.0.0.1", port=8765, jobs=None, watch_enabled=Fal
                 else:
                     self.reply(404, {"error": "Unknown endpoint"})
             except KeyError:
-                self.reply(404, {"error": "Preset not found" if url.path.startswith("/api/presets/") else "Run not found"})
+                self.reply(404, {"error": "Map preset not found" if url.path.startswith("/api/map-presets/") else "Preset not found" if url.path.startswith("/api/presets/") else "Run not found"})
             except (ValueError, TypeError) as exc:
                 self.reply(400, {"error": str(exc)})
 
         def do_POST(self):
-            if self.path == "/api/presets" or self.path.startswith("/api/presets/"):
+            if self.path == "/api/presets" or self.path.startswith("/api/presets/") or self.path == "/api/map-presets" or self.path.startswith("/api/map-presets/"):
                 self.change_preset()
                 return
             if self.path == "/api/database/clear":
@@ -523,15 +527,30 @@ def make_server(store, host="127.0.0.1", port=8765, jobs=None, watch_enabled=Fal
                 value = json.loads(self.rfile.read(length).decode("utf-8"))
                 if not isinstance(value, dict):
                     raise ValueError("Expected a JSON object")
+                if self.path == "/api/map-presets" and self.command == "POST":
+                    self.reply(201, presets.maps.save(value))
+                    return
+                if self.path.startswith("/api/map-presets/"):
+                    map_key = self.path[len("/api/map-presets/"):]
+                    if self.command == "PUT":
+                        self.reply(200, presets.maps.save(value, map_key))
+                    elif self.command == "DELETE":
+                        if set(value) != {"version"}:
+                            raise ValueError("Expected Map preset version")
+                        presets.maps.delete(map_key, value.get("version"))
+                        self.reply(200, {"deleted": map_key})
+                    else:
+                        self.reply(404, {"error": "Unknown Map preset endpoint"})
+                    return
                 key, _, action = self.path.removeprefix("/api/presets/").partition("/")
                 if self.path == "/api/presets/validate" and self.command == "POST":
                     if jobs is None:
                         self.reply(503, {"error": "Run validation is unavailable"})
                         return
                     kind = value.get("kind", "run")
-                    if kind not in ("run", "batch") or set(value) - {"kind", "settings"}:
+                    if kind not in ("run", "batch") or set(value) - {"kind", "settings", "map_preset"}:
                         raise ValueError("Expected kind and settings")
-                    settings, total = jobs.validate_launch(kind, value.get("settings"))
+                    settings, total, _map = presets.validate(value, jobs)
                     self.reply(200, {"valid": True, "total": total, "settings": settings})
                 elif self.path == "/api/presets" and self.command == "POST":
                     if jobs is None:

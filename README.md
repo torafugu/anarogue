@@ -30,7 +30,8 @@ python3 tools/run_store.py serve
 
 Open `game/` in Godot 4 and run the project. The main screen offers **Run**, **Jobs**
 and **Replay**. In the Web Viewer, open **Run presets** and save a named configuration
-with Strategy, weights, DSL, Seed, Map settings and Max turns. Godot → Run lists
+with Strategy, weights, DSL, Seed, a saved Map preset and Max turns.
+Create reusable Enemy/Treasure amount and Depth combinations in **Map presets** first. Godot → Run lists
 these saved presets with a read-only summary; select one and press **Run selected
 preset**. **Reload presets** picks up Viewer edits. Results are saved to SQLite
 and a completed single Run opens in Replay. See [Run presets](docs/run-presets.md).

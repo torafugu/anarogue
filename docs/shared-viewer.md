@@ -9,7 +9,8 @@ client is closed. Use one Run API process per database.
 
 ## Viewer
 
-In **Run presets**, save or select a preset and press **Run saved preset**. Unsaved
+Create reusable Enemy/Treasure amount and Depth combinations in **Map presets**.
+In **Run presets**, select a saved Map version, then save or select a preset and press **Run saved preset**. Unsaved
 edits disable launch; save first. The server still validates the saved version
 and DSL. Each click starts a new trial, subject to the existing queue limit.
 
